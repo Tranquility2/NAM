@@ -1,17 +1,17 @@
-#include <iostream>
-#include <fstream>
+#include "map.h"
 
 using namespace std;
-
+	
 int main() {
-	const char* filename = "temp.map";
-	fstream map_file;
-	map_file.open(filename);
+	const char *file_name = "temp.map";
 
-	cout << map_file.rdbuf();
+	MapData map_data(file_name);
 
-	map_file.close();
+	cout << map_data.columns << endl;
+	cout << map_data.rows << endl;
+	cout << map_data.map_data << endl;
 
 	getchar();
 	return 0;
 }
+
