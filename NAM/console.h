@@ -11,3 +11,4 @@ void ClearScreenBasic();
 void ClearScreenWin();
 void SetScreenPosition();
 void gotoxy(int x, int y);
+void ShowConsoleCursor(bool showFlag);
