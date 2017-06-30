@@ -34,19 +34,20 @@ void SetScreenPosition()
 	SetWindowPos(consoleWindow, 0, 500, 500, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
 }
 
-void gotoxy(int x, int y)
+void gotoxy(short int x, short int y)
 {
 	static HANDLE h = NULL;
+	COORD c = { x, y };
+
 	if (!h)
 		h = GetStdHandle(STD_OUTPUT_HANDLE);
-	COORD c = { x, y };
+
 	SetConsoleCursorPosition(h, c);
 }
 
 void ShowConsoleCursor(bool showFlag)
 {
 	HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
-
 	CONSOLE_CURSOR_INFO     cursorInfo;
 
 	GetConsoleCursorInfo(out, &cursorInfo);

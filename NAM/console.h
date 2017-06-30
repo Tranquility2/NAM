@@ -23,6 +23,6 @@ enum class Keys {
 
 void ClearScreenWin();
 void SetScreenPosition();
-void gotoxy(int x, int y);
+void gotoxy(short int x, short int y);
 void ShowConsoleCursor(bool showFlag);
 const char *get_key_name(int ch);
