@@ -17,6 +17,9 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 )";
 
 map<string, string> messageMap ={
-	{ "new_terrain",          "Well this looks like a completely new terrain :)" },
-	{ "unreachable_location", "Can't go there :(                               " }
+	{ "new_terrain",          "Well this looks like a completely new terrain :)     " },
+	{ "unreachable_location", "Can't go there :(                                    " },
+	{ "water",				  "Good thing you know how to swim...                   " },
+	{ "mountain",			  "It took a while to get here, but the view is amazing!" },
+	{ "fields",			      "Lots of green in those open fields...                " }
 };

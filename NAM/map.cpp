@@ -124,6 +124,7 @@ Location MapData::move_actor(Direction direction)
 {
 	int new_actor_cell_number;
 	Coordinates c;
+	char terrain;
 	
 	switch (direction) {
 		case Direction::up:
@@ -144,15 +145,23 @@ Location MapData::move_actor(Direction direction)
 
 	/* calculate */
 	c = actor_location(new_actor_cell_number);
+
+	/* some senity checks are needed */
 	if (c.X == 0 || c.X == columns() - 2 || c.Y == 0 || c.Y == rows() -1)
 	{
 		return {false, messageMap["unreachable_location"]};
 	}
-
-	/* some senity checks are needed */
-
+	
 	_actor_cell_number = new_actor_cell_number;
-	return { true, messageMap["new_terrain"] };
+	terrain = terrain_on(c);
+
+	switch (terrain)
+	{
+		case '@': return { true, messageMap["mountain"] };
+		case '~': return { true, messageMap["water"] };
+		case 'x': return { true, messageMap["fields"] };
+		default: return { true, messageMap["new_terrain"] };
+	}
 }
 
 Coordinates MapData::actor_location(int cel_number)
