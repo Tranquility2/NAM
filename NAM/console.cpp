@@ -62,6 +62,6 @@ const char *get_key_name(int ch)
 		case (int) Keys::down: return "D";
 		case (int) Keys::left: return "L";
 		case (int) Keys::right:	return "R";
-		default: return "Other";
+		default: return "O"; //Other
 	}
 }

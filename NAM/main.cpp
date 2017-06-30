@@ -47,7 +47,7 @@ string display(MapData *map_data, vector<const char*> *keys, string *message)
 	/* deplay last keys */
 	for (auto i = (*keys).begin(); i != (*keys).end(); ++i)
 	{
-		out << *i << "->";
+		out << *i;
 	}
 
 	return out.str();
