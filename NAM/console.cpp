@@ -31,7 +31,7 @@ void SetScreenPosition()
 {
 	HWND consoleWindow = GetConsoleWindow();
 
-	SetWindowPos(consoleWindow, 0, 500, 500, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+	SetWindowPos(consoleWindow, 0, 50, 50, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
 }
 
 void gotoxy(short int x, short int y)
@@ -58,10 +58,10 @@ void ShowConsoleCursor(bool showFlag)
 const char *get_key_name(int ch)
 {
 	switch (ch) {
-		case (int) Keys::up: return "Up";
-		case (int) Keys::down: return "Down";
-		case (int) Keys::left: return "Left";
-		case (int) Keys::right:	return "Right";
+		case (int) Keys::up: return "U";
+		case (int) Keys::down: return "D";
+		case (int) Keys::left: return "L";
+		case (int) Keys::right:	return "R";
 		default: return "Other";
 	}
 }

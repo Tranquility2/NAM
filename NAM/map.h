@@ -8,6 +8,11 @@ using namespace std;
 
 enum class Direction {up, down, left, right};
 
+typedef struct _Coordinates {
+	short int X;
+	short int Y;
+} Coordinates, *PCoordinates;
+
 class MapData
 {
 public:
@@ -19,15 +24,17 @@ public:
 	int columns() { return _columns; };
 	string printable_map();
 	bool move_actor(Direction direction);
-	int player_cel_number() { return _player_cel_number; };
+	int actor_cell_number() { return _actor_cell_number; };
+	Coordinates actor_location(int cel_number);
+
 private:
 	char **_map_data; 
 	int _rows;
 	int _columns;
-	int _player_cel_number;
+	int _actor_cell_number;
 	
 	char *load_binary_file(const char *file_name);
 	void load_ascii_map_file(const char *file_name);
 	void zero_map_fill();
-	bool set_player_at_location(int row, int column);
+	bool is_map_barrier_wall(Coordinates coordinates);
 };

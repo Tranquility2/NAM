@@ -10,41 +10,45 @@
 
 using namespace std;
 
-void move_actor(MapData *map_data, Direction direction, string *message)
+bool move_actor(MapData *map_data, Direction direction, string *message)
 {
 	if ((*map_data).move_actor(direction))
 	{
 		*message = "Well this looks like a completely new terrain :)";
+		return true;
 	}
 	else
 	{
 		*message = "Can't go there :(                               ";
+		return false;
 	}
 }
 
-void move(MapData *map_data, int ch, string *message)
+bool move(MapData *map_data, int ch, string *message)
 {
 	switch (ch) {
-		case (int) Keys::up: move_actor(map_data, Direction::up, message); break;
-		case (int) Keys::down: move_actor(map_data, Direction::down, message); break;
-		case (int) Keys::left: move_actor(map_data, Direction::left, message);	break;
-		case (int) Keys::right: move_actor(map_data, Direction::right, message); break;
-		default: break;
+		case (int) Keys::up: return move_actor(map_data, Direction::up, message);
+		case (int) Keys::down: return move_actor(map_data, Direction::down, message);
+		case (int) Keys::left: return move_actor(map_data, Direction::left, message);
+		case (int) Keys::right: return move_actor(map_data, Direction::right, message);
+		default: return false;
 	}
 }
 
 string display(MapData *map_data, vector<const char*> *keys, string *message)
 {
 	ostringstream out;
+	Coordinates current_location = (*map_data).actor_location((*map_data).actor_cell_number());
 
 	gotoxy(0, 0);
 	out.str("");
 	out.clear();
-
+	
 	out << (*map_data).printable_map() << endl;
-	out << *message << endl;
+	out << *message << endl << endl << endl;
 	out << "DEBUG:" << (*map_data).columns() << 'x' << (*map_data).rows();
-	out << "(@" << (*map_data).player_cel_number() << ')' << endl;
+	out << "(@" << (*map_data).actor_cell_number() << ')';
+	out << '[' << current_location.X << 'x' << current_location.Y << ']' << endl;
 	/* deplay last keys */
 	for (auto i = (*keys).begin(); i != (*keys).end(); ++i)
 	{
@@ -56,15 +60,15 @@ string display(MapData *map_data, vector<const char*> *keys, string *message)
 
 int main() 
 {
-	ShowConsoleCursor(FALSE);
-
 	const char *file_name = "temp.map";
 	MapData map_data(file_name);
 	vector<const char*> keys;
 	string message;
-	
-	/* main game loop */
 	bool game_loop_flag = TRUE;
+	
+	ShowConsoleCursor(FALSE);
+
+	/* main game loop */
 	while (game_loop_flag)
 	{
 		cout << display(&map_data, &keys, &message);
@@ -76,8 +80,10 @@ int main()
 			if (ch == 0 || ch == 224)
 			{
 				ch = _getch();
-				keys.push_back(get_key_name(ch)); // Save key
-				move(&map_data, ch, &message);
+				if (move(&map_data, ch, &message))
+				{
+					keys.push_back(get_key_name(ch)); // Save key
+				}
 			}
 			else
 			{

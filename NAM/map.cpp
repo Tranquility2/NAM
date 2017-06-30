@@ -14,7 +14,7 @@ MapData::MapData(const char *file_name)
 		2. consider other map size
 		3. check if starting location is valid
 		4. try and randomize the location */
-	_player_cel_number = (_rows * _columns / 2) - (_columns / 2); 
+	_actor_cell_number = (_rows * _columns / 2) - (_columns / 2);
 }
 
 MapData::~MapData() 
@@ -102,32 +102,57 @@ void MapData::zero_map_fill()
 
 bool MapData::move_actor(Direction direction)
 {
-	/* calculate */
+	int new_actor_cell_number;
+	bool legal_move = true;
+	Coordinates c;
+	
 	switch (direction) {
 		case Direction::up:
-			_player_cel_number = _player_cel_number - _columns;
+			new_actor_cell_number = _actor_cell_number - _columns;
 			break;
 		case Direction::down: 
-			_player_cel_number = _player_cel_number + _columns;
+			new_actor_cell_number = _actor_cell_number + _columns;
 			break;
 		case Direction::left: 
-			_player_cel_number = _player_cel_number - 1;
+			new_actor_cell_number = _actor_cell_number - 1;
 			break;
 		case Direction::right: 
-			_player_cel_number = _player_cel_number + 1;
+			new_actor_cell_number = _actor_cell_number + 1;
 			break;
 		default: 
 			break;
 	}
+
+	/* calculate */
+	c = actor_location(new_actor_cell_number);
+	if (c.X == 0 || c.X == columns() - 2 || c.Y == 0 || c.Y == rows() -1)
+	{
+		legal_move = false;
+	}
+
 	/* some senity checks are needed */
-	return true;
+	if (legal_move)
+	{
+		_actor_cell_number = new_actor_cell_number;
+		return true;
+	}
+	
+	return false;
 }
 
-bool MapData::set_player_at_location(int row, int column)
+Coordinates MapData::actor_location(int cel_number)
 {
-	/* calculate */
+	short int x, y;
 
-	/* some senity checks are needed */
+	y = cel_number / columns();
+	x = cel_number - y * columns();
+
+	return { x , y };
+}
+
+bool MapData::is_map_barrier_wall(Coordinates coordinates)
+{
+
 	return false;
 }
 
@@ -142,7 +167,7 @@ string MapData::printable_map()
 	{
 		for (int j = 0; j < _columns; j++)
 		{
-			if (buff_pos == _player_cel_number)
+			if (buff_pos == _actor_cell_number)
 			{
 				buff[buff_pos++] = (char) '+';
 			}
