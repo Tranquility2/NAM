@@ -21,7 +21,6 @@ enum class Keys {
 	down = KEY_DOWN
 };
 
-void ClearScreenBasic();
 void ClearScreenWin();
 void SetScreenPosition();
 void gotoxy(int x, int y);

@@ -131,11 +131,12 @@ bool MapData::set_player_at_location(int row, int column)
 	return false;
 }
 
-char *MapData::printable_map()
+string MapData::printable_map()
 {
 	/* total size + room for newlines char */
 	char *buff = new char[_rows * _columns];
 	int buff_pos = 0;
+	string result;
 
 	for (int i = 0; i < _rows; i++)
 	{
@@ -153,6 +154,7 @@ char *MapData::printable_map()
 	}
 
 	buff[buff_pos++] = { 0 };
+	result = buff;
 
-	return buff;
+	return result;
 }

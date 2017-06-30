@@ -16,8 +16,9 @@ public:
 	char **map_data() { return _map_data; };
 	int rows() { return _rows; };
 	int columns() { return _columns; };
-	char *printable_map();
+	string printable_map();
 	bool move_actor(Direction direction);
+	int player_cel_number() { return _player_cel_number; };
 private:
 	char **_map_data; 
 	int _rows;

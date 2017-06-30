@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <sstream>
 
 #include "map.h"
 #include "console.h"
@@ -17,7 +18,7 @@ void move_actor(MapData *map_data, Direction direction, string *message)
 	}
 	else
 	{
-		*message = "Can't go there :(";
+		*message = "Can't go there :(                               ";
 	}
 }
 
@@ -32,6 +33,27 @@ void move(MapData *map_data, int ch, string *message)
 	}
 }
 
+string display(MapData *map_data, vector<const char*> *keys, string *message)
+{
+	ostringstream out;
+
+	gotoxy(0, 0);
+	out.str("");
+	out.clear();
+
+	out << (*map_data).printable_map() << endl;
+	out << *message << endl;
+	out << "DEBUG:" << (*map_data).columns() << 'x' << (*map_data).rows();
+	out << "(@" << (*map_data).player_cel_number() << ')' << endl;
+	/* deplay last keys */
+	for (auto i = (*keys).begin(); i != (*keys).end(); ++i)
+	{
+		out << *i << "->";
+	}
+
+	return out.str();
+}
+
 int main() 
 {
 	ShowConsoleCursor(FALSE);
@@ -40,23 +62,12 @@ int main()
 	MapData map_data(file_name);
 	vector<const char*> keys;
 	string message;
+	
 	/* main game loop */
 	bool game_loop_flag = TRUE;
 	while (game_loop_flag)
 	{
-		ClearScreenWin();
-		/* deplay last keys */
-		for (auto i = keys.begin(); i != keys.end(); ++i)
-		{
-			cout << *i << "->";
-		}
-
-		cout << endl;
-
-		cout << map_data.columns() << 'x' << map_data.rows() << endl;
-		cout << map_data.printable_map() << endl;
-
-		cout << message;
+		cout << display(&map_data, &keys, &message);
 
 		if (_kbhit()) {
 			int ch = _getch();
@@ -82,8 +93,6 @@ int main()
 				}
 			}
 		}
-
-		Sleep(100);
 	}
 		
 	return 0;

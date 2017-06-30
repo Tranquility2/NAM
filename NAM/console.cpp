@@ -1,47 +1,30 @@
 #include "console.h"
 
 /* http://www.cplusplus.com/forum/articles/10515/ */
-
-void ClearScreenBasic()
-{
-	cout << string(100, '\n');
-}
+/* http://faq.cprogramming.com/cgi-bin/smartfaq.cgi?answer=1031963460&id=1043284385 */
 
 void ClearScreenWin()
 {
-	HANDLE                     hStdOut;
+	DWORD n;                         /* Number of characters written */
+	DWORD size;                      /* number of visible characters */
+	COORD coord = { 0 };               /* Top left screen position */
 	CONSOLE_SCREEN_BUFFER_INFO csbi;
-	DWORD                      count;
-	DWORD                      cellCount;
-	COORD                      homeCoords = { 0, 0 };
 
-	hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
-	if (hStdOut == INVALID_HANDLE_VALUE) return;
+	/* Get a handle to the console */
+	HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
 
-	/* Get the number of cells in the current buffer */
-	if (!GetConsoleScreenBufferInfo(hStdOut, &csbi)) return;
-	cellCount = csbi.dwSize.X *csbi.dwSize.Y;
+	GetConsoleScreenBufferInfo(h, &csbi);
 
-	/* Fill the entire buffer with spaces */
-	if (!FillConsoleOutputCharacter(
-		hStdOut,
-		(TCHAR) ' ',
-		cellCount,
-		homeCoords,
-		&count
-	)) return;
+	/* Find the number of characters to overwrite */
+	size = csbi.dwSize.X * csbi.dwSize.Y;
 
-	/* Fill the entire buffer with the current colors and attributes */
-	if (!FillConsoleOutputAttribute(
-		hStdOut,
-		csbi.wAttributes,
-		cellCount,
-		homeCoords,
-		&count
-	)) return;
+	/* Overwrite the screen buffer with whitespace */
+	FillConsoleOutputCharacter(h, TEXT(' '), size, coord, &n);
+	GetConsoleScreenBufferInfo(h, &csbi);
+	FillConsoleOutputAttribute(h, csbi.wAttributes, size, coord, &n);
 
-	/* Move the cursor home */
-	SetConsoleCursorPosition(hStdOut, homeCoords);
+	/* Reset the cursor to the top left position */
+	SetConsoleCursorPosition(h, coord);
 }
 
 void SetScreenPosition()
