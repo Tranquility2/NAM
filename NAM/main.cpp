@@ -5,7 +5,6 @@
 
 #include "map.h"
 #include "console.h"
-#include "resources.h"
 
 #include <conio.h>
 
@@ -13,16 +12,10 @@ using namespace std;
 
 bool move_actor(MapData *map_data, Direction direction, string *message)
 {
-	if ((*map_data).move_actor(direction))
-	{
-		*message = "Well this looks like a completely new terrain :)";
-		return true;
-	}
-	else
-	{
-		*message = "Can't go there :(                               ";
-		return false;
-	}
+	Location new_location = (*map_data).move_actor(direction);
+	*message = new_location.message;
+
+	return new_location.reachable;
 }
 
 bool move(MapData *map_data, int ch, string *message)
@@ -62,7 +55,7 @@ string display(MapData *map_data, vector<const char*> *keys, string *message)
 int main() 
 {
 	//const string file_name = "temp.map";
-	MapData map_data("", map1);
+	MapData map_data("");
 	vector<const char*> keys;
 	string message;
 	bool game_loop_flag = TRUE;

@@ -14,17 +14,22 @@ typedef struct _Coordinates {
 	short int Y;
 } Coordinates, *PCoordinates;
 
+typedef struct _Location {
+	bool reachable;
+	string message;
+} Location, *PLocation;
+
 class MapData
 {
 public:
-	MapData(const string file_name = "", const string map_data = "");
+	MapData(const string file_name);
 	~MapData();
 	
 	char **map_data() { return _map_data; };
 	int rows() { return _rows; };
 	int columns() { return _columns; };
 	string printable_map();
-	bool move_actor(Direction direction);
+	Location move_actor(Direction direction);
 	int actor_cell_number() { return _actor_cell_number; };
 	Coordinates actor_location(int cel_number);
 

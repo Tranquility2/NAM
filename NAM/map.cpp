@@ -1,8 +1,9 @@
 #include "map.h"
+#include "resources.h"
 
 using namespace std;
 
-MapData::MapData(const string file_name, const string map_data)
+MapData::MapData(const string file_name)
 {
 	/* init */
 	_columns = _rows = 0;
@@ -14,7 +15,7 @@ MapData::MapData(const string file_name, const string map_data)
 	}
 	else
 	{
-		load_ascii_map_stream(map_data);
+		load_ascii_map_stream(map1);
 	}
 	
 	/* TODO: player startup location should be refactored: 
@@ -119,10 +120,9 @@ void MapData::zero_map_fill()
 	}
 }
 
-bool MapData::move_actor(Direction direction)
+Location MapData::move_actor(Direction direction)
 {
 	int new_actor_cell_number;
-	bool legal_move = true;
 	Coordinates c;
 	
 	switch (direction) {
@@ -146,17 +146,13 @@ bool MapData::move_actor(Direction direction)
 	c = actor_location(new_actor_cell_number);
 	if (c.X == 0 || c.X == columns() - 2 || c.Y == 0 || c.Y == rows() -1)
 	{
-		legal_move = false;
+		return {false, messageMap["unreachable_location"]};
 	}
 
 	/* some senity checks are needed */
-	if (legal_move)
-	{
-		_actor_cell_number = new_actor_cell_number;
-		return true;
-	}
-	
-	return false;
+
+	_actor_cell_number = new_actor_cell_number;
+	return { true, messageMap["new_terrain"] };
 }
 
 Coordinates MapData::actor_location(int cel_number)
