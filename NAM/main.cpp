@@ -42,7 +42,8 @@ string display(MapData *map_data, vector<const char*> *keys, string *message)
 	out << *message << endl << endl << endl;
 	out << "DEBUG:" << (*map_data).columns() << 'x' << (*map_data).rows();
 	out << "(@" << (*map_data).actor_cell_number() << ')';
-	out << '[' << current_location.X << 'x' << current_location.Y << ']' << endl;
+	out << '[' << current_location.X << 'x' << current_location.Y << ']';
+	out << "->" << (*map_data).terrain_on(current_location) << "<-"<< endl;
 	/* deplay last keys */
 	for (auto i = (*keys).begin(); i != (*keys).end(); ++i)
 	{

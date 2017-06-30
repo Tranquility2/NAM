@@ -32,6 +32,7 @@ public:
 	Location move_actor(Direction direction);
 	int actor_cell_number() { return _actor_cell_number; };
 	Coordinates actor_location(int cel_number);
+	const char terrain_on(Coordinates coordinates);
 
 private:
 	char **_map_data; 
@@ -43,5 +44,4 @@ private:
 	void load_ascii_map_file(const string file_name);
 	void load_ascii_map_stream(string map);
 	void zero_map_fill();
-	bool is_map_barrier_wall(Coordinates coordinates);
 };

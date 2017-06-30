@@ -165,10 +165,11 @@ Coordinates MapData::actor_location(int cel_number)
 	return { x , y };
 }
 
-bool MapData::is_map_barrier_wall(Coordinates coordinates)
+const char MapData::terrain_on(Coordinates coordinates)
 {
+	char terrain = _map_data[coordinates.Y][coordinates.X];
 
-	return false;
+	return terrain;
 }
 
 string MapData::printable_map()
