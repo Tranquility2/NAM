@@ -5,9 +5,16 @@ using namespace std;
 MapData::MapData(const char *file_name)
 {
 	/* init */
-	_columns = this->_rows = 0;
+	_columns = _rows = 0;
 	_map_data = NULL;
 	load_ascii_map_file(file_name);
+
+	/* TODO: player startup location should be refactored: 
+		1. player will start in the middle for now
+		2. consider other map size
+		3. check if starting location is valid
+		4. try and randomize the location */
+	_player_cel_number = (_rows * _columns / 2) - (_columns / 2); 
 }
 
 MapData::~MapData() 
@@ -93,6 +100,14 @@ void MapData::zero_map_fill()
 	}
 }
 
+bool MapData::set_player_at_location(int row, int column)
+{
+	/* calculate */
+
+	/* some senity checks are needed */
+	return true;
+}
+
 char *MapData::printable_map()
 {
 	/* total size + room for newlines char */
@@ -103,7 +118,14 @@ char *MapData::printable_map()
 	{
 		for (int j = 0; j < _columns; j++)
 		{
-			buff[buff_pos++] =_map_data[i][j];
+			if (buff_pos == _player_cel_number)
+			{
+				buff[buff_pos++] = (char) '+';
+			}
+			else
+			{
+				buff[buff_pos++] =_map_data[i][j];
+			}
 		}
 	}
 

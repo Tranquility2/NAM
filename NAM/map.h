@@ -17,11 +17,13 @@ public:
 
 	char *printable_map();
 private:
-	char **_map_data;
+	char **_map_data; 
 	int _rows;
 	int _columns;
+	int _player_cel_number;
 	
 	char *load_binary_file(const char *file_name);
 	void load_ascii_map_file(const char *file_name);
 	void zero_map_fill();
+	bool set_player_at_location(int row, int column);
 };
