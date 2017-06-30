@@ -100,12 +100,35 @@ void MapData::zero_map_fill()
 	}
 }
 
+bool MapData::move_actor(Direction direction)
+{
+	/* calculate */
+	switch (direction) {
+		case Direction::up:
+			_player_cel_number = _player_cel_number - _columns;
+			break;
+		case Direction::down: 
+			_player_cel_number = _player_cel_number + _columns;
+			break;
+		case Direction::left: 
+			_player_cel_number = _player_cel_number - 1;
+			break;
+		case Direction::right: 
+			_player_cel_number = _player_cel_number + 1;
+			break;
+		default: 
+			break;
+	}
+	/* some senity checks are needed */
+	return true;
+}
+
 bool MapData::set_player_at_location(int row, int column)
 {
 	/* calculate */
 
 	/* some senity checks are needed */
-	return true;
+	return false;
 }
 
 char *MapData::printable_map()

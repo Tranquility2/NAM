@@ -5,6 +5,8 @@
 
 using namespace std;
 
+enum class Direction {up, down, left, right};
+
 class MapData
 {
 public:
@@ -14,8 +16,8 @@ public:
 	char **map_data() { return _map_data; };
 	int rows() { return _rows; };
 	int columns() { return _columns; };
-
 	char *printable_map();
+	bool move_actor(Direction direction);
 private:
 	char **_map_data; 
 	int _rows;

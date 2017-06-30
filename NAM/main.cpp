@@ -9,20 +9,26 @@
 
 using namespace std;
 
-#define KEY_UP 72
-#define KEY_DOWN 80
-#define KEY_LEFT 75
-#define KEY_RIGHT 77
-#define KEY_ESC 27
+void move_actor(MapData *map_data, Direction direction)
+{
+	if ((*map_data).move_actor(direction))
+	{
+		cout << "Well this looks like a completely new terrain :)" << endl;
+	}
+	else
+	{
+		cout << "Can't go there :(" << endl;
+	}
+}
 
-const char *get_key_name(int ch)
+void move(MapData *map_data, int ch)
 {
 	switch (ch) {
-	case KEY_UP: return "Up";
-	case KEY_DOWN: return "Down";
-	case KEY_LEFT: return "Left";
-	case KEY_RIGHT:	return "Right";
-	default: return "Other";
+		case (int) Keys::up: move_actor(map_data, Direction::up); break;
+		case (int) Keys::down: move_actor(map_data, Direction::down); break;
+		case (int) Keys::left: move_actor(map_data, Direction::left);	break;
+		case (int) Keys::right: move_actor(map_data, Direction::right); break;
+		default: break;
 	}
 }
 
@@ -34,8 +40,8 @@ int main()
 	MapData map_data(file_name);
 	vector<const char*> keys;
 	/* main game loop */
-	bool loop_flag = TRUE;
-	while (loop_flag)
+	bool game_loop_flag = TRUE;
+	while (game_loop_flag)
 	{
 		ClearScreenWin();
 		/* deplay last keys */
@@ -56,18 +62,7 @@ int main()
 		{
 			ch = _getch();
 			keys.push_back(get_key_name(ch)); // Save key
-
-			switch (ch) {
-			case KEY_UP: 
-				break;
-			case KEY_DOWN: 
-				break;
-			case KEY_LEFT: 
-				break;
-			case KEY_RIGHT:	
-				break;
-			default: break;
-			}
+			move(&map_data, ch);
 		}
 		else
 		{
@@ -75,15 +70,13 @@ int main()
 
 			switch (ch)
 			{
-			case KEY_ESC:
+			case (int) Keys::esc:
 				cout << "Good bye..." << endl;
-				loop_flag = FALSE;
+				game_loop_flag = FALSE;
 				break;
 			default: break;
 			}
 		}
-
-		gotoxy(5, 5);
 
 		Sleep(300);
 	}
