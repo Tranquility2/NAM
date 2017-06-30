@@ -9,25 +9,25 @@
 
 using namespace std;
 
-void move_actor(MapData *map_data, Direction direction)
+void move_actor(MapData *map_data, Direction direction, string *message)
 {
 	if ((*map_data).move_actor(direction))
 	{
-		cout << "Well this looks like a completely new terrain :)" << endl;
+		*message = "Well this looks like a completely new terrain :)";
 	}
 	else
 	{
-		cout << "Can't go there :(" << endl;
+		*message = "Can't go there :(";
 	}
 }
 
-void move(MapData *map_data, int ch)
+void move(MapData *map_data, int ch, string *message)
 {
 	switch (ch) {
-		case (int) Keys::up: move_actor(map_data, Direction::up); break;
-		case (int) Keys::down: move_actor(map_data, Direction::down); break;
-		case (int) Keys::left: move_actor(map_data, Direction::left);	break;
-		case (int) Keys::right: move_actor(map_data, Direction::right); break;
+		case (int) Keys::up: move_actor(map_data, Direction::up, message); break;
+		case (int) Keys::down: move_actor(map_data, Direction::down, message); break;
+		case (int) Keys::left: move_actor(map_data, Direction::left, message);	break;
+		case (int) Keys::right: move_actor(map_data, Direction::right, message); break;
 		default: break;
 	}
 }
@@ -39,6 +39,7 @@ int main()
 	const char *file_name = "temp.map";
 	MapData map_data(file_name);
 	vector<const char*> keys;
+	string message;
 	/* main game loop */
 	bool game_loop_flag = TRUE;
 	while (game_loop_flag)
@@ -55,30 +56,34 @@ int main()
 		cout << map_data.columns() << 'x' << map_data.rows() << endl;
 		cout << map_data.printable_map() << endl;
 
-		int ch = _getch();
-		/* For the arrow keys, it returns 224 first followed by 72 (up), 80 (down), 75 (left) and 77 (right). 
-		If the num-pad arrow keys (with NumLock off) are pressed, getch () returns 0 first instead of 224. */
-		if (ch == 0 || ch == 224)
-		{
-			ch = _getch();
-			keys.push_back(get_key_name(ch)); // Save key
-			move(&map_data, ch);
-		}
-		else
-		{
-			keys.push_back(get_key_name(ch)); // Save key
+		cout << message;
 
-			switch (ch)
+		if (_kbhit()) {
+			int ch = _getch();
+			/* For the arrow keys, it returns 224 first followed by 72 (up), 80 (down), 75 (left) and 77 (right).
+			If the num-pad arrow keys (with NumLock off) are pressed, getch () returns 0 first instead of 224. */
+			if (ch == 0 || ch == 224)
 			{
-			case (int) Keys::esc:
-				cout << "Good bye..." << endl;
-				game_loop_flag = FALSE;
-				break;
-			default: break;
+				ch = _getch();
+				keys.push_back(get_key_name(ch)); // Save key
+				move(&map_data, ch, &message);
+			}
+			else
+			{
+				keys.push_back(get_key_name(ch)); // Save key
+
+				switch (ch)
+				{
+				case (int)Keys::esc:
+					message = "Good bye...";
+					game_loop_flag = FALSE;
+					break;
+				default: break;
+				}
 			}
 		}
 
-		Sleep(300);
+		Sleep(100);
 	}
 		
 	return 0;
