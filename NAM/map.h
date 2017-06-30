@@ -3,6 +3,7 @@
 #include <iostream>
 #include <string>
 #include <fstream>
+#include <sstream>
 
 using namespace std;
 
@@ -16,7 +17,7 @@ typedef struct _Coordinates {
 class MapData
 {
 public:
-	MapData(const char * file_name);
+	MapData(const string file_name = "", const string map_data = "");
 	~MapData();
 	
 	char **map_data() { return _map_data; };
@@ -33,8 +34,9 @@ private:
 	int _columns;
 	int _actor_cell_number;
 	
-	char *load_binary_file(const char *file_name);
-	void load_ascii_map_file(const char *file_name);
+	char *load_binary_file(const string file_name);
+	void load_ascii_map_file(const string file_name);
+	void load_ascii_map_stream(string map);
 	void zero_map_fill();
 	bool is_map_barrier_wall(Coordinates coordinates);
 };

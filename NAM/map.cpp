@@ -2,13 +2,21 @@
 
 using namespace std;
 
-MapData::MapData(const char *file_name)
+MapData::MapData(const string file_name, const string map_data)
 {
 	/* init */
 	_columns = _rows = 0;
 	_map_data = NULL;
-	load_ascii_map_file(file_name);
 
+	if (!file_name.empty())
+	{
+		load_ascii_map_file(file_name);
+	}
+	else
+	{
+		load_ascii_map_stream(map_data);
+	}
+	
 	/* TODO: player startup location should be refactored: 
 		1. player will start in the middle for now
 		2. consider other map size
@@ -27,7 +35,7 @@ MapData::~MapData()
 }
 
 /* read binary data from file */
-char *MapData::load_binary_file(const char *file_name) {
+char *MapData::load_binary_file(const string file_name) {
 	long  size;
 	char *memblock;
 
@@ -54,33 +62,17 @@ char *MapData::load_binary_file(const char *file_name) {
 }
 
 /* read ascii map data from file */
-void MapData::load_ascii_map_file(const char *file_name)
+void MapData::load_ascii_map_file(const string file_name)
 {
 	ifstream infile;
 	infile.open(file_name, ios::in);
 
 	if (infile.is_open())
 	{
-		infile >> _columns;
-		infile >> _rows;
-		infile.get(); // newlines char
-		/* init 2d array */
-		_map_data = new char*[_rows];
-		for (int i = 0; i < _rows; ++i)
-			_map_data[i] = new char[_columns];
-		
-		zero_map_fill();
-		/* get map data */
-		for (int i = 0; i < _rows; i++)
-		{
-			for (int j = 0; j < _columns; j++)
-			{
-				char ch = (char)infile.get();
-				//cout << '[' << i << ',' << j << ']' << ch << endl;
-				_map_data[i][j] = ch;
-			}
-		}
-
+		ostringstream ss;
+		ss << infile.rdbuf();
+		string buffer = ss.str();
+		load_ascii_map_stream(buffer);
 		infile.close();
 	}
 	else 
@@ -88,6 +80,33 @@ void MapData::load_ascii_map_file(const char *file_name)
 		cout << "Error opening file" << endl;
 	}
 }
+
+
+void MapData::load_ascii_map_stream(string map)
+{
+	std::istringstream buffer (map);
+
+	buffer >> _columns;
+	buffer >> _rows;
+	buffer.get(); // newlines char
+	/* init 2d array */
+	_map_data = new char*[_rows];
+	for (int i = 0; i < _rows; ++i)
+		_map_data[i] = new char[_columns];
+
+	zero_map_fill();
+	/* get map data */
+	for (int i = 0; i < _rows; i++)
+	{
+		for (int j = 0; j < _columns; j++)
+		{
+			char ch = (char)buffer.get();
+			//cout << '[' << i << ',' << j << ']' << ch << endl;
+			_map_data[i][j] = ch;
+		}
+	}
+}
+
 
 void MapData::zero_map_fill()
 {

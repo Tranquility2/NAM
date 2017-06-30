@@ -5,6 +5,7 @@
 
 #include "map.h"
 #include "console.h"
+#include "resources.h"
 
 #include <conio.h>
 
@@ -60,15 +61,15 @@ string display(MapData *map_data, vector<const char*> *keys, string *message)
 
 int main() 
 {
-	const char *file_name = "temp.map";
-	MapData map_data(file_name);
+	//const string file_name = "temp.map";
+	MapData map_data("", map1);
 	vector<const char*> keys;
 	string message;
 	bool game_loop_flag = TRUE;
 	
 	ShowConsoleCursor(FALSE);
 
-	/* main game loop */
+	///* main game loop */
 	while (game_loop_flag)
 	{
 		cout << display(&map_data, &keys, &message);
@@ -100,7 +101,7 @@ int main()
 			}
 		}
 	}
-		
+
 	return 0;
 }
  
