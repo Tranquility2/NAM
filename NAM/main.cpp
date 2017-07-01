@@ -3,10 +3,10 @@
 #include <vector>
 #include <sstream>
 
+#include <conio.h>
+
 #include "map.h"
 #include "console.h"
-
-#include <conio.h>
 
 using namespace std;
 
@@ -66,8 +66,6 @@ int main()
 	///* main game loop */
 	while (game_loop_flag)
 	{
-		cout << display(&map_data, &keys, &message);
-
 		if (_kbhit()) {
 			int ch = _getch();
 			/* For the arrow keys, it returns 224 first followed by 72 (up), 80 (down), 75 (left) and 77 (right).
@@ -94,6 +92,8 @@ int main()
 				}
 			}
 		}
+
+		cout << display(&map_data, &keys, &message);
 	}
 
 	return 0;
