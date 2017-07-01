@@ -147,7 +147,7 @@ Location MapData::move_actor(Direction direction)
 	c = actor_location(new_actor_cell_number);
 
 	/* some senity checks are needed */
-	if (c.X == 0 || c.X == columns() - 2 || c.Y == 0 || c.Y == rows() -1)
+	if (c.X == 0 || c.X == _columns - 2 || c.Y == 0 || c.Y == rows() -1)
 	{
 		return {false, messageMap["unreachable_location"]};
 	}
@@ -169,8 +169,8 @@ Coordinates MapData::actor_location(int cel_number)
 {
 	short int x, y;
 
-	y = cel_number / columns();
-	x = cel_number - y * columns();
+	y = cel_number / _columns;
+	x = cel_number - y * _columns;
 
 	return { x , y };
 }
