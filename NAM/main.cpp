@@ -12,7 +12,7 @@ using namespace std;
 
 bool move_actor(MapData *map_data, Direction direction, string *message)
 {
-	Location new_location = (*map_data).move_actor(direction);
+	Location new_location = map_data->move_actor(direction);
 	*message = new_location.message;
 
 	return new_location.reachable;
@@ -32,7 +32,7 @@ bool move(MapData *map_data, int ch, string *message)
 string display(MapData *map_data, vector<const char*> *keys, string *message)
 {
 	ostringstream out;
-	Coordinates current_location = (*map_data).actor_location((*map_data).actor_cell_number());
+	Coordinates current_location = map_data->actor_location(map_data->actor_cell_number());
 
 	gotoxy(0, 0);
 	out.str("");
@@ -40,12 +40,12 @@ string display(MapData *map_data, vector<const char*> *keys, string *message)
 	
 	out << (*map_data).printable_map() << endl;
 	out << *message << endl << endl << endl;
-	out << "DEBUG:" << (*map_data).columns() << 'x' << (*map_data).rows();
-	out << "(@" << (*map_data).actor_cell_number() << ')';
+	out << "DEBUG:" << map_data->columns() << 'x' << (*map_data).rows();
+	out << "(@" << map_data->actor_cell_number() << ')';
 	out << '[' << current_location.X << 'x' << current_location.Y << ']';
-	out << "->" << (*map_data).terrain_on(current_location) << "<-"<< endl;
+	out << "->" << map_data->terrain_on(current_location) << "<-"<< endl;
 	/* deplay last keys */
-	for (auto i = (*keys).begin(); i != (*keys).end(); ++i)
+	for (auto i = keys->begin(); i != keys->end(); ++i)
 	{
 		out << *i;
 	}
