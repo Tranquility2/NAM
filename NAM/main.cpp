@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <sstream>
+#include <map>
 
 #include <conio.h>
 
@@ -10,29 +11,24 @@
 
 using namespace std;
 
-bool move_actor(MapData *map_data, Direction direction, string *message)
-{
-	Location new_location = map_data->move_actor(direction);
-	*message = new_location.message;
+map<Keys, const char*> keyLetterMap = {
+	{ Keys::up,  "U" },
+	{ Keys::down, "D" },
+	{ Keys::left, "L" },
+	{ Keys::right, "R" }
+};
 
-	return new_location.reachable;
-}
-
-bool move(MapData *map_data, int ch, string *message)
-{
-	switch (ch) {
-		case (int) Keys::up: return move_actor(map_data, Direction::up, message);
-		case (int) Keys::down: return move_actor(map_data, Direction::down, message);
-		case (int) Keys::left: return move_actor(map_data, Direction::left, message);
-		case (int) Keys::right: return move_actor(map_data, Direction::right, message);
-		default: return false;
-	}
-}
+map<Keys, Direction> keys2directionMap = {
+	{ Keys::up, Direction::up },
+	{ Keys::down, Direction::down },
+	{ Keys::left, Direction::left },
+	{ Keys::right, Direction::right }
+};
 
 string display(MapData *map_data, vector<const char*> *keys, string *message)
 {
 	ostringstream out;
-	Coordinates current_location = map_data->actor_location(map_data->actor_cell_number());
+	Coordinates current_location = map_data->actor_coordinates(map_data->actor_cell_number());
 
 	gotoxy(0, 0);
 	out.str("");
@@ -73,22 +69,20 @@ int main()
 			if (ch == 0 || ch == 224)
 			{
 				ch = _getch();
-				if (move(&map_data, ch, &message))
+				Location new_location = map_data.move_actor(keys2directionMap[Keys(ch)]);
+				message = new_location.message;
+				if (new_location.reachable)
 				{
-					keys.push_back(get_key_name(ch)); // Save key
+					keys.push_back(keyLetterMap[Keys(ch)]); // Save key
 				}
 			}
 			else
 			{
-				keys.push_back(get_key_name(ch)); // Save key
-
-				switch (ch)
+				if (ch == (int)Keys::esc)
 				{
-				case (int)Keys::esc:
 					message = "Good bye...";
 					game_loop_flag = FALSE;
 					break;
-				default: break;
 				}
 			}
 		}

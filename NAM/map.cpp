@@ -123,49 +123,23 @@ void MapData::zero_map_fill()
 Location MapData::move_actor(Direction direction)
 {
 	int new_actor_cell_number;
-	Coordinates c;
-	char terrain;
+	Coordinates actor_c = actor_coordinates(_actor_cell_number);
 	
-	switch (direction) {
-		case Direction::up:
-			new_actor_cell_number = _actor_cell_number - _columns;
-			break;
-		case Direction::down: 
-			new_actor_cell_number = _actor_cell_number + _columns;
-			break;
-		case Direction::left: 
-			new_actor_cell_number = _actor_cell_number - 1;
-			break;
-		case Direction::right: 
-			new_actor_cell_number = _actor_cell_number + 1;
-			break;
-		default: 
-			break;
-	}
-
-	/* calculate */
-	c = actor_location(new_actor_cell_number);
+	actor_c += moveAxis[direction];
+	new_actor_cell_number = actor_cell_number(actor_c);
 
 	/* some senity checks are needed */
-	if (c.X == 0 || c.X == _columns - 2 || c.Y == 0 || c.Y == rows() -1)
+	if (actor_c.X == 0 || actor_c.X == _columns - 2 || actor_c.Y == 0 || actor_c.Y == rows() -1)
 	{
 		return {false, messageMap["unreachable_location"]};
 	}
 	
 	_actor_cell_number = new_actor_cell_number;
-	terrain = terrain_on(c);
 
-	switch (terrain)
-	{
-		case '@': return { true, messageMap["mountain"] };
-		case '~': return { true, messageMap["water"] };
-		case 'x': return { true, messageMap["fields"] };
-		case '^': return { true, messageMap["hill"] };
-		default: return { true, messageMap["new_terrain"] };
-	}
+	return terrainMap[terrain_on(actor_c)];
 }
 
-Coordinates MapData::actor_location(int cel_number)
+Coordinates MapData::actor_coordinates(int cel_number)
 {
 	short int x, y;
 

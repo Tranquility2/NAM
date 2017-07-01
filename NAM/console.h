@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <string>
+#include <map>
 
 #include <windows.h>
 
@@ -25,4 +26,3 @@ void ClearScreenWin();
 void SetScreenPosition();
 void gotoxy(short int x, short int y);
 void ShowConsoleCursor(bool showFlag);
-const char *get_key_name(int ch);

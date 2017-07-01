@@ -54,14 +54,3 @@ void ShowConsoleCursor(bool showFlag)
 	cursorInfo.bVisible = showFlag; // set the cursor visibility
 	SetConsoleCursorInfo(out, &cursorInfo);
 }
-
-const char *get_key_name(int ch)
-{
-	switch (ch) {
-		case (int) Keys::up: return "U";
-		case (int) Keys::down: return "D";
-		case (int) Keys::left: return "L";
-		case (int) Keys::right:	return "R";
-		default: return "O"; //Other
-	}
-}

@@ -12,6 +12,14 @@ enum class Direction {up, down, left, right};
 typedef struct _Coordinates {
 	short int X;
 	short int Y;
+
+	_Coordinates& operator+=(const _Coordinates& right)
+	{
+		this->X += right.X;
+		this->Y += right.Y;
+
+		return *this;
+	}
 } Coordinates, *PCoordinates;
 
 typedef struct _Location {
@@ -29,9 +37,10 @@ public:
 	int rows() { return _rows; };
 	int columns() { return _columns; };
 	int actor_cell_number() { return _actor_cell_number; };
+	int actor_cell_number(Coordinates coordinates) { return coordinates.Y * _columns + coordinates.X;};
 	const char terrain_on(Coordinates coordinates);
 	Location move_actor(Direction direction);
-	Coordinates actor_location(int cel_number);
+	Coordinates actor_coordinates(int cel_number);
 	string printable_map();
 
 private:
