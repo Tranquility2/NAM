@@ -22,7 +22,5 @@ enum class Keys {
 	down = KEY_DOWN
 };
 
-void ClearScreenWin();
-void SetScreenPosition();
 void gotoxy(short int x, short int y);
 void ShowConsoleCursor(bool showFlag);

@@ -35,33 +35,6 @@ MapData::~MapData()
 	delete _map_data;
 }
 
-/* read binary data from file */
-char *MapData::load_binary_file(const string file_name) {
-	long  size;
-	char *memblock;
-
-	ifstream infile;
-	infile.open(file_name, ios::in | ios::binary);
-
-	if (infile.is_open())
-	{
-		size = (long)infile.tellg();
-		memblock = new char[size];
-		infile.seekg(0, ios::beg);
-		infile.read(memblock, size);
-		infile.close();
-
-		cout << "file loaded" << endl;
-		return memblock;
-	}
-
-	else 
-	{
-		cout << "Error opening file" << endl;
-		return NULL;
-	}
-}
-
 /* read ascii map data from file */
 void MapData::load_ascii_map_file(const string file_name)
 {

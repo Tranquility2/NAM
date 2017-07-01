@@ -49,7 +49,6 @@ private:
 	int _columns;
 	int _actor_cell_number;
 	
-	char *load_binary_file(const string file_name);
 	void load_ascii_map_file(const string file_name);
 	void load_ascii_map_stream(string map);
 	void zero_map_fill();

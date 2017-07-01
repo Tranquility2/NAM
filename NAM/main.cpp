@@ -51,7 +51,6 @@ string display(MapData *map_data, vector<const char*> *keys, string *message)
 
 int main() 
 {
-	//const string file_name = "temp.map";
 	MapData map_data("");
 	vector<const char*> keys;
 	string message;
