@@ -160,6 +160,7 @@ Location MapData::move_actor(Direction direction)
 		case '@': return { true, messageMap["mountain"] };
 		case '~': return { true, messageMap["water"] };
 		case 'x': return { true, messageMap["fields"] };
+		case '^': return { true, messageMap["hill"] };
 		default: return { true, messageMap["new_terrain"] };
 	}
 }

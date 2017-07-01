@@ -28,11 +28,11 @@ public:
 	char **map_data() { return _map_data; };
 	int rows() { return _rows; };
 	int columns() { return _columns; };
-	string printable_map();
-	Location move_actor(Direction direction);
 	int actor_cell_number() { return _actor_cell_number; };
-	Coordinates actor_location(int cel_number);
 	const char terrain_on(Coordinates coordinates);
+	Location move_actor(Direction direction);
+	Coordinates actor_location(int cel_number);
+	string printable_map();
 
 private:
 	char **_map_data; 
