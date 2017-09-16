@@ -21,7 +21,7 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>
     <ProjectGuid>{F4EEE3B3-26B6-4908-BD26-F1282DF299C7}</ProjectGuid>
-    <RootNamespace>NAM</RootNamespace>
+    <RootNamespace>NAM_draft</RootNamespace>
     <WindowsTargetPlatformVersion>10.0.15063.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
