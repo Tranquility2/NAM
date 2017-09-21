@@ -1,5 +1,6 @@
 #include <SDL.h>
 #include <SDL_image.h>
+#include <SDL_ttf.h>
 #include <iostream>
 #include <string>
 
@@ -9,6 +10,7 @@ const int SCREEN_HIGHT = 480;
 bool Initialized();
 void Close();
 SDL_Texture* LoadTexture(std::string file);
+SDL_Texture* TextTexture(std::string text);
 
 SDL_Window* window = NULL;
 //SDL_Surface* screen = NULL;
@@ -29,8 +31,10 @@ int main(int argc, char* args[])
 
 	//Uint32 bgColor = SDL_MapRGB(screen->format, 0, 0, 0);
 
-	std::string image_file_name = "Sdl-logo.png";
-	texture = LoadTexture(image_file_name.c_str());
+	//std::string image_file_name = "Sdl-logo.png";
+	//texture = LoadTexture(image_file_name.c_str());
+
+	texture = TextTexture("SDL Test");
 	if (texture == NULL)
 	{
 		return 1;
@@ -86,9 +90,15 @@ bool Initialized()
 
 	SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
 	
-	if (!(IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG))
+	//if (!(IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG))
+	//{
+	//	std::cout << "SDL_Image could not be  initilized! SDL_Image_Error: " << IMG_GetError() << std::endl;
+	//	return false;
+	//}
+
+	if (TTF_Init() < 0)
 	{
-		std::cout << "SDL_Image could not be  initilized! SDL_Image_Error: " << IMG_GetError() << std::endl;
+		std::cout << "SDL_TTF could not be initilized! SDL_TTF_Error: " << TTF_GetError() << std::endl;
 		return false;
 	}
 
@@ -103,7 +113,7 @@ void Close()
 	SDL_Quit();
 }
 
-SDL_Texture * LoadTexture(std::string file)
+SDL_Texture *LoadTexture(std::string file)
 {
 	SDL_Texture* newTexture = NULL;
 	SDL_Surface* loadedSurface = IMG_Load(file.c_str());
@@ -124,6 +134,37 @@ SDL_Texture * LoadTexture(std::string file)
 		}
 
 		SDL_FreeSurface(loadedSurface);
+	}
+
+	return newTexture;
+}
+
+SDL_Texture *TextTexture(std::string text)
+{
+	SDL_Texture* newTexture = NULL;
+	TTF_Font* Sans = NULL;
+
+	Sans = TTF_OpenFont("Sans.ttf", 12);
+	SDL_Color Black = { 0, 0, 0 };
+
+	SDL_Surface* surfaceText = TTF_RenderText_Solid(Sans, text.c_str(), Black);
+
+	if (surfaceText == NULL)
+	{
+		std::cout << "Unable to render the text " << text.c_str() << "! SDL_TTF_Error: " << TTF_GetError() << std::endl;
+	}
+	else
+	{
+		std::cout << "Rendered the text " << text.c_str() << std::endl;
+
+		newTexture = SDL_CreateTextureFromSurface(renderer, surfaceText);
+
+		if (newTexture == NULL)
+		{
+			std::cout << "Unable to create the texture from " << text.c_str() << "! SDL_TTF_Error: " << TTF_GetError() << std::endl;
+		}
+
+		SDL_FreeSurface(surfaceText);
 	}
 
 	return newTexture;
