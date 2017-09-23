@@ -3,6 +3,7 @@
 #include <SDL_ttf.h>
 #include <iostream>
 #include <string>
+#include <vector>
 
 const int SCREEN_WIDTH = 720;
 const int SCREEN_HIGHT = 480;
@@ -26,19 +27,25 @@ int main(int argc, char* args[])
 	}
 
 	std::cout << "Initialized..." << std::endl;
-	bool exit_flag = false;
-	SDL_Event event;
 
-	//Uint32 bgColor = SDL_MapRGB(screen->format, 0, 0, 0);
-
-	//std::string image_file_name = "Sdl-logo.png";
-	//texture = LoadTexture(image_file_name.c_str());
-
-	texture = TextTexture("SDL Test");
+	std::string image_file_name = "Sdl-logo.png";
+	texture = LoadTexture(image_file_name.c_str());
+	//texture = TextTexture("SDL Test");
 	if (texture == NULL)
 	{
 		return 1;
 	}
+
+	int w, h;
+	SDL_QueryTexture(texture, NULL, NULL, &w, &h);
+
+	bool exit_flag = false;
+	SDL_Event event;
+
+	SDL_Rect screenRectangle = { 0, 0, SCREEN_WIDTH, SCREEN_HIGHT };
+	SDL_Rect imageRectangle = { 0, 0 , w / 2 ,h / 2 };
+
+	std::vector<int> vector_2d {1,1};
 
 	while (!exit_flag)
 	{
@@ -50,11 +57,21 @@ int main(int argc, char* args[])
 			}
 		}
 
-		//SDL_FillRect(screen, NULL, bgColor);
-		//SDL_UpdateWindowSurface(window);
 		SDL_RenderClear(renderer);
-		SDL_RenderCopy(renderer, texture, NULL, NULL);
+		SDL_RenderCopy(renderer, texture, &screenRectangle, &imageRectangle);
 		SDL_RenderPresent(renderer);
+
+		imageRectangle.x += vector_2d[0];
+		imageRectangle.y += vector_2d[1];
+
+		if (imageRectangle.x >= SCREEN_WIDTH - w / 2 || imageRectangle.x <= 0)
+		{
+			vector_2d[0] *= -1;
+		}
+		else if (imageRectangle.y >= SCREEN_HIGHT - h / 2 || imageRectangle.y <= 0)
+		{
+			vector_2d[1] *= -1;
+		}
 	}
 
 	Close();
@@ -79,7 +96,6 @@ bool Initialized()
 		return false;
 	}
 
-	//screen = SDL_GetWindowSurface(window);
 	renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
 	if (renderer == NULL)
@@ -90,11 +106,11 @@ bool Initialized()
 
 	SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
 	
-	//if (!(IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG))
-	//{
-	//	std::cout << "SDL_Image could not be  initilized! SDL_Image_Error: " << IMG_GetError() << std::endl;
-	//	return false;
-	//}
+	if (!(IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG))
+	{
+		std::cout << "SDL_Image could not be  initilized! SDL_Image_Error: " << IMG_GetError() << std::endl;
+		return false;
+	}
 
 	if (TTF_Init() < 0)
 	{
