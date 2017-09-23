@@ -21,21 +21,12 @@ SDL_Window* window = NULL;
 SDL_Renderer* renderer = NULL;
 SDL_Texture* texture = NULL;
 
-void cap_framerate(Uint32 startingTick, int countedFrames)
+void cap_framerate(Uint32 startingTick)
 {
 	if (SCREEN_TICKS_PER_FRAME > SDL_GetTicks() - startingTick)
 	{
 		SDL_Delay(SCREEN_TICKS_PER_FRAME - (SDL_GetTicks() - startingTick));
 	}
-
-	float avgFPS = countedFrames / ((SDL_GetTicks() - startingTick) / 1000.f);
-	if (avgFPS > 2000000)
-	{
-		avgFPS = 0;
-	}
-
-	std::string newWindowTitle = WINDOW_TITLE + " | FPS=" + std::to_string((int)avgFPS);
-	SDL_SetWindowTitle(window, newWindowTitle.c_str());
 }
 
 int main(int argc, char* args[])
@@ -71,7 +62,6 @@ int main(int argc, char* args[])
 	while (!exit_flag)
 	{
 		startingTick = SDL_GetTicks();
-		int countedFrames = 0;
 
 		while (SDL_PollEvent(&event) != 0)
 		{
@@ -97,9 +87,7 @@ int main(int argc, char* args[])
 			vector_2d[1] *= -1;
 		}
 
-		++countedFrames;
-
-		cap_framerate(startingTick, countedFrames);
+		cap_framerate(startingTick);
 	}
 
 	Close();
