@@ -5,8 +5,11 @@
 #include <string>
 #include <vector>
 
+const std::string WINDOW_TITLE = "SDL Test";
 const int SCREEN_WIDTH = 720;
 const int SCREEN_HIGHT = 480;
+const int SCREEN_FPS = 60;
+const int SCREEN_TICKS_PER_FRAME = 1000 / SCREEN_FPS;
 
 bool Initialized();
 void Close();
@@ -17,6 +20,23 @@ SDL_Window* window = NULL;
 //SDL_Surface* screen = NULL;
 SDL_Renderer* renderer = NULL;
 SDL_Texture* texture = NULL;
+
+void cap_framerate(Uint32 startingTick, int countedFrames)
+{
+	if (SCREEN_TICKS_PER_FRAME > SDL_GetTicks() - startingTick)
+	{
+		SDL_Delay(SCREEN_TICKS_PER_FRAME - (SDL_GetTicks() - startingTick));
+	}
+
+	float avgFPS = countedFrames / ((SDL_GetTicks() - startingTick) / 1000.f);
+	if (avgFPS > 2000000)
+	{
+		avgFPS = 0;
+	}
+
+	std::string newWindowTitle = WINDOW_TITLE + " | FPS=" + std::to_string((int)avgFPS);
+	SDL_SetWindowTitle(window, newWindowTitle.c_str());
+}
 
 int main(int argc, char* args[])
 {
@@ -39,6 +59,7 @@ int main(int argc, char* args[])
 	int w, h;
 	SDL_QueryTexture(texture, NULL, NULL, &w, &h);
 
+	Uint32 startingTick;
 	bool exit_flag = false;
 	SDL_Event event;
 
@@ -49,6 +70,9 @@ int main(int argc, char* args[])
 
 	while (!exit_flag)
 	{
+		startingTick = SDL_GetTicks();
+		int countedFrames = 0;
+
 		while (SDL_PollEvent(&event) != 0)
 		{
 			if (event.type == SDL_QUIT || event.key.keysym.sym == SDLK_ESCAPE)
@@ -72,6 +96,10 @@ int main(int argc, char* args[])
 		{
 			vector_2d[1] *= -1;
 		}
+
+		++countedFrames;
+
+		cap_framerate(startingTick, countedFrames);
 	}
 
 	Close();
@@ -86,9 +114,12 @@ bool Initialized()
 		return false;
 	}
 
-	window = SDL_CreateWindow("SDL Test",
-		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-		SCREEN_WIDTH, SCREEN_HIGHT, SDL_WINDOW_SHOWN);
+	window = SDL_CreateWindow(	WINDOW_TITLE.c_str(),
+								SDL_WINDOWPOS_UNDEFINED, 
+								SDL_WINDOWPOS_UNDEFINED,
+								SCREEN_WIDTH, 
+								SCREEN_HIGHT,
+								SDL_WINDOW_SHOWN         );
 
 	if (window == NULL)
 	{
