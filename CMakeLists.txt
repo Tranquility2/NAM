@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.10)
-project(nam CXX)
+cmake_minimum_required(VERSION 3.14)
+project(NAM CXX)
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -9,12 +9,27 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-add_compile_options(-Wall -Wextra)
+if(MSVC)
+    add_compile_options(/W4)
+else()
+    add_compile_options(-Wall -Wextra)
+endif()
 
-add_executable(nam
-    NAM_draft/main.cpp
-    NAM_draft/map.cpp
-    NAM_draft/console.cpp
-)
+# Which components to build.
+option(NAM_BUILD_CONSOLE  "Build the ASCII/console version of NAM"  ON)
+option(NAM_BUILD_SDL      "Build the SDL graphical version of NAM"  OFF)
+option(NAM_BUILD_SDL_TEST "Build the SDL sandbox (SDL_test)"        OFF)
 
-target_include_directories(nam PRIVATE NAM_draft)
+add_subdirectory(core)
+
+if(NAM_BUILD_CONSOLE)
+    add_subdirectory(NAM_Console)
+endif()
+
+if(NAM_BUILD_SDL)
+    add_subdirectory(NAM_SDL)
+endif()
+
+if(NAM_BUILD_SDL_TEST)
+    add_subdirectory(SDL_test)
+endif()
