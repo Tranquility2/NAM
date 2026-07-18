@@ -111,7 +111,9 @@ int main(int argc, char* args[])
 
 bool Initialized()
 {
-	if (SDL_Init(SDL_INIT_EVERYTHING) < 0)
+	/* Only the video subsystem is needed for this sandbox; asking for
+	 * SDL_INIT_EVERYTHING would try to open an audio device we never use. */
+	if (SDL_Init(SDL_INIT_VIDEO) < 0)
 	{
 		std::cout << "SDL could not be initilized! SDL_Error: " <<  SDL_GetError() << std::endl;
 		return false;
