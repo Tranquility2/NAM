@@ -16,6 +16,11 @@ void Close();
 SDL_Texture* LoadTexture(std::string file);
 SDL_Texture* TextTexture(std::string text);
 
+/* Absolute path to the directory the executable lives in (with trailing
+ * separator). Populated in main() via SDL_GetBasePath so asset loads work
+ * regardless of the current working directory on Linux, macOS, and Windows. */
+std::string base_path;
+
 SDL_Window* window = NULL;
 //SDL_Surface* screen = NULL;
 SDL_Renderer* renderer = NULL;
@@ -31,15 +36,25 @@ void cap_framerate(Uint32 startingTick)
 
 int main(int argc, char* args[])
 {
+	(void)argc;
+	(void)args;
+
 	if (!Initialized())
 	{
 		std::cout << "Could not initialize!" << std::endl;
 		return 1;
 	}
 
+	char* sdl_base = SDL_GetBasePath();
+	if (sdl_base)
+	{
+		base_path = sdl_base;
+		SDL_free(sdl_base);
+	}
+
 	std::cout << "Initialized..." << std::endl;
 
-	std::string image_file_name = "Sdl-logo.png";
+	std::string image_file_name = base_path + "Sdl-logo.png";
 	texture = LoadTexture(image_file_name.c_str());
 	//texture = TextTexture("SDL Test");
 	if (texture == NULL)
@@ -179,7 +194,7 @@ SDL_Texture *TextTexture(std::string text)
 	SDL_Texture* newTexture = NULL;
 	TTF_Font* Sans = NULL;
 
-	Sans = TTF_OpenFont("Sans.ttf", 12);
+	Sans = TTF_OpenFont((base_path + "Sans.ttf").c_str(), 12);
 	SDL_Color Black = { 0, 0, 0 };
 
 	SDL_Surface* surfaceText = TTF_RenderText_Solid(Sans, text.c_str(), Black);
