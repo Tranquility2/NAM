@@ -1,0 +1,5 @@
+# Map parser fixtures encode LF vs CRLF on purpose. Treat them as binary so Git
+# never normalizes their line endings on checkout or commit; the LF/CRLF
+# equivalence test depends on valid-lf.map and valid-crlf.map differing only in
+# their endings.
+tests/fixtures/*.map -text
