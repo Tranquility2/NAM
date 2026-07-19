@@ -1,17 +1,27 @@
-# Convenience wrapper around CMake. The real build system is CMake —
-# this Makefile just gives you short commands for common tasks.
+# Convenience wrapper around CMake. The real build system is CMake (see
+# CMakeLists.txt and CMakePresets.json) — this Makefile just gives short
+# commands for common tasks and never duplicates build logic.
 
 BUILD_DIR       ?= build
 BUILD_TYPE      ?= Release
 JOBS            ?= $(shell nproc 2>/dev/null || echo 4)
 CMAKE_GENERATOR ?= Unix Makefiles
 
+# Dedicated build trees for the specialised tasks (all under build/, ignored).
+TEST_DIR         = $(BUILD_DIR)/test
+SANITIZE_DIR     = $(BUILD_DIR)/sanitize
+
+# Fail-fast sanitizer runtime options (mirrors the asan-ubsan test preset).
+ASAN_OPTIONS_RT  = halt_on_error=1:abort_on_error=1:detect_leaks=1:print_stacktrace=1
+UBSAN_OPTIONS_RT = halt_on_error=1:print_stacktrace=1
+
 # CMake option flags for each optional target.
 CMAKE_OPTS_BASE = -S . -B $(BUILD_DIR) -G "$(CMAKE_GENERATOR)" \
                   -DCMAKE_BUILD_TYPE=$(BUILD_TYPE)
 
 .PHONY: all console sdl sdl-test configure configure-sdl-test configure-sdl \
-        build rebuild run run-sdl-test clean distclean help
+        build rebuild run run-sdl-test test sanitize \
+        clean distclean help
 
 # Default target: build the console game.
 all: console
@@ -23,10 +33,14 @@ help:
 	@echo "  make sdl           Build NAM_SDL (future graphical version)"
 	@echo "  make sdl-test      Build the SDL sandbox (downloads SDL2 on 1st run)"
 	@echo "  make run           Run the console game"
-	@echo "  make run-sdl-test  Run the SDL sandbox"
+	@echo "  make test          Configure + build + run the CTest suite"
+	@echo "  make sanitize      Build with ASan/UBSan (fail-fast) and run the tests"
 	@echo "  make rebuild       Wipe build/ and rebuild from scratch"
 	@echo "  make clean         Remove build artifacts (keeps CMake cache)"
 	@echo "  make distclean     Remove the entire build/ directory"
+	@echo ""
+	@echo "Reproducible presets (need Ninja): cmake --preset {release|debug|asan-ubsan}"
+	@echo "  then: cmake --build --preset <name> && ctest --preset <name>"
 	@echo ""
 	@echo "Overridable variables:"
 	@echo "  BUILD_DIR=$(BUILD_DIR)   BUILD_TYPE=$(BUILD_TYPE)   JOBS=$(JOBS)"
@@ -65,6 +79,27 @@ run: console
 
 run-sdl-test: sdl-test
 	cd $(BUILD_DIR)/SDL_test && ./sdl_test
+
+# ---- tests -----------------------------------------------------------------
+
+# Configure a Debug tree with the test suite enabled, build it, and run CTest.
+test:
+	cmake -S . -B $(TEST_DIR) -G "$(CMAKE_GENERATOR)" \
+	      -DCMAKE_BUILD_TYPE=Debug -DNAM_BUILD_TESTS=ON
+	cmake --build $(TEST_DIR) -j$(JOBS)
+	cd $(TEST_DIR) && ctest --output-on-failure
+
+# Build the tests with AddressSanitizer + UndefinedBehaviorSanitizer and run
+# them fail-fast, so any sanitizer finding aborts and fails the suite.
+sanitize:
+	cmake -S . -B $(SANITIZE_DIR) -G "$(CMAKE_GENERATOR)" \
+	      -DCMAKE_BUILD_TYPE=Debug -DNAM_BUILD_TESTS=ON \
+	      -DNAM_SANITIZE="address;undefined"
+	cmake --build $(SANITIZE_DIR) -j$(JOBS)
+	cd $(SANITIZE_DIR) && \
+	  ASAN_OPTIONS=$(ASAN_OPTIONS_RT) UBSAN_OPTIONS=$(UBSAN_OPTIONS_RT) \
+	  ctest --output-on-failure
+
 
 # ---- clean -----------------------------------------------------------------
 

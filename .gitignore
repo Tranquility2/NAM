@@ -12,6 +12,9 @@ bld/
 build/
 tmp/
 
+# CMake FetchContent download cache (used by CI to cache pinned dependencies)
+.deps/
+
 # Visual Studio 2015 cache/options directory
 .vs/
 
@@ -19,4 +22,3 @@ tmp/
 .idea/
 .vscode/
 *.swp
-
