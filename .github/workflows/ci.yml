@@ -1,0 +1,211 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Ubuntu / GCC: Release build + tests, and a fail-fast ASan/UBSan run of the
+  # same suite. Configured through the shared presets.
+  ubuntu-gcc:
+    name: Ubuntu GCC (${{ matrix.preset }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [release, asan-ubsan]
+    env:
+      CC: gcc
+      CXX: g++
+      # One shared, cacheable location for FetchContent downloads (doctest).
+      FETCHCONTENT_BASE: ${{ github.workspace }}/.deps
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: deps-${{ runner.os }}-doctest-2.4.11
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }} -DFETCHCONTENT_BASE_DIR=${{ env.FETCHCONTENT_BASE }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-ubuntu-gcc-${{ matrix.preset }}
+          path: |
+            build/**/Testing/**
+          if-no-files-found: ignore
+
+  # Ubuntu / Clang: warnings-as-errors and the full test suite.
+  ubuntu-clang:
+    name: Ubuntu Clang (release, -Werror)
+    runs-on: ubuntu-latest
+    env:
+      CC: clang
+      CXX: clang++
+      FETCHCONTENT_BASE: ${{ github.workspace }}/.deps
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: deps-${{ runner.os }}-clang-doctest-2.4.11
+
+      - name: Configure
+        run: cmake --preset release -DFETCHCONTENT_BASE_DIR=${{ env.FETCHCONTENT_BASE }}
+
+      - name: Build
+        run: cmake --build --preset release
+
+      - name: Test
+        run: ctest --preset release --output-on-failure
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-ubuntu-clang
+          path: build/**/Testing/**
+          if-no-files-found: ignore
+
+  # macOS / AppleClang: Release build + tests.
+  macos:
+    name: macOS AppleClang (release)
+    runs-on: macos-latest
+    env:
+      FETCHCONTENT_BASE: ${{ github.workspace }}/.deps
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: deps-${{ runner.os }}-doctest-2.4.11
+
+      - name: Configure
+        run: cmake --preset release -DFETCHCONTENT_BASE_DIR=${{ env.FETCHCONTENT_BASE }}
+
+      - name: Build
+        run: cmake --build --preset release
+
+      - name: Test
+        run: ctest --preset release --output-on-failure
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-macos
+          path: build/**/Testing/**
+          if-no-files-found: ignore
+
+  # Windows / MSVC: Debug build with /WX and the test suite (Visual Studio
+  # generator; no Ninja needed).
+  windows-msvc:
+    name: Windows MSVC (${{ matrix.preset }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [windows-msvc-debug]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-windows-${{ matrix.preset }}
+          path: build/**/Testing/**
+          if-no-files-found: ignore
+
+  # Windows / MSVC AddressSanitizer: best-effort, since ASan runtime wiring on
+  # the hosted image can vary. Does not gate the required checks.
+  windows-msvc-asan:
+    name: Windows MSVC (asan, best-effort)
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake --preset windows-msvc-asan
+
+      - name: Build
+        run: cmake --build --preset windows-msvc-asan
+
+      - name: Test
+        run: ctest --preset windows-msvc-asan --output-on-failure
+
+  # Linux -> Windows cross-compilation with MinGW-w64: proves the console (and
+  # its Windows terminal backend) builds for Windows, and that the artifact is a
+  # PE executable. Complements — does not replace — the native MSVC job.
+  mingw-cross:
+    name: Linux MinGW cross-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MinGW-w64
+        run: sudo apt-get update && sudo apt-get install -y g++-mingw-w64-x86-64
+
+      - name: Configure (MinGW toolchain)
+        run: >-
+          cmake -S . -B build/mingw
+          -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/mingw-w64-x86_64.cmake
+          -DCMAKE_BUILD_TYPE=Release
+          -DNAM_BUILD_TESTS=OFF
+
+      - name: Build console executable
+        run: cmake --build build/mingw --target nam_console -j$(nproc)
+
+      - name: Verify the artifact is a Windows PE binary
+        run: |
+          exe=build/mingw/NAM_Console/nam_console.exe
+          file "$exe"
+          file "$exe" | grep -q "PE32+" || { echo "not a PE32+ binary"; exit 1; }
+
+      - name: Upload the cross-built executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: nam_console-windows-x86_64
+          path: build/mingw/NAM_Console/nam_console.exe
+          if-no-files-found: error
