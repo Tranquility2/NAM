@@ -3,3 +3,6 @@
 # equivalence test depends on valid-lf.map and valid-crlf.map differing only in
 # their endings.
 tests/fixtures/*.map -text
+
+# CLI stdin fixtures are LF command scripts; keep them stable across platforms.
+tests/cli/*.txt -text

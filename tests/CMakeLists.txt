@@ -8,6 +8,9 @@
 # Tests link nam_console_lib, which is the whole frontend minus main(), so every
 # behaviour — parsing, movement, rendering, the input decoder, settings, the
 # HUD, message mapping, and the plain/interactive app loop — is exercised
+# without a real terminal. CLI exit codes and "no ANSI when redirected" are
+# checked by running the real nam_console binary through a portable CMake driver
+# script (no live TTY required).
 
 if(NOT TARGET nam_console_lib)
     message(FATAL_ERROR "NAM tests require the console frontend; configure with -DNAM_BUILD_CONSOLE=ON")
@@ -69,3 +72,57 @@ nam_add_unit_test(nam_input_tests
 nam_add_unit_test(nam_console_tests
     SOURCES test_settings.cpp test_renderer.cpp test_messages.cpp
             test_app_state.cpp test_console_app.cpp)
+
+# --- CLI integration tests --------------------------------------------------
+#
+# These run the real executable with stdin/stdout redirected (never a TTY), so
+# the app takes its plain, ANSI-free path. The driver script asserts the exit
+# code and, where relevant, that no ESC byte was emitted.
+if(TARGET nam_console)
+    set(_cli_driver ${CMAKE_CURRENT_SOURCE_DIR}/cli/run_cli_test.cmake)
+    set(_quit_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_quit.txt)
+    set(_moves_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_moves.txt)
+
+    # add a CLI test: name plus driver options forwarded as -D definitions.
+    function(nam_add_cli_test name)
+        add_test(
+            NAME ${name}
+            COMMAND ${CMAKE_COMMAND}
+                    -DEXE=$<TARGET_FILE:nam_console>
+                    ${ARGN}
+                    -P ${_cli_driver})
+        set_tests_properties(${name} PROPERTIES LABELS "cli;integration")
+    endfunction()
+
+    nam_add_cli_test(cli_help
+        "-DARGS=--help" -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=Usage:" -DFORBID_ESC=1)
+    nam_add_cli_test(cli_help_short
+        "-DARGS=-h" -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=Usage:")
+    nam_add_cli_test(cli_version
+        "-DARGS=--version" -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=nam_console" -DFORBID_ESC=1)
+    nam_add_cli_test(cli_unknown_option
+        "-DARGS=--definitely-not-an-option" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=unknown option")
+    nam_add_cli_test(cli_conflicting_map
+        "-DARGS=--map|a.map|b.map" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=not both")
+    nam_add_cli_test(cli_missing_map_value
+        "-DARGS=--map" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=requires a path")
+    nam_add_cli_test(cli_missing_map_file
+        "-DARGS=--map|${NAM_FIXTURES_DIR}/does-not-exist.map" -DEXPECT_CODE=1
+        "-DEXPECT_CONTAINS=map")
+    nam_add_cli_test(cli_malformed_map
+        "-DARGS=--map|${NAM_FIXTURES_DIR}/malformed-header.map" -DEXPECT_CODE=1)
+    nam_add_cli_test(cli_unknown_symbol_map
+        "-DARGS=--map|${NAM_FIXTURES_DIR}/unknown-terrain.map" -DEXPECT_CODE=1
+        "-DEXPECT_CONTAINS=symbol")
+    nam_add_cli_test(cli_run_builtin_plain
+        "-DARGS=--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
+        "-DEXPECT_CONTAINS=Goodbye" -DFORBID_ESC=1)
+    nam_add_cli_test(cli_run_builtin_redirected
+        -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0 -DFORBID_ESC=1)
+    nam_add_cli_test(cli_run_valid_map
+        "-DARGS=--map|${NAM_FIXTURES_DIR}/valid-lf.map" -DINPUT_FILE=${_moves_stdin}
+        -DEXPECT_CODE=0 -DFORBID_ESC=1)
+    nam_add_cli_test(cli_run_deterministic
+        "-DARGS=--map|${NAM_FIXTURES_DIR}/valid-lf.map" -DINPUT_FILE=${_moves_stdin}
+        -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
+endif()
