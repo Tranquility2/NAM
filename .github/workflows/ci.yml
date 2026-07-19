@@ -36,7 +36,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .deps
-          key: deps-${{ runner.os }}-doctest-2.4.11
+          key: deps-${{ runner.os }}-doctest-2.4.12
 
       - name: Configure
         run: cmake --preset ${{ matrix.preset }} -DFETCHCONTENT_BASE_DIR=${{ env.FETCHCONTENT_BASE }}
@@ -74,7 +74,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .deps
-          key: deps-${{ runner.os }}-clang-doctest-2.4.11
+          key: deps-${{ runner.os }}-clang-doctest-2.4.12
 
       - name: Configure
         run: cmake --preset release -DFETCHCONTENT_BASE_DIR=${{ env.FETCHCONTENT_BASE }}
@@ -109,7 +109,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .deps
-          key: deps-${{ runner.os }}-doctest-2.4.11
+          key: deps-${{ runner.os }}-doctest-2.4.12
 
       - name: Configure
         run: cmake --preset release -DFETCHCONTENT_BASE_DIR=${{ env.FETCHCONTENT_BASE }}
@@ -132,7 +132,7 @@ jobs:
   # generator; no Ninja needed).
   windows-msvc:
     name: Windows MSVC (${{ matrix.preset }})
-    runs-on: windows-latest
+    runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
@@ -161,7 +161,7 @@ jobs:
   # the hosted image can vary. Does not gate the required checks.
   windows-msvc-asan:
     name: Windows MSVC (asan, best-effort)
-    runs-on: windows-latest
+    runs-on: windows-2022
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
