@@ -1,19 +1,23 @@
 cmake_minimum_required(VERSION 3.14)
 project(NAM CXX)
 
-set(CMAKE_CXX_STANDARD 11)
+# C++17 is the project-wide baseline.
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-if(MSVC)
-    add_compile_options(/W4)
-else()
-    add_compile_options(-Wall -Wextra)
-endif()
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+
+# NAM targets opt into the warning policy explicitly, so FetchContent
+# dependencies are never compiled with project warning flags.
+include(nam_warnings)
+
+# Optional sanitizer instrumentation driven by NAM_SANITIZE.
+include(nam_sanitizers)
 
 # Which components to build.
 option(NAM_BUILD_CONSOLE  "Build the ASCII/console version of NAM"  ON)
