@@ -1,0 +1,33 @@
+#pragma once
+
+#include <string>
+
+#include "direction.h"
+#include "map_parser.h"
+#include "move_outcome.h"
+#include "terrain.h"
+
+// User-facing wording lives entirely in the frontend. The core returns typed,
+// non-localized results (MoveResult, Terrain, MapLoadError); these helpers turn
+// them into the English strings the console shows. Keeping this here is what
+// lets the core stay presentation-free and reusable by other frontends.
+namespace nam::console {
+
+// A short lower-case noun for a terrain type, e.g. "open", "mountain".
+[[nodiscard]] std::string terrain_name(Terrain terrain);
+
+// A single-letter tag for a direction, used in the compact recent-move HUD.
+[[nodiscard]] char direction_letter(Direction direction) noexcept;
+
+// A full human-readable name for a direction, e.g. "up".
+[[nodiscard]] std::string direction_name(Direction direction);
+
+// A sentence describing the outcome of a move attempt, suitable for the HUD's
+// latest-event line.
+[[nodiscard]] std::string describe_move(const MoveOutcome& outcome);
+
+// A user-facing explanation of why a map failed to load, including the source
+// and line/column when the parser reported them.
+[[nodiscard]] std::string describe_map_error(const MapLoadError& error);
+
+}  // namespace nam::console

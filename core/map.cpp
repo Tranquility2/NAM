@@ -1,158 +1,66 @@
 #include "map.h"
-#include "resources.h"
 
-using namespace std;
+#include <cassert>
+#include <stdexcept>
+#include <utility>
 
-MapData::MapData(const string file_name)
-{
-	/* init */
-	_columns = _rows = 0;
-	_map_data = NULL;
-
-	if (!file_name.empty())
-	{
-		load_ascii_map_file(file_name);
-	}
-	else
-	{
-		load_ascii_map_stream(map1);
-	}
-	
-	/* TODO: player startup location should be refactored: 
-		1. player will start in the middle for now
-		2. consider other map size
-		3. check if starting location is valid
-		4. try and randomize the location */
-	_actor_cell_number = (_rows * _columns / 2) - (_columns / 2);
+Map::Map(std::size_t width, std::size_t height, std::vector<Terrain> cells, Coordinates spawn)
+    : width_(width), height_(height), cells_(std::move(cells)), spawn_(spawn) {
+    if (width_ == 0 || height_ == 0) {
+        throw std::invalid_argument("Map dimensions must be non-zero");
+    }
+    if (cells_.size() != width_ * height_) {
+        throw std::invalid_argument("Map cell count does not match dimensions");
+    }
+    if (!contains(spawn_)) {
+        throw std::invalid_argument("Map spawn is outside the bounds");
+    }
 }
 
-MapData::~MapData() 
-{ 
-	/* clean map_data */
-	for (int i = 0; i < _rows; ++i)
-		delete _map_data[i];
-
-	delete _map_data;
+bool Map::contains(Coordinates position) const noexcept {
+    return position.x >= 0 && position.y >= 0 &&
+           static_cast<std::size_t>(position.x) < width_ &&
+           static_cast<std::size_t>(position.y) < height_;
 }
 
-/* read ascii map data from file */
-void MapData::load_ascii_map_file(const string file_name)
-{
-	ifstream infile;
-	infile.open(file_name, ios::in);
-
-	if (infile.is_open())
-	{
-		ostringstream ss;
-		ss << infile.rdbuf();
-		string buffer = ss.str();
-		load_ascii_map_stream(buffer);
-		infile.close();
-	}
-	else 
-	{
-		cout << "Error opening file" << endl;
-	}
+std::size_t Map::index(Coordinates position) const noexcept {
+    return static_cast<std::size_t>(position.y) * width_ + static_cast<std::size_t>(position.x);
 }
 
-
-void MapData::load_ascii_map_stream(string map)
-{
-	std::istringstream buffer (map);
-
-	buffer >> _columns;
-	buffer >> _rows;
-	buffer.get(); // newlines char
-	/* init 2d array */
-	_map_data = new char*[_rows];
-	for (int i = 0; i < _rows; ++i)
-		_map_data[i] = new char[_columns];
-
-	zero_map_fill();
-	/* get map data */
-	for (int i = 0; i < _rows; i++)
-	{
-		for (int j = 0; j < _columns; j++)
-		{
-			char ch = (char)buffer.get();
-			//cout << '[' << i << ',' << j << ']' << ch << endl;
-			_map_data[i][j] = ch;
-		}
-	}
+Terrain Map::terrain_at(Coordinates position) const {
+    assert(contains(position) && "terrain_at requires an in-bounds coordinate");
+    return cells_[index(position)];
 }
 
-
-void MapData::zero_map_fill()
-{
-	for (int i = 0; i < _rows; i++)
-	{
-		for (int j = 0; j < _columns; j++)
-		{
-			_map_data[i][j] = { 0 };
-		}
-	}
+std::string Map::to_string() const {
+    return serialize(nullptr, '\0');
 }
 
-Location MapData::move_actor(Direction direction)
-{
-	int new_actor_cell_number;
-	Coordinates actor_c = actor_coordinates(_actor_cell_number);
-	
-	actor_c += moveAxis[direction];
-	new_actor_cell_number = actor_cell_number(actor_c);
-
-	/* some senity checks are needed */
-	if (actor_c.X == 0 || actor_c.X == _columns - 2 || actor_c.Y == 0 || actor_c.Y == rows() -1)
-	{
-		return {false, messageMap["unreachable_location"]};
-	}
-	
-	_actor_cell_number = new_actor_cell_number;
-
-	return terrainMap[terrain_on(actor_c)];
+std::string Map::to_string(Coordinates actor, char actor_glyph) const {
+    assert(contains(actor) && "to_string requires an in-bounds actor");
+    return serialize(&actor, actor_glyph);
 }
 
-Coordinates MapData::actor_coordinates(int cel_number)
-{
-	short int x, y;
+std::string Map::serialize(const Coordinates* actor, char actor_glyph) const {
+    std::string out;
+    // width * height terrain glyphs plus one separator after every row except
+    // the last: reserve the exact upper bound so the buffer never reallocates
+    // past its size or overflows.
+    out.reserve(width_ * height_ + height_);
 
-	y = cel_number / _columns;
-	x = cel_number - y * _columns;
+    for (std::size_t y = 0; y < height_; ++y) {
+        if (y != 0) {
+            out.push_back('\n');
+        }
+        for (std::size_t x = 0; x < width_; ++x) {
+            const Coordinates here{static_cast<int>(x), static_cast<int>(y)};
+            if (actor != nullptr && *actor == here) {
+                out.push_back(actor_glyph);
+            } else {
+                out.push_back(symbol_of(cells_[index(here)]));
+            }
+        }
+    }
 
-	return { x , y };
-}
-
-const char MapData::terrain_on(Coordinates coordinates)
-{
-	char terrain = _map_data[coordinates.Y][coordinates.X];
-
-	return terrain;
-}
-
-string MapData::printable_map()
-{
-	/* total size + room for newlines char */
-	char *buff = new char[_rows * _columns];
-	int buff_pos = 0;
-	string result;
-
-	for (int i = 0; i < _rows; i++)
-	{
-		for (int j = 0; j < _columns; j++)
-		{
-			if (buff_pos == _actor_cell_number)
-			{
-				buff[buff_pos++] = (char) '+';
-			}
-			else
-			{
-				buff[buff_pos++] =_map_data[i][j];
-			}
-		}
-	}
-
-	buff[buff_pos++] = { 0 };
-	result = buff;
-
-	return result;
+    return out;
 }

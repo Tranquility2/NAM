@@ -1,108 +1,59 @@
+#include <exception>
 #include <iostream>
-#include <string>
-#include <vector>
-#include <sstream>
-#include <map>
+#include <optional>
+#include <utility>
+#include <variant>
 
+#include "console_app.h"
+#include "game_state.h"
 #include "map.h"
-#include "console.h"
+#include "map_parser.h"
+#include "messages.h"
+#include "settings.h"
 
-using namespace std;
+// Process exit codes (see the plan's error contract):
+//   0  normal exit
+//   1  map/data error
+//   2  usage, configuration, or terminal-initialization error
+int main(int argc, char** argv) {
+    using namespace nam::console;
 
-map<Keys, const char*> keyLetterMap = {
-	{ Keys::up,  "U" },
-	{ Keys::down, "D" },
-	{ Keys::left, "L" },
-	{ Keys::right, "R" }
-};
+    const Environment environment = Environment::from_process();
+    const CliResult cli = parse_cli(argc, argv, environment);
 
-map<Keys, Direction> keys2directionMap = {
-	{ Keys::up, Direction::up },
-	{ Keys::down, Direction::down },
-	{ Keys::left, Direction::left },
-	{ Keys::right, Direction::right }
-};
+    switch (cli.action) {
+        case CliAction::error:
+            std::cerr << "nam_console: " << cli.message << "\n\n" << usage_text();
+            return cli.exit_code;
+        case CliAction::show_help:
+            std::cout << usage_text();
+            return cli.exit_code;
+        case CliAction::show_version:
+            std::cout << version_text();
+            return cli.exit_code;
+        case CliAction::run:
+            break;
+    }
 
-string display(MapData *map_data, vector<const char*> *keys, string *message)
-{
-	ostringstream out;
-	Coordinates current_location = map_data->actor_coordinates(map_data->actor_cell_number());
+    // Load and validate the map up front. This needs no terminal, so map errors
+    // are reported cleanly whether or not stdout is a TTY.
+    std::optional<Map> map;
+    if (cli.settings.map_path) {
+        MapLoadResult result = load_map_file(*cli.settings.map_path);
+        if (const MapLoadError* error = std::get_if<MapLoadError>(&result)) {
+            std::cerr << "nam_console: " << describe_map_error(*error) << "\n";
+            return 1;
+        }
+        map.emplace(std::get<Map>(std::move(result)));
+    } else {
+        try {
+            map.emplace(builtin_map());
+        } catch (const std::exception& ex) {
+            std::cerr << "nam_console: built-in map failed to load: " << ex.what() << "\n";
+            return 1;
+        }
+    }
 
-	gotoxy(0, 0);
-	out.str("");
-	out.clear();
-	
-	out << (*map_data).printable_map() << endl;
-	out << *message << endl << endl << endl;
-	out << "DEBUG:" << map_data->columns() << 'x' << (*map_data).rows();
-	out << "(@" << map_data->actor_cell_number() << ')';
-	out << '[' << current_location.X << 'x' << current_location.Y << ']';
-	out << "->" << map_data->terrain_on(current_location) << "<-"<< endl;
-	/* deplay last keys */
-	for (auto i = keys->begin(); i != keys->end(); ++i)
-	{
-		out << *i;
-	}
-
-	return out.str();
+    GameState state(std::move(*map));
+    return run(std::move(state), cli.settings, environment);
 }
-
-int main()
-{
-	MapData map_data("");
-	vector<const char*> keys;
-	string message;
-	bool game_loop_flag = true;
-
-	console_init();
-	ShowConsoleCursor(false);
-	/* Clear screen once so gotoxy(0, 0) redraws produce a clean frame. */
-	cout << "\033[2J" << flush;
-
-	///* main game loop */
-	while (game_loop_flag)
-	{
-		if (kb_hit()) {
-			int ch = kb_getch();
-			if (ch < 0) {          /* EOF on stdin */
-				message = "Good bye...";
-				game_loop_flag = false;
-				break;
-			}
-			/*
-			 * On Linux, arrow keys arrive as an escape sequence: ESC '[' 'A'/'B'/'C'/'D'.
-			 * A bare ESC (no follow-up bytes) means the user wants to quit.
-			 */
-			if (ch == (int)Keys::esc)
-			{
-				if (kb_hit() && kb_getch() == '[')
-				{
-					if (kb_hit())
-					{
-						ch = kb_getch();
-						Location new_location = map_data.move_actor(keys2directionMap[Keys(ch)]);
-						message = new_location.message;
-						if (new_location.reachable)
-						{
-							keys.push_back(keyLetterMap[Keys(ch)]); // Save key
-						}
-					}
-				}
-				else
-				{
-					message = "Good bye...";
-					game_loop_flag = false;
-					break;
-				}
-			}
-		}
-
-		cout << display(&map_data, &keys, &message) << flush;
-	}
-
-	console_restore();
-	cout << endl << message << endl;
-
-	return 0;
-}
- 
