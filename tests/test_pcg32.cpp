@@ -179,10 +179,14 @@ TEST_CASE("state parsing reports each typed error distinctly") {
 }
 
 TEST_CASE("error codes map to stable identifier strings") {
-    CHECK(to_string(Pcg32StateErrorCode::invalid_format) == "invalid_format");
-    CHECK(to_string(Pcg32StateErrorCode::unsupported_version) == "unsupported_version");
-    CHECK(to_string(Pcg32StateErrorCode::invalid_hex) == "invalid_hex");
-    CHECK(to_string(Pcg32StateErrorCode::invalid_increment) == "invalid_increment");
+    // to_string returns a std::string_view; wrapping it in std::string makes
+    // doctest decompose and stringify std::string instead. MSVC would otherwise
+    // instantiate its string_view ostream inserter against an incomplete
+    // std::basic_ostream (C2027); the comparisons themselves are unchanged.
+    CHECK(std::string(to_string(Pcg32StateErrorCode::invalid_format)) == "invalid_format");
+    CHECK(std::string(to_string(Pcg32StateErrorCode::unsupported_version)) == "unsupported_version");
+    CHECK(std::string(to_string(Pcg32StateErrorCode::invalid_hex)) == "invalid_hex");
+    CHECK(std::string(to_string(Pcg32StateErrorCode::invalid_increment)) == "invalid_increment");
 }
 
 }  // TEST_SUITE("game")
