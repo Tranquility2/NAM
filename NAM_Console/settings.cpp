@@ -2,12 +2,13 @@
 
 #include <cstdlib>
 
+#include "nam/version.h"
+
 namespace nam::console {
 
 namespace {
 
 constexpr const char* kProgramName = "nam_console";
-constexpr const char* kVersion = "1.0.0";
 
 [[nodiscard]] std::optional<std::string> environment_value(const char* name) {
 #ifdef _MSC_VER
@@ -160,7 +161,7 @@ std::string usage_text() {
 std::string version_text() {
     std::string text = kProgramName;
     text += ' ';
-    text += kVersion;
+    text += nam::version;
     text += '\n';
     return text;
 }

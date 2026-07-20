@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "nam/version.h"
 #include "settings.h"
 
 using namespace nam::console;
@@ -134,6 +135,17 @@ TEST_CASE("usage and version text are self-describing") {
 
     const std::string version = version_text();
     CHECK(version.find("nam_console") != std::string::npos);
+}
+
+TEST_CASE("the generated version constants describe 0.2.0") {
+    CHECK(nam::version == "0.2.0");
+    CHECK(nam::version_major == 0);
+    CHECK(nam::version_minor == 2);
+    CHECK(nam::version_patch == 0);
+}
+
+TEST_CASE("version_text is exactly the program banner for the generated version") {
+    CHECK(version_text() == "nam_console 0.2.0\n");
 }
 
 }  // TEST_SUITE("console")

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(NAM CXX)
+project(NAM VERSION 0.2.0 LANGUAGES CXX)
 
 # C++17 is the project-wide baseline. Individual targets may still request the
 # feature explicitly (nam_core does), but this makes 17 the floor everywhere.
@@ -12,6 +12,16 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+
+# The configured project version above is the single source of the NAM version.
+# Generate a small namespaced C++ API (nam/version.h) from it so every frontend
+# and test shares one typed value instead of a hand-copied literal. The generated
+# header lives in the build tree and is exposed publicly by nam_core.
+file(MAKE_DIRECTORY ${PROJECT_BINARY_DIR}/generated/nam)
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.h.in
+    ${PROJECT_BINARY_DIR}/generated/nam/version.h
+    @ONLY)
 
 # Warning policy lives in a private INTERFACE target (cmake/nam_warnings.cmake).
 # NAM targets link it to opt into warnings-as-errors; FetchContent dependencies

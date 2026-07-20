@@ -99,7 +99,7 @@ if(TARGET nam_console)
     nam_add_cli_test(cli_help_short
         "-DARGS=-h" -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=Usage:")
     nam_add_cli_test(cli_version
-        "-DARGS=--version" -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=nam_console" -DFORBID_ESC=1)
+        "-DARGS=--version" -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=nam_console 0.2.0" -DFORBID_ESC=1)
     nam_add_cli_test(cli_unknown_option
         "-DARGS=--definitely-not-an-option" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=unknown option")
     nam_add_cli_test(cli_conflicting_map

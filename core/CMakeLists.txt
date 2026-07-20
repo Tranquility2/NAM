@@ -20,7 +20,14 @@ add_library(nam_core STATIC
 # independent of the project-wide default.
 target_compile_features(nam_core PUBLIC cxx_std_17)
 
-target_include_directories(nam_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+# The source tree carries the hand-written headers; the build tree carries the
+# generated version API (nam/version.h). Both are public so frontends and tests
+# that link nam_core can include either. No install interface is needed because
+# this repository has no install rules.
+target_include_directories(nam_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/generated>
+)
 
 # Warnings-as-errors for NAM code, via the shared private interface target.
 target_link_libraries(nam_core PRIVATE nam_warnings)
