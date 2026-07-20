@@ -22,8 +22,7 @@ UBSAN_OPTIONS_RT = halt_on_error=1:print_stacktrace=1
 CMAKE_OPTS_BASE = -S . -B $(BUILD_DIR) -G "$(CMAKE_GENERATOR)" \
                   -DCMAKE_BUILD_TYPE=$(BUILD_TYPE)
 
-.PHONY: all console sdl sdl-test configure configure-sdl-test configure-sdl \
-        build rebuild run run-sdl-test test sanitize mingw mingw-test \
+.PHONY: all console configure build rebuild run test sanitize mingw mingw-test \
         clean distclean help
 
 # Default target: build the console game.
@@ -33,8 +32,6 @@ help:
 	@echo "Common targets:"
 	@echo "  make               Build the console game (default)"
 	@echo "  make console       Build only NAM_Console"
-	@echo "  make sdl           Build NAM_SDL (future graphical version)"
-	@echo "  make sdl-test      Build the SDL sandbox (downloads SDL2 on 1st run)"
 	@echo "  make run           Run the console game"
 	@echo "  make test          Configure + build + run the CTest suite"
 	@echo "  make sanitize      Build with ASan/UBSan (fail-fast) and run the tests"
@@ -55,22 +52,10 @@ help:
 configure:
 	cmake $(CMAKE_OPTS_BASE) -DNAM_BUILD_CONSOLE=ON
 
-configure-sdl:
-	cmake $(CMAKE_OPTS_BASE) -DNAM_BUILD_CONSOLE=ON -DNAM_BUILD_SDL=ON
-
-configure-sdl-test:
-	cmake $(CMAKE_OPTS_BASE) -DNAM_BUILD_CONSOLE=ON -DNAM_BUILD_SDL_TEST=ON
-
 # ---- build -----------------------------------------------------------------
 
 console: configure
 	cmake --build $(BUILD_DIR) --target nam_console -j$(JOBS)
-
-sdl: configure-sdl
-	cmake --build $(BUILD_DIR) --target nam_sdl -j$(JOBS)
-
-sdl-test: configure-sdl-test
-	cmake --build $(BUILD_DIR) --target sdl_test -j$(JOBS)
 
 build: configure
 	cmake --build $(BUILD_DIR) -j$(JOBS)
@@ -81,9 +66,6 @@ rebuild: distclean build
 
 run: console
 	./$(BUILD_DIR)/NAM_Console/nam_console
-
-run-sdl-test: sdl-test
-	cd $(BUILD_DIR)/SDL_test && ./sdl_test
 
 # ---- tests -----------------------------------------------------------------
 

@@ -25,22 +25,12 @@ include(nam_sanitizers)
 
 # Which components to build.
 option(NAM_BUILD_CONSOLE  "Build the ASCII/console version of NAM"  ON)
-option(NAM_BUILD_SDL      "Build the SDL graphical version of NAM"  OFF)
-option(NAM_BUILD_SDL_TEST "Build the SDL sandbox (SDL_test)"        OFF)
 option(NAM_BUILD_TESTS    "Build the unit and integration tests"    OFF)
 
 add_subdirectory(core)
 
 if(NAM_BUILD_CONSOLE)
     add_subdirectory(NAM_Console)
-endif()
-
-if(NAM_BUILD_SDL)
-    add_subdirectory(NAM_SDL)
-endif()
-
-if(NAM_BUILD_SDL_TEST)
-    add_subdirectory(SDL_test)
 endif()
 
 # Tests are gated behind NAM_BUILD_TESTS so a plain `cmake --build` of the game
