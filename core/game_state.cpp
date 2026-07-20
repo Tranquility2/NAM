@@ -24,12 +24,19 @@ MoveOutcome GameState::peek(Direction direction) const {
     return {MoveResult::moved, from, target, destination};
 }
 
-MoveOutcome GameState::move(Direction direction) {
+GameEvent GameState::move(Direction direction) {
+    // peek remains the single source of movement outcomes; move only commits the
+    // result and wraps it in an ordered event.
     const MoveOutcome outcome = peek(direction);
     if (outcome.result == MoveResult::moved) {
         actor_position_ = outcome.to;
     }
-    return outcome;
+
+    GameEvent event;
+    event.sequence = next_event_sequence_;
+    event.data = MoveAttemptedEvent{direction, outcome};
+    ++next_event_sequence_;
+    return event;
 }
 
 std::string GameState::render(char actor_glyph) const {

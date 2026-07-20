@@ -7,6 +7,7 @@ add_library(nam_core STATIC
     terrain.h
     direction.h
     move_outcome.h
+    game_event.h
     map.h
     map.cpp
     map_parser.h

@@ -3,7 +3,9 @@
 #include <cctype>
 #include <iostream>
 #include <utility>
+#include <variant>
 
+#include "game_event.h"
 #include "messages.h"
 
 namespace nam::console {
@@ -87,9 +89,10 @@ RenderInput ConsoleApp::make_input(bool emphasize) const {
 }
 
 void ConsoleApp::apply_move(Direction direction, bool& emphasize) {
-    const MoveOutcome outcome = state_.move(direction);
-    hud_.record_move(direction, outcome);
-    emphasize = outcome.result == MoveResult::moved;
+    const GameEvent event = state_.move(direction);
+    const MoveAttemptedEvent& payload = std::get<MoveAttemptedEvent>(event.data);
+    hud_.record_event(event);
+    emphasize = payload.outcome.result == MoveResult::moved;
 }
 
 int ConsoleApp::run_interactive(TerminalSession& session) {

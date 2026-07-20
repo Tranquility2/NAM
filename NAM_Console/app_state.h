@@ -5,6 +5,7 @@
 #include <string>
 
 #include "direction.h"
+#include "game_event.h"
 #include "move_outcome.h"
 
 namespace nam::console {
@@ -25,9 +26,10 @@ public:
     // The most recent moves kept for display. Fixed so the HUD never grows.
     static constexpr std::size_t recent_capacity = 12;
 
-    // Record a move attempt and its outcome, updating the counter, the bounded
-    // history, and the latest-event message.
-    void record_move(Direction direction, const MoveOutcome& outcome);
+    // Record a movement event, updating the counters, the bounded history, and
+    // the latest-event message from its MoveAttemptedEvent payload. The event's
+    // sequence is not consumed or displayed yet.
+    void record_event(const GameEvent& event);
 
     // Replace the latest-event message without recording a move (used for
     // welcome text, resize notices, and shutdown).

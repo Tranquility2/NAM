@@ -1,9 +1,11 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include "coordinates.h"
 #include "direction.h"
+#include "game_event.h"
 #include "map.h"
 #include "move_outcome.h"
 #include "terrain.h"
@@ -23,10 +25,13 @@ public:
     // Compute the outcome of moving one step without changing any state.
     [[nodiscard]] MoveOutcome peek(Direction direction) const;
 
-    // Attempt to move one step. The destination is validated for both bounds
-    // and terrain passability before the actor position is committed, so a
-    // blocked or out-of-bounds move leaves all state unchanged.
-    [[nodiscard]] MoveOutcome move(Direction direction);
+    // Attempt to move one step and emit exactly one ordered event describing the
+    // attempt. The destination is validated for both bounds and terrain
+    // passability before the actor position is committed, so a blocked or
+    // out-of-bounds move leaves all state unchanged — but still emits an event
+    // and consumes a sequence number. The returned event carries the requested
+    // direction and the full MoveOutcome.
+    [[nodiscard]] GameEvent move(Direction direction);
 
     // Render the map with the actor drawn as `actor_glyph`. The glyph is a
     // frontend choice; the core imposes no presentation of its own.
@@ -35,4 +40,5 @@ public:
 private:
     Map map_;
     Coordinates actor_position_;
+    std::uint64_t next_event_sequence_ = 0;
 };

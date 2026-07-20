@@ -1,10 +1,12 @@
 #include <doctest/doctest.h>
 
+#include <cstdint>
 #include <string_view>
 #include <variant>
 #include <vector>
 
 #include "direction.h"
+#include "game_event.h"
 #include "game_state.h"
 #include "map.h"
 #include "map_parser.h"
@@ -33,13 +35,24 @@ TEST_CASE("identical map and input produce identical event streams") {
     GameState a(make_map(kMap));
     GameState b(make_map(kMap));
 
+    std::uint64_t expected_sequence = 0;
     for (const Direction direction : script) {
-        const MoveOutcome oa = a.move(direction);
-        const MoveOutcome ob = b.move(direction);
-        CHECK(oa.result == ob.result);
-        CHECK(oa.from == ob.from);
-        CHECK(oa.to == ob.to);
-        CHECK(oa.terrain == ob.terrain);
+        const GameEvent ea = a.move(direction);
+        const GameEvent eb = b.move(direction);
+        const MoveAttemptedEvent& pa = std::get<MoveAttemptedEvent>(ea.data);
+        const MoveAttemptedEvent& pb = std::get<MoveAttemptedEvent>(eb.data);
+
+        // Sequence numbers advance contiguously and identically on both games.
+        CHECK(ea.sequence == expected_sequence);
+        CHECK(eb.sequence == expected_sequence);
+        ++expected_sequence;
+
+        CHECK(pa.direction == direction);
+        CHECK(pa.direction == pb.direction);
+        CHECK(pa.outcome.result == pb.outcome.result);
+        CHECK(pa.outcome.from == pb.outcome.from);
+        CHECK(pa.outcome.to == pb.outcome.to);
+        CHECK(pa.outcome.terrain == pb.outcome.terrain);
     }
 
     CHECK(a.actor_position() == b.actor_position());
