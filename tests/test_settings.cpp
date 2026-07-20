@@ -138,7 +138,11 @@ TEST_CASE("usage and version text are self-describing") {
 }
 
 TEST_CASE("the generated version constants describe 0.2.0") {
-    CHECK(nam::version == "0.2.0");
+    // The extra parentheses stop doctest from decomposing the operands, so it
+    // never stringifies nam::version (a std::string_view) through std::ostream.
+    // MSVC would otherwise instantiate its string_view inserter against an
+    // incomplete std::basic_ostream (C2027); the comparison itself is unchanged.
+    CHECK((nam::version == "0.2.0"));
     CHECK(nam::version_major == 0);
     CHECK(nam::version_minor == 2);
     CHECK(nam::version_patch == 0);
