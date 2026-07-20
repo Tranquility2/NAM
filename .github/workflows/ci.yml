@@ -182,15 +182,20 @@ jobs:
             throw "vswhere could not locate Visual Studio"
           }
 
-          $runtime = Get-ChildItem -Path $visualStudioRoot.Trim() -Recurse `
-            -Filter clang_rt.asan_dynamic-x86_64.dll |
-            Select-Object -First 1
+          $visualStudioRoot = $visualStudioRoot.Trim()
+          $toolVersionFile = Join-Path $visualStudioRoot `
+            "VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt"
+          $toolVersion = (Get-Content $toolVersionFile).Trim()
+          $runtimeDirectory = Join-Path $visualStudioRoot `
+            "VC\Tools\MSVC\$toolVersion\bin\Hostx64\x64"
+          $runtime = Join-Path $runtimeDirectory `
+            "clang_rt.asan_dynamic-x86_64.dll"
 
-          if (-not $runtime) {
-            throw "clang_rt.asan_dynamic-x86_64.dll was not found under $visualStudioRoot"
+          if (-not (Test-Path $runtime)) {
+            throw "The matching AddressSanitizer runtime was not found at $runtime"
           }
 
-          $runtime.DirectoryName | Out-File -FilePath $env:GITHUB_PATH `
+          $runtimeDirectory | Out-File -FilePath $env:GITHUB_PATH `
             -Encoding utf8 -Append
 
       - name: Test
