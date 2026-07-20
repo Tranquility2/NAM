@@ -175,8 +175,14 @@ jobs:
       - name: Add the MSVC AddressSanitizer runtime to PATH
         shell: pwsh
         run: |
-          $visualStudioRoot = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022"
-          $runtime = Get-ChildItem -Path $visualStudioRoot -Recurse `
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $visualStudioRoot = & $vswhere -latest -products * -property installationPath
+
+          if (-not $visualStudioRoot) {
+            throw "vswhere could not locate Visual Studio"
+          }
+
+          $runtime = Get-ChildItem -Path $visualStudioRoot.Trim() -Recurse `
             -Filter clang_rt.asan_dynamic-x86_64.dll |
             Select-Object -First 1
 
