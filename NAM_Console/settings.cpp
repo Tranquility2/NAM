@@ -9,6 +9,26 @@ namespace {
 constexpr const char* kProgramName = "nam_console";
 constexpr const char* kVersion = "1.0.0";
 
+[[nodiscard]] std::optional<std::string> environment_value(const char* name) {
+#ifdef _MSC_VER
+    char* value = nullptr;
+    std::size_t length = 0;
+    if (_dupenv_s(&value, &length, name) != 0 || value == nullptr) {
+        std::free(value);
+        return std::nullopt;
+    }
+
+    std::string result(value);
+    std::free(value);
+    return result;
+#else
+    if (const char* value = std::getenv(name)) {
+        return std::string(value);
+    }
+    return std::nullopt;
+#endif
+}
+
 [[nodiscard]] CliResult usage_error(std::string detail) {
     CliResult result;
     result.action = CliAction::error;
@@ -22,9 +42,9 @@ constexpr const char* kVersion = "1.0.0";
 Environment Environment::from_process() {
     Environment environment;
     // NO_COLOR is defined by its mere presence, regardless of value.
-    environment.no_color = std::getenv("NO_COLOR") != nullptr;
-    if (const char* term = std::getenv("TERM")) {
-        environment.term = term;
+    environment.no_color = environment_value("NO_COLOR").has_value();
+    if (const std::optional<std::string> term = environment_value("TERM")) {
+        environment.term = *term;
     }
     return environment;
 }
