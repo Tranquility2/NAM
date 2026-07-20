@@ -172,6 +172,21 @@ jobs:
       - name: Build
         run: cmake --build --preset windows-msvc-asan
 
+      - name: Add the MSVC AddressSanitizer runtime to PATH
+        shell: pwsh
+        run: |
+          $visualStudioRoot = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022"
+          $runtime = Get-ChildItem -Path $visualStudioRoot -Recurse `
+            -Filter clang_rt.asan_dynamic-x86_64.dll |
+            Select-Object -First 1
+
+          if (-not $runtime) {
+            throw "clang_rt.asan_dynamic-x86_64.dll was not found under $visualStudioRoot"
+          }
+
+          $runtime.DirectoryName | Out-File -FilePath $env:GITHUB_PATH `
+            -Encoding utf8 -Append
+
       - name: Test
         run: ctest --preset windows-msvc-asan --output-on-failure
 
