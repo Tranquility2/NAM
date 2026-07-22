@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <exception>
 #include <iostream>
 #include <optional>
@@ -10,6 +11,7 @@
 #include "map_parser.h"
 #include "messages.h"
 #include "settings.h"
+#include "world_generation.h"
 
 // Process exit codes (see the plan's error contract):
 //   0  normal exit
@@ -45,6 +47,21 @@ int main(int argc, char** argv) {
             return 1;
         }
         map.emplace(std::get<Map>(std::move(result)));
+    } else if (cli.settings.seed_text) {
+        // A seed selects the procedural Tiny World. Hash the exact seed bytes,
+        // then generate. A generation failure mirrors the map/data error contract
+        // (concise diagnostic on stderr, exit 1). The seed is displayed only
+        // through the escaping helper so raw control bytes never reach the
+        // terminal.
+        const std::uint64_t numeric_seed = hash_seed_text(*cli.settings.seed_text);
+        WorldGenerationResult result = generate_tiny_world(numeric_seed);
+        if (const WorldGenerationError* error = std::get_if<WorldGenerationError>(&result)) {
+            std::cerr << "nam_console: could not generate a world for seed "
+                      << format_seed_for_display(*cli.settings.seed_text) << ": "
+                      << to_string(error->code) << "\n";
+            return 1;
+        }
+        map.emplace(std::move(std::get<GeneratedWorld>(result).map));
     } else {
         try {
             map.emplace(builtin_map());

@@ -119,4 +119,50 @@ TEST_CASE("a long session stays bounded and terminates") {
     CHECK(output.find("Goodbye") != std::string::npos);
 }
 
+TEST_CASE("a seeded plain session shows the safely escaped seed in its first output") {
+    // TEST-016 (plain half): the initial HUD line identifies Tiny World and the
+    // original seed, displayed through the escaping helper.
+    Settings settings;
+    settings.seed_text = "glass-river";
+    std::string output;
+    const int code = run_plain_with("q\n", output, settings);
+    CHECK(code == 0);
+    CHECK(output.find("Tiny World seed: \"glass-river\"") != std::string::npos);
+    CHECK(output.find('\x1b') == std::string::npos);  // no ANSI when redirected.
+}
+
+TEST_CASE("a seed carrying control bytes cannot inject terminal sequences") {
+    // A seed that embeds an ESC-based colour sequence must be neutralised: the raw
+    // ESC never appears, only its \xHH escape does.
+    Settings settings;
+    std::string seed = "a";
+    seed.push_back('\x1b');  // ESC
+    seed += "[31m";
+    settings.seed_text = seed;
+    std::string output;
+    const int code = run_plain_with("q\n", output, settings);
+    CHECK(code == 0);
+    CHECK(output.find('\x1b') == std::string::npos);
+    CHECK(output.find("Tiny World seed: \"a\\x1B[31m\"") != std::string::npos);
+}
+
+TEST_CASE("a seeded plain session is byte-identical across repeated runs") {
+    Settings settings;
+    settings.seed_text = "glass-river";
+    std::string first;
+    std::string second;
+    const int code_a = run_plain_with("d\nd\nq\n", first, settings);
+    const int code_b = run_plain_with("d\nd\nq\n", second, settings);
+    CHECK(code_a == code_b);
+    CHECK(first == second);
+}
+
+TEST_CASE("an unseeded plain session keeps its original welcome and no seed notice") {
+    std::string output;
+    const int code = run_plain_with("q\n", output);
+    CHECK(code == 0);
+    CHECK(output.find("Plain mode.") != std::string::npos);
+    CHECK(output.find("Tiny World seed:") == std::string::npos);
+}
+
 }  // TEST_SUITE("console")

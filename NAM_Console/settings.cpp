@@ -61,6 +61,7 @@ CliResult parse_cli(const std::vector<std::string>& args, const Environment& env
     bool no_color_flag = false;
     std::optional<std::string> positional_map;
     std::optional<std::string> option_map;
+    std::optional<std::string> seed_value;
 
     for (std::size_t index = 0; index < args.size(); ++index) {
         const std::string& arg = args[index];
@@ -96,6 +97,29 @@ CliResult parse_cli(const std::vector<std::string>& args, const Environment& env
                 return usage_error("--map was given more than once");
             }
             option_map = arg.substr(std::string("--map=").size());
+        } else if (arg == "--seed") {
+            if (index + 1 >= args.size()) {
+                return usage_error("--seed requires a text argument");
+            }
+            if (seed_value) {
+                return usage_error("--seed was given more than once");
+            }
+            std::string value = args[++index];
+            if (value.size() > max_seed_text_bytes) {
+                return usage_error("--seed text must be at most " +
+                                   std::to_string(max_seed_text_bytes) + " bytes");
+            }
+            seed_value = std::move(value);
+        } else if (arg.rfind("--seed=", 0) == 0) {
+            if (seed_value) {
+                return usage_error("--seed was given more than once");
+            }
+            std::string value = arg.substr(std::string("--seed=").size());
+            if (value.size() > max_seed_text_bytes) {
+                return usage_error("--seed text must be at most " +
+                                   std::to_string(max_seed_text_bytes) + " bytes");
+            }
+            seed_value = std::move(value);
         } else if (!arg.empty() && arg.front() == '-' && arg != "-") {
             return usage_error("unknown option '" + arg + "'");
         } else {
@@ -109,10 +133,18 @@ CliResult parse_cli(const std::vector<std::string>& args, const Environment& env
     if (positional_map && option_map) {
         return usage_error("provide a map path either positionally or with --map, not both");
     }
+    // A seed selects a generated world, so it cannot be combined with any map
+    // input: the source of terrain would otherwise be ambiguous.
+    if (seed_value && (positional_map || option_map)) {
+        return usage_error("provide either a map or --seed, not both");
+    }
     if (option_map) {
         settings.map_path = std::move(option_map);
     } else if (positional_map) {
         settings.map_path = std::move(positional_map);
+    }
+    if (seed_value) {
+        settings.seed_text = std::move(seed_value);
     }
 
     // Colour is on unless the CLI or environment turns it off. An explicit
@@ -136,6 +168,38 @@ CliResult parse_cli(int argc, const char* const argv[], const Environment& envir
     return parse_cli(args, environment);
 }
 
+std::string format_seed_for_display(std::string_view seed) {
+    // Retain the raw seed bytes only for hashing; every display path routes here
+    // so terminal control bytes (including ESC) can never reach the terminal.
+    // Formatting is done by hand with unsigned-byte inspection and manual
+    // uppercase hex so it is independent of locale and stream state.
+    constexpr char hex_digits[] = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(seed.size() + 2);
+    out.push_back('"');
+    for (const char raw : seed) {
+        const unsigned char byte = static_cast<unsigned char>(raw);
+        switch (byte) {
+            case '\\': out += "\\\\"; break;
+            case '"':  out += "\\\""; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default:
+                if (byte >= 0x20u && byte <= 0x7Eu) {
+                    out.push_back(static_cast<char>(byte));
+                } else {
+                    out += "\\x";
+                    out.push_back(hex_digits[(byte >> 4u) & 0x0Fu]);
+                    out.push_back(hex_digits[byte & 0x0Fu]);
+                }
+                break;
+        }
+    }
+    out.push_back('"');
+    return out;
+}
+
 std::string usage_text() {
     std::string text;
     text += "Usage: ";
@@ -146,6 +210,8 @@ std::string usage_text() {
     text += "  map               Path to a map file (defaults to the built-in map).\n\n";
     text += "Options:\n";
     text += "  --map <path>      Load the map at <path> (alternative to the positional form).\n";
+    text += "  --seed <text>     Generate the deterministic Tiny World from <text> (hashed;\n";
+    text += "                    max 128 bytes; cannot be combined with a map).\n";
     text += "  --debug           Show internal diagnostics in the HUD.\n";
     text += "  --plain           Force line-oriented mode (no raw terminal or ANSI).\n";
     text += "  --no-color        Disable colour output.\n";

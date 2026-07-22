@@ -46,6 +46,21 @@ enum class PlainCommand { none, quit, up, down, left, right, unknown };
     return PlainCommand::unknown;
 }
 
+// The one initial HUD line, shared by both modes so the seed notice cannot drift
+// between them. Unseeded sessions keep their existing mode-specific welcome; a
+// seeded session appends the safely escaped original seed. The seed is only ever
+// shown through format_seed_for_display, so raw control bytes never reach output.
+[[nodiscard]] std::string initial_message(const Settings& settings, bool interactive) {
+    std::string message = interactive
+                              ? "Welcome to NAM. Arrow keys or WASD to move, q or Esc to quit."
+                              : "Plain mode. Commands: w/a/s/d or up/down/left/right, q to quit.";
+    if (settings.seed_text) {
+        message += " Tiny World seed: ";
+        message += format_seed_for_display(*settings.seed_text);
+    }
+    return message;
+}
+
 }  // namespace
 
 std::optional<Direction> direction_for(const KeyEvent& event) noexcept {
@@ -103,7 +118,7 @@ int ConsoleApp::run_interactive(TerminalSession& session) {
     config.emphasis = settings_.animation && config.use_ansi;
     const Renderer renderer(config);
 
-    hud_.set_message("Welcome to NAM. Arrow keys or WASD to move, q or Esc to quit.");
+    hud_.set_message(initial_message(settings_, /*interactive=*/true));
 
     bool running = true;
     session.draw(renderer.render(make_input(false), session.size()));
@@ -155,7 +170,7 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
                               /*emphasis=*/false};
     const Renderer renderer(config);
 
-    hud_.set_message("Plain mode. Commands: w/a/s/d or up/down/left/right, q to quit.");
+    hud_.set_message(initial_message(settings_, /*interactive=*/false));
     output << renderer.render_plain(make_input(false));
     output.flush();
 

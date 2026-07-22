@@ -126,4 +126,25 @@ if(TARGET nam_console)
     nam_add_cli_test(cli_run_deterministic
         "-DARGS=--map|${NAM_FIXTURES_DIR}/valid-lf.map" -DINPUT_FILE=${_moves_stdin}
         -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
+
+    # --- seeded Tiny World integration -------------------------------------
+    #
+    # Exercise the real executable's seeded path: a plain seeded session prints
+    # the safely escaped seed and no ANSI, is deterministic across runs, and the
+    # usage errors (map conflict, overlong seed) exit 2. An empty seed is valid.
+    nam_add_cli_test(cli_seed_plain
+        "-DARGS=--seed=glass-river|--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
+        "-DEXPECT_CONTAINS=Tiny World seed:" -DFORBID_ESC=1)
+    nam_add_cli_test(cli_seed_deterministic
+        "-DARGS=--seed=glass-river|--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
+        -DEXPECT_DETERMINISTIC=1)
+    nam_add_cli_test(cli_seed_empty
+        "-DARGS=--seed=|--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
+        "-DEXPECT_CONTAINS=Tiny World seed" -DFORBID_ESC=1)
+    nam_add_cli_test(cli_seed_map_conflict
+        "-DARGS=--seed=glass-river|--map|${NAM_FIXTURES_DIR}/valid-lf.map" -DEXPECT_CODE=2
+        "-DEXPECT_CONTAINS=not both")
+    string(REPEAT "a" 129 _overlong_seed)
+    nam_add_cli_test(cli_seed_overlong
+        "-DARGS=--seed=${_overlong_seed}" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=128 bytes")
 endif()
