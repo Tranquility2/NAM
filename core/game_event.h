@@ -14,7 +14,11 @@
 
 // The single event a movement command produces, whether the actor moved or was
 // blocked. `direction` is the requested command; `outcome` preserves the exact
-// rule-level result (result, coordinates, and terrain) computed by the core.
+// rule-level result computed by the core, including the outcome terrain, the
+// stamina cost that terrain required, and the stamina before and after the
+// attempt. A blocked attempt (boundary, terrain, or insufficient stamina) still
+// carries these fields with an unchanged before/after value, so consumers never
+// re-derive movement cost from the map.
 struct MoveAttemptedEvent {
     Direction direction{};
     MoveOutcome outcome{};

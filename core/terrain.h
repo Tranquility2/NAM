@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 
 // Terrain is the semantic type stored for every map cell. Rendering glyphs and
@@ -20,20 +21,27 @@ enum class Terrain : unsigned char {
     wall_vertical,    // '|'
 };
 
-// Whether an actor may occupy a cell of this terrain.
-[[nodiscard]] constexpr bool is_walkable(Terrain terrain) noexcept {
+// The stamina an actor must spend to enter a cell of this terrain. This is the
+// single source of truth for both movement cost and walkability: a value means
+// the terrain is walkable at that cost, and std::nullopt means it cannot be
+// entered at all. Both wall variants are impassable and therefore carry no cost.
+[[nodiscard]] constexpr std::optional<std::uint32_t> stamina_cost_of(Terrain terrain) noexcept {
     switch (terrain) {
-        case Terrain::open:
-        case Terrain::mountain:
-        case Terrain::water:
-        case Terrain::fields:
-        case Terrain::hill:
-            return true;
-        case Terrain::wall_horizontal:
-        case Terrain::wall_vertical:
-            return false;
+        case Terrain::open:            return 1;
+        case Terrain::fields:          return 2;
+        case Terrain::hill:            return 2;
+        case Terrain::water:           return 3;
+        case Terrain::mountain:        return 4;
+        case Terrain::wall_horizontal: return std::nullopt;
+        case Terrain::wall_vertical:   return std::nullopt;
     }
-    return false;
+    return std::nullopt;
+}
+
+// Whether an actor may occupy a cell of this terrain. Defined in terms of
+// stamina_cost_of so walkability and movement cost can never drift apart.
+[[nodiscard]] constexpr bool is_walkable(Terrain terrain) noexcept {
+    return stamina_cost_of(terrain).has_value();
 }
 
 // The canonical ASCII glyph used to serialize a terrain value.

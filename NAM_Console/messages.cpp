@@ -38,11 +38,16 @@ std::string direction_name(Direction direction) {
 std::string describe_move(const MoveOutcome& outcome) {
     switch (outcome.result) {
         case MoveResult::moved:
-            return "Moved onto " + terrain_name(outcome.terrain) + ".";
+            return "Moved onto " + terrain_name(outcome.terrain) + " for " +
+                   std::to_string(outcome.stamina_cost) + " stamina.";
         case MoveResult::blocked_by_boundary:
             return "Blocked by the edge of the map.";
         case MoveResult::blocked_by_terrain:
             return "Blocked by " + terrain_name(outcome.terrain) + ".";
+        case MoveResult::blocked_by_stamina:
+            return "Not enough stamina for " + terrain_name(outcome.terrain) + ": need " +
+                   std::to_string(outcome.stamina_cost) + ", have " +
+                   std::to_string(outcome.stamina_before) + ".";
     }
     return "Nothing happened.";
 }

@@ -1,5 +1,6 @@
 #include "game_state.h"
 
+#include <optional>
 #include <utility>
 
 GameState::GameState(Map map)
@@ -18,15 +19,22 @@ MoveOutcome GameState::peek(Direction direction) const {
     const Coordinates target = from + direction_delta(direction);
 
     if (!map_.contains(target)) {
-        return {MoveResult::blocked_by_boundary, from, from, map_.terrain_at(from)};
+        return {MoveResult::blocked_by_boundary, from, from, map_.terrain_at(from),
+                0, stamina_, stamina_};
     }
 
     const Terrain destination = map_.terrain_at(target);
-    if (!is_walkable(destination)) {
-        return {MoveResult::blocked_by_terrain, from, from, destination};
+    const std::optional<std::uint32_t> cost = stamina_cost_of(destination);
+    if (!cost.has_value()) {
+        return {MoveResult::blocked_by_terrain, from, from, destination, 0, stamina_, stamina_};
     }
 
-    return {MoveResult::moved, from, target, destination};
+    if (stamina_ < *cost) {
+        return {MoveResult::blocked_by_stamina, from, from, destination, *cost, stamina_, stamina_};
+    }
+
+    // Affordability is established, so the unsigned subtraction cannot underflow.
+    return {MoveResult::moved, from, target, destination, *cost, stamina_, stamina_ - *cost};
 }
 
 GameEvent GameState::move(Direction direction) {
@@ -35,8 +43,10 @@ GameEvent GameState::move(Direction direction) {
     const MoveOutcome outcome = peek(direction);
     if (outcome.result == MoveResult::moved) {
         actor_position_ = outcome.to;
+        stamina_ = outcome.stamina_after;
         // Only a successful move refreshes visibility, and only after the actor
-        // position is committed. Blocked attempts and peek leave fog unchanged.
+        // position and stamina are committed. Blocked attempts and peek leave
+        // fog and stamina unchanged.
         visibility_.reveal_square(actor_position_, base_visibility_radius);
     }
 

@@ -53,9 +53,16 @@ TEST_CASE("identical map and input produce identical event streams") {
         CHECK(pa.outcome.from == pb.outcome.from);
         CHECK(pa.outcome.to == pb.outcome.to);
         CHECK(pa.outcome.terrain == pb.outcome.terrain);
+        CHECK(pa.outcome.stamina_cost == pb.outcome.stamina_cost);
+        CHECK(pa.outcome.stamina_before == pb.outcome.stamina_before);
+        CHECK(pa.outcome.stamina_after == pb.outcome.stamina_after);
+
+        // Current stamina stays identical after every command in both games.
+        CHECK(a.stamina() == b.stamina());
     }
 
     CHECK(a.actor_position() == b.actor_position());
+    CHECK(a.stamina() == b.stamina());
     CHECK(a.render() == b.render());
 }
 

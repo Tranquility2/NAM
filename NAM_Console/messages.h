@@ -23,7 +23,9 @@ namespace nam::console {
 [[nodiscard]] std::string direction_name(Direction direction);
 
 // A sentence describing the outcome of a move attempt, suitable for the HUD's
-// latest-event line.
+// latest-event line. Successful and insufficient-stamina outcomes include the
+// rule-provided stamina cost carried in the MoveOutcome; boundary and
+// impassable-terrain outcomes have no cost and keep their existing wording.
 [[nodiscard]] std::string describe_move(const MoveOutcome& outcome);
 
 // A user-facing explanation of why a map failed to load, including the source

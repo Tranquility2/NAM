@@ -23,6 +23,17 @@ public:
     [[nodiscard]] Coordinates actor_position() const noexcept { return actor_position_; }
     [[nodiscard]] Terrain actor_terrain() const { return map_.terrain_at(actor_position_); }
 
+    // The stamina a new expedition starts with and can never exceed in this
+    // release. Kept here as a core constant so movement affordability, replay,
+    // SDL, and tests share one authoritative maximum.
+    static constexpr std::uint32_t maximum_stamina = 12;
+
+    // The actor's current stamina and the fixed maximum. A move charges the
+    // destination terrain's cost only when it succeeds; there is no recovery in
+    // this step.
+    [[nodiscard]] std::uint32_t stamina() const noexcept { return stamina_; }
+    [[nodiscard]] std::uint32_t max_stamina() const noexcept { return maximum_stamina; }
+
     // The exploration/sight radius revealed around the actor. Kept here as a
     // core constant so later terrain, weather, daylight, or equipment modifiers
     // can replace the fixed value without moving visibility state into a
@@ -52,5 +63,6 @@ private:
     Map map_;
     Coordinates actor_position_;
     VisibilityMap visibility_;
+    std::uint32_t stamina_ = maximum_stamina;
     std::uint64_t next_event_sequence_ = 0;
 };

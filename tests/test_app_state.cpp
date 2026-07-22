@@ -9,17 +9,24 @@
 #include "game_event.h"
 #include "messages.h"
 #include "move_outcome.h"
+#include "terrain.h"
 
 using namespace nam::console;
 
 namespace {
 
 MoveOutcome moved_to(Coordinates from, Coordinates to, Terrain terrain) {
-    return MoveOutcome{MoveResult::moved, from, to, terrain};
+    const std::uint32_t cost = stamina_cost_of(terrain).value_or(0);
+    return MoveOutcome{MoveResult::moved, from, to, terrain, cost, 12, 12 - cost};
 }
 
 MoveOutcome blocked(Coordinates at, Terrain terrain) {
-    return MoveOutcome{MoveResult::blocked_by_terrain, at, at, terrain};
+    return MoveOutcome{MoveResult::blocked_by_terrain, at, at, terrain, 0, 12, 12};
+}
+
+MoveOutcome stamina_blocked(Coordinates at, Terrain terrain, std::uint32_t cost,
+                            std::uint32_t stamina) {
+    return MoveOutcome{MoveResult::blocked_by_stamina, at, at, terrain, cost, stamina, stamina};
 }
 
 // Wrap a direction and outcome into the movement event the HUD now consumes. The
@@ -84,6 +91,25 @@ TEST_CASE("set_message overrides the message without recording a move") {
     CHECK(hud.attempt_count() == 0);
     CHECK(hud.move_count() == 0);
     CHECK(hud.recent().empty());
+}
+
+TEST_CASE("a stamina block is an attempt, not a move, and records a blocked direction") {
+    Hud hud;
+    hud.record_event(move_event(Direction::right, moved_to({0, 0}, {1, 0}, Terrain::open), 0));
+    const MoveOutcome outcome = stamina_blocked({1, 0}, Terrain::mountain, 4, 1);
+    hud.record_event(move_event(Direction::right, outcome, 1));
+
+    // The block counts as an attempt but does not advance the move count.
+    CHECK(hud.attempt_count() == 2);
+    CHECK(hud.move_count() == 1);
+    // The last move is not successful, so emphasis and the recent entry are blocked.
+    CHECK_FALSE(hud.last_move_succeeded());
+    REQUIRE(hud.recent().size() == 2);
+    CHECK(hud.recent().back().direction == Direction::right);
+    CHECK(hud.recent().back().result == MoveResult::blocked_by_stamina);
+    // The typed insufficient-stamina message is shown verbatim.
+    CHECK(hud.message() == describe_move(outcome));
+    CHECK(hud.message() == "Not enough stamina for mountain: need 4, have 1.");
 }
 
 }  // TEST_SUITE("console")

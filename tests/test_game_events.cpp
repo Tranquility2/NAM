@@ -37,6 +37,13 @@ Map open_field() {
     return make_map("NAM-MAP 1\nwidth 3\nheight 3\nspawn 0 0\n---\n...\n...\n...\n");
 }
 
+// A one-row mountain corridor. From full stamina the four-cost mountains reduce
+// stamina 12 -> 8 -> 4 -> 0 over three moves, so the fourth step is a typed
+// stamina block that still emits one event.
+Map mountain_corridor() {
+    return make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.@@@@\n");
+}
+
 }  // namespace
 
 TEST_SUITE("game") {
@@ -94,7 +101,59 @@ TEST_CASE("an event's outcome equals the pure peek for the same command") {
         CHECK(emitted.from == peeked.from);
         CHECK(emitted.to == peeked.to);
         CHECK(emitted.terrain == peeked.terrain);
+        CHECK(emitted.stamina_cost == peeked.stamina_cost);
+        CHECK(emitted.stamina_before == peeked.stamina_before);
+        CHECK(emitted.stamina_after == peeked.stamina_after);
     }
+}
+
+TEST_CASE("an event preserves the destination cost and before/after stamina") {
+    GameState state(mountain_corridor());
+    const MoveOutcome peeked = state.peek(Direction::right);
+    const GameEvent event = state.move(Direction::right);
+    const MoveOutcome& emitted = payload_of(event).outcome;
+    CHECK(emitted.result == MoveResult::moved);
+    CHECK(emitted.terrain == Terrain::mountain);
+    CHECK(emitted.stamina_cost == 4);
+    CHECK(emitted.stamina_before == 12);
+    CHECK(emitted.stamina_after == 8);
+    // The emitted outcome still equals the immediately preceding pure peek.
+    CHECK(emitted.stamina_cost == peeked.stamina_cost);
+    CHECK(emitted.stamina_before == peeked.stamina_before);
+    CHECK(emitted.stamina_after == peeked.stamina_after);
+}
+
+TEST_CASE("an insufficient-stamina attempt consumes exactly one sequence number") {
+    GameState state(mountain_corridor());
+    // Three affordable mountain steps drain stamina to zero over sequences 0..2.
+    const GameEvent s0 = state.move(Direction::right);
+    const GameEvent s1 = state.move(Direction::right);
+    const GameEvent s2 = state.move(Direction::right);
+    CHECK(s0.sequence == 0);
+    CHECK(s1.sequence == 1);
+    CHECK(s2.sequence == 2);
+    CHECK(payload_of(s2).outcome.result == MoveResult::moved);
+    CHECK(state.stamina() == 0);
+
+    const Coordinates before = state.actor_position();
+    const MoveOutcome peeked = state.peek(Direction::right);
+
+    // The unaffordable fourth step still emits exactly one contiguous event.
+    const GameEvent blocked = state.move(Direction::right);
+    CHECK(blocked.sequence == 3);
+    const MoveOutcome& outcome = payload_of(blocked).outcome;
+    CHECK(outcome.result == MoveResult::blocked_by_stamina);
+    CHECK(outcome.terrain == Terrain::mountain);
+    CHECK(outcome.stamina_cost == 4);
+    CHECK(outcome.stamina_before == 0);
+    CHECK(outcome.stamina_after == 0);
+    CHECK(outcome.stamina_cost == peeked.stamina_cost);
+    CHECK(state.actor_position() == before);
+    CHECK(state.stamina() == 0);
+
+    // The next command continues the contiguous sequence with no gap.
+    const GameEvent next = state.move(Direction::left);
+    CHECK(next.sequence == 4);
 }
 
 TEST_CASE("a successful event is committed before it is observed") {
