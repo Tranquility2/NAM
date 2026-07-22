@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -28,6 +29,8 @@ struct RenderInput {
     Terrain terrain{};
     std::size_t move_count = 0;
     std::size_t attempt_count = 0;
+    std::uint32_t stamina = 0;
+    std::uint32_t max_stamina = 0;
     std::string message;
     std::vector<RecentMove> recent;
     bool emphasize_actor = false;  // One-frame emphasis after a successful move.

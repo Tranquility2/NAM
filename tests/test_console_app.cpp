@@ -36,6 +36,15 @@ GameState make_big_state() {
         "NAM-MAP 1\nwidth 9\nheight 3\nspawn 1 1\n---\n=========\n......@..\n=========\n"));
 }
 
+// A one-lane mountain corridor for stamina integration. From the left spawn the
+// four-cost mountains drain 12 -> 8 -> 4 -> 0 over three steps; a fourth step is
+// unaffordable. A distant water cell stays outside the actor's sight when the
+// run stalls, so it must never appear unless fog wrongly refreshes on the block.
+GameState make_cost_state() {
+    return GameState(make_map(
+        "NAM-MAP 1\nwidth 9\nheight 3\nspawn 0 1\n---\n=========\n.@@@@.~..\n=========\n"));
+}
+
 std::size_t count_char(const std::string& text, char needle) {
     std::size_t total = 0;
     for (const char c : text) {
@@ -217,6 +226,34 @@ TEST_CASE("fog hides distant terrain until the actor explores toward it") {
     CHECK(code_remembered == 0);
     CHECK(count_char(remembered, '@') >= 2);
     CHECK(remembered.find('\x1b') == std::string::npos);  // plain stays ANSI-free.
+}
+
+TEST_CASE("a scripted high-cost route shows costs, drains stamina, and blocks deterministically") {
+    // Three affordable mountain steps drain stamina to zero; the fourth is an
+    // unaffordable, typed block that does not move the actor.
+    std::string output;
+    const int code = run_plain_state(make_cost_state(), "d\nd\nd\nd\nq\n", output);
+    CHECK(code == 0);
+
+    // Exact successful-cost wording and the deterministic HUD stamina countdown.
+    CHECK(output.find("Moved onto mountain for 4 stamina.") != std::string::npos);
+    CHECK(output.find("Stamina: 8/12") != std::string::npos);
+    CHECK(output.find("Stamina: 4/12") != std::string::npos);
+    CHECK(output.find("Stamina: 0/12") != std::string::npos);
+
+    // The unaffordable fourth step is blocked with the exact insufficient wording.
+    CHECK(output.find("Not enough stamina for mountain: need 4, have 0.") != std::string::npos);
+
+    // Fog stays tied to the actor's real position: the block never advances it,
+    // so the distant water cell is never revealed and no '~' leaks into output.
+    CHECK(output.find('~') == std::string::npos);
+    CHECK(output.find('\x1b') == std::string::npos);  // plain stays ANSI-free.
+
+    // The whole scripted session is byte-identical across repeated runs.
+    std::string second;
+    const int code_again = run_plain_state(make_cost_state(), "d\nd\nd\nd\nq\n", second);
+    CHECK(code_again == code);
+    CHECK(second == output);
 }
 
 }  // TEST_SUITE("console")

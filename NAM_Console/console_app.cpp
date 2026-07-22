@@ -98,6 +98,8 @@ RenderInput ConsoleApp::make_input(bool emphasize) const {
     input.terrain = state_.actor_terrain();
     input.move_count = hud_.move_count();
     input.attempt_count = hud_.attempt_count();
+    input.stamina = state_.stamina();
+    input.max_stamina = state_.max_stamina();
     input.message = hud_.message();
     input.recent.assign(hud_.recent().begin(), hud_.recent().end());
     input.emphasize_actor = emphasize;

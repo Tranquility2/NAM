@@ -193,6 +193,11 @@ constexpr int color_actor = 93;  // Bright yellow.
     return "(" + std::to_string(actor.x) + "," + std::to_string(actor.y) + ")";
 }
 
+// The current/maximum stamina pair shared by every HUD layout.
+[[nodiscard]] std::string stamina_text(const RenderInput& input) {
+    return std::to_string(input.stamina) + "/" + std::to_string(input.max_stamina);
+}
+
 [[nodiscard]] std::string recent_text(const std::vector<RecentMove>& recent) {
     if (recent.empty()) {
         return "Recent: (none)";
@@ -249,16 +254,18 @@ constexpr int color_actor = 93;  // Bright yellow.
 
     std::vector<std::string> hud;
     if (standard) {
-        hud.push_back("Pos " + position_text(input.actor) + "   Terrain: " +
-                      terrain_name(input.terrain) + "   Moves: " + std::to_string(input.move_count));
+        hud.push_back("Pos " + position_text(input.actor) + "   Stamina: " + stamina_text(input) +
+                      "   Terrain: " + terrain_name(input.terrain) +
+                      "   Moves: " + std::to_string(input.move_count));
         hud.push_back("> " + input.message);
         hud.push_back(recent_text(input.recent));
         if (config.debug) {
             hud.push_back(debug_text(input, size));
         }
     } else {
-        std::string status = position_text(input.actor) + " " + terrain_name(input.terrain) +
-                             "  M:" + std::to_string(input.move_count) + "  " + input.message;
+        std::string status = position_text(input.actor) + " S:" + stamina_text(input) + " " +
+                             terrain_name(input.terrain) + "  M:" + std::to_string(input.move_count) +
+                             "  " + input.message;
         hud.push_back(std::move(status));
         if (config.debug) {
             hud.push_back(debug_text(input, size));
@@ -342,7 +349,8 @@ std::string Renderer::render_plain(const RenderInput& input) const {
                               static_cast<int>(map.width()));
         text.push_back('\n');
     }
-    text += "Pos " + position_text(input.actor) + "  Terrain: " + terrain_name(input.terrain) +
+    text += "Pos " + position_text(input.actor) + "  Stamina: " + stamina_text(input) +
+            "  Terrain: " + terrain_name(input.terrain) +
             "  Moves: " + std::to_string(input.move_count) + "\n";
     text += input.message + "\n";
     if (config_.debug) {

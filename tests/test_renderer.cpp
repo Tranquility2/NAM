@@ -44,7 +44,9 @@ RenderInput make_input(const Map& map) {
     input.terrain = map.terrain_at(map.spawn());
     input.move_count = 3;
     input.attempt_count = 5;
-    input.message = "Moved onto open ground.";
+    input.stamina = 7;
+    input.max_stamina = 12;
+    input.message = "Moved onto open ground for 1 stamina.";
     input.recent = {RecentMove{Direction::up, MoveResult::moved},
                     RecentMove{Direction::left, MoveResult::blocked_by_terrain}};
     return input;
@@ -98,6 +100,17 @@ std::string join_raw(const Frame& frame) {
     std::string out;
     for (const std::string& row : frame) {
         out += row;
+        out.push_back('\n');
+    }
+    return out;
+}
+
+// Concatenate a frame's rows with ANSI stripped so HUD text can be searched and
+// field ordering checked across the whole frame.
+std::string join_visible(const Frame& frame) {
+    std::string out;
+    for (const std::string& row : frame) {
+        out += strip_ansi(row);
         out.push_back('\n');
     }
     return out;
@@ -251,6 +264,72 @@ TEST_CASE("debug mode adds a diagnostics line in the standard layout") {
         }
     }
     CHECK(has_debug);
+}
+
+TEST_CASE("standard status shows stamina before terrain and moves and keeps bounds") {
+    const Map map = open_map(8, 4);
+    const Renderer renderer(plain_config());
+    const Frame frame = renderer.render(make_input(map), TerminalSize{80, 24});
+    const std::string visible = join_visible(frame);
+    const std::size_t stam = visible.find("Stamina: 7/12");
+    const std::size_t terr = visible.find("Terrain:");
+    const std::size_t moves = visible.find("Moves:");
+    REQUIRE(stam != std::string::npos);
+    REQUIRE(terr != std::string::npos);
+    REQUIRE(moves != std::string::npos);
+    CHECK(stam < terr);   // stamina precedes terrain,
+    CHECK(terr < moves);  // which precedes the move count.
+    CHECK(frame.size() == 24);        // frame bounds unchanged,
+    CHECK_FALSE(any_esc(frame));      // and plain rendering stays ANSI-free.
+}
+
+TEST_CASE("compact status places stamina after position and before terrain and moves") {
+    const Map map = open_map(8, 4);
+    const Renderer renderer(plain_config());
+    const Frame frame = renderer.render(make_input(map), TerminalSize{30, 10});
+    const std::string visible = join_visible(frame);
+    const std::size_t pos = visible.find("(0,0)");
+    const std::size_t stam = visible.find("S:7/12");
+    const std::size_t terr = visible.find("open ground");
+    const std::size_t moves = visible.find("M:3");
+    REQUIRE(pos != std::string::npos);
+    REQUIRE(stam != std::string::npos);
+    REQUIRE(terr != std::string::npos);
+    REQUIRE(moves != std::string::npos);
+    CHECK(pos < stam);    // stamina immediately follows the position,
+    CHECK(stam < terr);   // precedes terrain,
+    CHECK(terr < moves);  // and the move count.
+    CHECK(frame.size() == 10);
+    for (const std::string& row : frame) {
+        CHECK(strip_ansi(row).size() <= 30);
+    }
+}
+
+TEST_CASE("stamina stays visible at the minimum compact width") {
+    const Map map = open_map(8, 4);
+    const Renderer renderer(plain_config());
+    const Frame frame = renderer.render(make_input(map), TerminalSize{12, 6});
+    const std::string visible = join_visible(frame);
+    CHECK(visible.find("S:7/12") != std::string::npos);  // still visible before clipping.
+    CHECK(frame.size() == 6);
+    for (const std::string& row : frame) {
+        CHECK(strip_ansi(row).size() <= 12);
+    }
+}
+
+TEST_CASE("plain-mode status exposes stamina before terrain and moves") {
+    const Map map = open_map(8, 4);
+    const Renderer renderer(plain_config());
+    const std::string text = renderer.render_plain(make_input(map));
+    const std::size_t stam = text.find("Stamina: 7/12");
+    const std::size_t terr = text.find("Terrain:");
+    const std::size_t moves = text.find("Moves:");
+    REQUIRE(stam != std::string::npos);
+    REQUIRE(terr != std::string::npos);
+    REQUIRE(moves != std::string::npos);
+    CHECK(stam < terr);
+    CHECK(terr < moves);
+    CHECK(text.find('\x1b') == std::string::npos);  // plain mode stays ANSI-free.
 }
 
 TEST_CASE("plain-mode text is self-contained and ANSI-free") {
