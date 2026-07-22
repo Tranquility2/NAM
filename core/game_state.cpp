@@ -3,9 +3,14 @@
 #include <utility>
 
 GameState::GameState(Map map)
-    : map_(std::move(map)), actor_position_(map_.spawn()) {
-    // map_ is declared before actor_position_, so it is fully constructed here
-    // and map_.spawn() reads the moved-into member, not the moved-from argument.
+    : map_(std::move(map)),
+      actor_position_(map_.spawn()),
+      visibility_(map_.width(), map_.height()) {
+    // map_ is declared before actor_position_ and visibility_, so it is fully
+    // constructed here and map_.spawn()/width()/height() read the moved-into
+    // member, not the moved-from argument. Reveal the initial sight square once
+    // the actor position and visibility buffer are initialized.
+    visibility_.reveal_square(actor_position_, base_visibility_radius);
 }
 
 MoveOutcome GameState::peek(Direction direction) const {
@@ -30,6 +35,9 @@ GameEvent GameState::move(Direction direction) {
     const MoveOutcome outcome = peek(direction);
     if (outcome.result == MoveResult::moved) {
         actor_position_ = outcome.to;
+        // Only a successful move refreshes visibility, and only after the actor
+        // position is committed. Blocked attempts and peek leave fog unchanged.
+        visibility_.reveal_square(actor_position_, base_visibility_radius);
     }
 
     GameEvent event;

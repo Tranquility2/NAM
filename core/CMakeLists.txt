@@ -10,6 +10,8 @@ add_library(nam_core STATIC
     game_event.h
     map.h
     map.cpp
+    visibility.h
+    visibility.cpp
     map_parser.h
     map_parser.cpp
     game_state.h

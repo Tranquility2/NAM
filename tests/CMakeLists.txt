@@ -65,7 +65,8 @@ nam_add_unit_test(nam_parser_tests
 
 nam_add_unit_test(nam_game_tests
     SOURCES test_movement.cpp test_rendering.cpp test_determinism.cpp
-            test_pcg32.cpp test_game_events.cpp test_world_generation.cpp)
+            test_pcg32.cpp test_game_events.cpp test_world_generation.cpp
+            test_visibility.cpp)
 
 nam_add_unit_test(nam_input_tests
     SOURCES test_input_decoder.cpp)
