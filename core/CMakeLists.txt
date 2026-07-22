@@ -16,6 +16,8 @@ add_library(nam_core STATIC
     game_state.cpp
     pcg32.h
     pcg32.cpp
+    world_generation.h
+    world_generation.cpp
 )
 
 # The core uses C++17 (std::variant, std::string_view, std::optional). Requesting
