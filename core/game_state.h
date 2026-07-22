@@ -28,6 +28,11 @@ public:
     // SDL, and tests share one authoritative maximum.
     static constexpr std::uint32_t maximum_stamina = 12;
 
+    // The stamina restored by a single rest command, capped so the total can
+    // never exceed maximum_stamina. Kept here as a core constant so the recovery
+    // amount, replay, SDL, and tests share one authoritative value.
+    static constexpr std::uint32_t rest_recovery = 4;
+
     // The actor's current stamina and the fixed maximum. A move charges the
     // destination terrain's cost only when it succeeds; there is no recovery in
     // this step.
@@ -54,6 +59,14 @@ public:
     // and consumes a sequence number. The returned event carries the requested
     // direction and the full MoveOutcome.
     [[nodiscard]] GameEvent move(Direction direction);
+
+    // Rest in place to recover stamina and emit exactly one ordered event whose
+    // payload is a RestedEvent. Rest restores min(rest_recovery, remaining
+    // capacity) stamina, so it never exceeds maximum_stamina. It never moves the
+    // actor, changes the map, refreshes visibility, or counts as a movement
+    // attempt. A rest at full stamina recovers zero but still emits one event and
+    // consumes one sequence number.
+    [[nodiscard]] GameEvent rest();
 
     // Render the map with the actor drawn as `actor_glyph`. The glyph is a
     // frontend choice; the core imposes no presentation of its own.

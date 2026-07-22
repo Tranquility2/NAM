@@ -1,5 +1,6 @@
 #include "game_state.h"
 
+#include <algorithm>
 #include <optional>
 #include <utility>
 
@@ -53,6 +54,23 @@ GameEvent GameState::move(Direction direction) {
     GameEvent event;
     event.sequence = next_event_sequence_;
     event.data = MoveAttemptedEvent{direction, outcome};
+    ++next_event_sequence_;
+    return event;
+}
+
+GameEvent GameState::rest() {
+    // The invariant stamina_ <= maximum_stamina holds after every command, so the
+    // unsigned subtraction that computes remaining capacity cannot underflow.
+    const std::uint32_t stamina_before = stamina_;
+    const std::uint32_t available = maximum_stamina - stamina_before;
+    const std::uint32_t recovered = std::min(rest_recovery, available);
+    stamina_ = stamina_before + recovered;
+
+    // Rest never moves the actor or refreshes visibility, so map and fog are left
+    // exactly as they were; only stamina changes.
+    GameEvent event;
+    event.sequence = next_event_sequence_;
+    event.data = RestedEvent{stamina_before, recovered, stamina_};
     ++next_event_sequence_;
     return event;
 }

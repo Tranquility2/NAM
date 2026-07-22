@@ -27,6 +27,10 @@ MoveOutcome outcome_of(const GameEvent& event) {
     return std::get<MoveAttemptedEvent>(event.data).outcome;
 }
 
+RestedEvent rested_of(const GameEvent& event) {
+    return std::get<RestedEvent>(event.data);
+}
+
 // A 2x1 map: an open spawn at (0,0) and a single destination cell to its right
 // whose terrain is chosen by `symbol`, so a right move enters exactly that
 // terrain from full stamina.
@@ -212,6 +216,112 @@ TEST_CASE("repeated peek predicts stamina without mutating any state") {
     // The first emitted event still starts the sequence at zero.
     const GameEvent event = state.move(Direction::right);
     CHECK(event.sequence == 0);
+}
+
+TEST_CASE("resting from zero restores exactly four stamina and emits one event") {
+    GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.@@@.\n"));
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 12->8
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 8->4
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 4->0
+    CHECK(state.stamina() == 0u);
+
+    const GameEvent event = state.rest();
+    const RestedEvent rested = rested_of(event);
+    CHECK(rested.stamina_before == 0u);
+    CHECK(rested.stamina_recovered == 4u);
+    CHECK(rested.stamina_after == 4u);
+    CHECK(state.stamina() == 4u);
+    // The fourth command consumes sequence 3, contiguous with the three moves.
+    CHECK(event.sequence == 3u);
+}
+
+TEST_CASE("resting from ten restores only two and caps at twelve") {
+    GameState ten(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.x.\n"));
+    CHECK(outcome_of(ten.move(Direction::right)).result == MoveResult::moved);  // fields: 12->10
+    CHECK(ten.stamina() == 10u);
+
+    const RestedEvent rested = rested_of(ten.rest());
+    CHECK(rested.stamina_before == 10u);
+    CHECK(rested.stamina_recovered == 2u);
+    CHECK(rested.stamina_after == 12u);
+    CHECK(ten.stamina() == 12u);
+    CHECK(ten.stamina() <= GameState::maximum_stamina);
+}
+
+TEST_CASE("resting at full stamina recovers zero but still emits one event") {
+    GameState state(spawn_then('.'));
+    CHECK(state.stamina() == 12u);
+
+    const GameEvent event = state.rest();
+    const RestedEvent rested = rested_of(event);
+    CHECK(rested.stamina_before == 12u);
+    CHECK(rested.stamina_recovered == 0u);
+    CHECK(rested.stamina_after == 12u);
+    CHECK(state.stamina() == 12u);
+    // The rest is the first command, so it starts the sequence at zero.
+    CHECK(event.sequence == 0u);
+}
+
+TEST_CASE("resting from nine, ten, and eleven only tops up to the maximum") {
+    struct Case {
+        std::uint32_t before;
+        std::uint32_t recovered;
+    };
+    const Case cases[] = {{9u, 3u}, {10u, 2u}, {11u, 1u}};
+    for (const Case& c : cases) {
+        // Build a fresh state and drain to the target starting stamina using
+        // repeated open moves on a long corridor (each open step costs 1).
+        GameState state(make_map("NAM-MAP 1\nwidth 6\nheight 1\nspawn 0 0\n---\n......\n"));
+        while (state.stamina() > c.before) {
+            CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);
+        }
+        REQUIRE(state.stamina() == c.before);
+        const RestedEvent rested = rested_of(state.rest());
+        CHECK(rested.stamina_before == c.before);
+        CHECK(rested.stamina_recovered == c.recovered);
+        CHECK(rested.stamina_after == 12u);
+        CHECK(state.stamina() == 12u);
+    }
+}
+
+TEST_CASE("resting from zero allows the next water move and leaves one stamina") {
+    // Spawn beside water: from full a right move onto water costs 3. First drain
+    // to zero on a mountain corridor, rest to 4, then a water step (cost 3) leaves
+    // exactly 1.
+    GameState state(make_map("NAM-MAP 1\nwidth 6\nheight 1\nspawn 0 0\n---\n.@@@~.\n"));
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 12->8
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 8->4
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 4->0
+    CHECK(state.stamina() == 0u);
+
+    // At zero, the next water step is unaffordable.
+    CHECK(state.peek(Direction::right).result == MoveResult::blocked_by_stamina);
+
+    const RestedEvent rested = rested_of(state.rest());
+    CHECK(rested.stamina_after == 4u);
+
+    const MoveOutcome water = outcome_of(state.move(Direction::right));  // water, cost 3.
+    CHECK(water.result == MoveResult::moved);
+    CHECK(water.terrain == Terrain::water);
+    CHECK(water.stamina_cost == 3u);
+    CHECK(state.stamina() == 1u);
+}
+
+TEST_CASE("resting preserves actor position, map serialization, and visibility") {
+    GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.@@@.\n"));
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 12->8
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 8->4
+
+    const Coordinates before_pos = state.actor_position();
+    const std::string before_render = state.render();
+    const std::string before_fog = visibility_signature(state);
+
+    const GameEvent event = state.rest();
+    CHECK(std::holds_alternative<RestedEvent>(event.data));
+
+    CHECK(state.actor_position() == before_pos);
+    CHECK(state.render() == before_render);
+    CHECK(visibility_signature(state) == before_fog);
 }
 
 }  // TEST_SUITE("game")

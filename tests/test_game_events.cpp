@@ -25,6 +25,10 @@ const MoveAttemptedEvent& payload_of(const GameEvent& event) {
     return std::get<MoveAttemptedEvent>(event.data);
 }
 
+const RestedEvent& rested_of(const GameEvent& event) {
+    return std::get<RestedEvent>(event.data);
+}
+
 // A 3x3 map whose spawn at the top-left can move right onto open ground, then
 // bump a wall to its right, then step off the top edge — one map exercising a
 // success, a terrain block, and a boundary block in a single scripted run.
@@ -189,6 +193,47 @@ TEST_CASE("peek emits no event and does not consume a sequence number") {
 
     const GameEvent second = state.move(Direction::down);
     CHECK(second.sequence == 1);
+}
+
+TEST_CASE("a movement, a rest, and a movement consume contiguous sequence numbers") {
+    GameState state(mountain_corridor());
+    const GameEvent moved = state.move(Direction::right);        // mountain, 12->8.
+    const GameEvent rested = state.rest();                       // 8->12.
+    const GameEvent moved_again = state.move(Direction::right);  // mountain, 12->8.
+
+    CHECK(moved.sequence == 0);
+    CHECK(rested.sequence == 1);
+    CHECK(moved_again.sequence == 2);
+
+    CHECK(std::holds_alternative<MoveAttemptedEvent>(moved.data));
+    CHECK(std::holds_alternative<RestedEvent>(rested.data));
+    CHECK(std::holds_alternative<MoveAttemptedEvent>(moved_again.data));
+
+    CHECK(payload_of(moved).outcome.result == MoveResult::moved);
+    CHECK(payload_of(moved).outcome.stamina_after == 8);
+
+    const RestedEvent& rest_payload = rested_of(rested);
+    CHECK(rest_payload.stamina_before == 8);
+    CHECK(rest_payload.stamina_recovered == 4);
+    CHECK(rest_payload.stamina_after == 12);
+
+    CHECK(payload_of(moved_again).outcome.result == MoveResult::moved);
+    CHECK(payload_of(moved_again).outcome.stamina_before == 12);
+    CHECK(payload_of(moved_again).outcome.stamina_after == 8);
+}
+
+TEST_CASE("a rest at full stamina still consumes exactly one sequence number") {
+    GameState state(open_field());
+    const GameEvent rested = state.rest();
+    CHECK(rested.sequence == 0);
+    const RestedEvent& payload = rested_of(rested);
+    CHECK(payload.stamina_before == 12);
+    CHECK(payload.stamina_recovered == 0);
+    CHECK(payload.stamina_after == 12);
+
+    // The next command continues the contiguous sequence with no gap.
+    const GameEvent next = state.move(Direction::right);
+    CHECK(next.sequence == 1);
 }
 
 }  // TEST_SUITE("game")

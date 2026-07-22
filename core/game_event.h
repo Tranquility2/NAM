@@ -24,9 +24,25 @@ struct MoveAttemptedEvent {
     MoveOutcome outcome{};
 };
 
-// The payload of a GameEvent. A variant so future command families can add their
-// own event types without widening a single struct.
-using GameEventData = std::variant<MoveAttemptedEvent>;
+// The single event a rest command produces. Rest is its own command family: it
+// never moves the actor, never touches the map or visibility, and never counts
+// as a movement attempt. The payload carries only the stamina transition so a
+// frontend can describe the recovery without re-deriving the cap. A rest at full
+// stamina still emits this event with `stamina_recovered == 0` and
+// `stamina_before == stamina_after`, so every rest consumes exactly one
+// contiguous sequence number like every other command.
+struct RestedEvent {
+    std::uint32_t stamina_before{};
+    std::uint32_t stamina_recovered{};
+    std::uint32_t stamina_after{};
+};
+
+// The payload of a GameEvent. A variant so command families can add their own
+// event types without widening a single struct. Consumers must dispatch on the
+// active alternative (std::get_if / std::visit) rather than assuming movement:
+// the sequence type and default alternative stay MoveAttemptedEvent, but rest
+// commands carry a RestedEvent instead.
+using GameEventData = std::variant<MoveAttemptedEvent, RestedEvent>;
 
 // One ordered event. `sequence` starts at 0 for a new GameState and increases by
 // exactly one per emitted event, so the stream is a total order in
