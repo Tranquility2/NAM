@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <array>
-#include <climits>
 #include <string>
 
 #include "messages.h"
@@ -75,51 +74,116 @@ constexpr int color_actor = 93;  // Bright yellow.
     return origin;
 }
 
-// Render one map row [x0, x0+cols) at row y, drawing the actor glyph where
-// present. Colour runs are coalesced; the actor cell is always emitted with an
-// explicit style and a trailing reset.
+// Render one map row [x0, x0+cols) at row y, honoring per-cell exploration
+// state. The renderer branches on CellVisibility *before* reading terrain so a
+// hidden cell never leaks its glyph or colour:
+//   * unexplored -> a single blank space, no style.
+//   * remembered -> the terrain glyph, dimmed (ESC[2m) whenever ANSI is enabled,
+//     even if colour is disabled.
+//   * visible    -> the terrain glyph with its normal colour mapping.
+//   * the actor  -> the existing actor styling, always drawn as actor_glyph.
+// ANSI style transitions explicitly reset before switching kinds so dim or
+// colour state cannot leak into adjacent cells, padding, HUD text, or later
+// rows; a styled row always ends with ESC[0m.
 [[nodiscard]] std::string build_map_row(const RenderInput& input, const RenderConfig& config,
                                         int y, int x0, int cols) {
+    const bool ansi = config.use_ansi;
     const bool colored = config.use_color && config.use_ansi;
     const Map& map = *input.map;
+    const VisibilityMap& visibility = *input.visibility;
 
     std::string row;
-    row.reserve(static_cast<std::size_t>(cols) * (colored ? 6 : 1));
+    row.reserve(static_cast<std::size_t>(cols) * (ansi ? 6 : 1));
 
-    int last_code = INT_MIN;
+    // Signature of the SGR style currently applied on this row. 0 means none;
+    // remembered uses a sentinel distinct from every terrain colour code.
+    constexpr int style_none = 0;
+    constexpr int style_remembered = -1;
+    bool style_active = false;
+    int active_style = style_none;
+
+    const auto reset_style = [&row, &style_active, &active_style, style_none]() {
+        if (style_active) {
+            row += "\033[0m";
+            style_active = false;
+            active_style = style_none;
+        }
+    };
+
     for (int offset = 0; offset < cols; ++offset) {
         const Coordinates here{x0 + offset, y};
         const bool is_actor = here == input.actor;
 
-        if (!colored) {
-            row.push_back(is_actor ? actor_glyph : symbol_of(map.terrain_at(here)));
+        if (!ansi) {
+            if (is_actor) {
+                row.push_back(actor_glyph);
+            } else if (visibility.at(here) == CellVisibility::unexplored) {
+                row.push_back(' ');
+            } else {
+                // Plain mode cannot distinguish remembered from visible without
+                // changing canonical glyphs, so both use the terrain glyph.
+                row.push_back(symbol_of(map.terrain_at(here)));
+            }
             continue;
         }
 
         if (is_actor) {
-            row += "\033[1m";  // Bold.
-            if (config.emphasis && input.emphasize_actor) {
-                row += "\033[7m";  // One-frame reverse-video emphasis.
+            // Close any preceding remembered/visible run so its style cannot
+            // bleed onto the actor cell.
+            reset_style();
+            if (colored) {
+                row += "\033[1m";  // Bold.
+                if (config.emphasis && input.emphasize_actor) {
+                    row += "\033[7m";  // One-frame reverse-video emphasis.
+                }
+                row += sgr(color_actor);
+                row.push_back(actor_glyph);
+                row += "\033[0m";
+                style_active = false;
+                active_style = style_none;
+            } else {
+                // No colour: match the pre-fog bare-glyph actor. Emit no actor
+                // bold/reverse/colour escape; the reset above already cleared
+                // any active remembered dim.
+                row.push_back(actor_glyph);
             }
-            row += sgr(color_actor);
-            row.push_back(actor_glyph);
-            row += "\033[0m";
-            last_code = INT_MIN;  // Force the next cell to restate its colour.
             continue;
         }
 
-        const Terrain terrain = map.terrain_at(here);
-        const int code = color_for(terrain);
-        if (code != last_code) {
-            row += sgr(code);
-            last_code = code;
+        const CellVisibility state = visibility.at(here);
+        if (state == CellVisibility::unexplored) {
+            reset_style();
+            row.push_back(' ');
+            continue;
         }
-        row.push_back(symbol_of(terrain));
+
+        if (state == CellVisibility::remembered) {
+            if (active_style != style_remembered) {
+                reset_style();
+                row += "\033[2m";  // Dim: exploration memory.
+                style_active = true;
+                active_style = style_remembered;
+            }
+            row.push_back(symbol_of(map.terrain_at(here)));
+            continue;
+        }
+
+        // Currently visible terrain: normal styling, never dimmed.
+        if (colored) {
+            const int code = color_for(map.terrain_at(here));
+            if (active_style != code) {
+                reset_style();
+                row += sgr(code);
+                style_active = true;
+                active_style = code;
+            }
+        } else {
+            reset_style();
+        }
+        row.push_back(symbol_of(map.terrain_at(here)));
     }
 
-    if (colored && last_code != INT_MIN) {
-        row += "\033[0m";
-    }
+    reset_style();
     return row;
 }
 

@@ -1,8 +1,10 @@
 #include <doctest/doctest.h>
 
+#include <cstddef>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <variant>
 
 #include "console_app.h"
@@ -25,6 +27,33 @@ Map make_map(std::string_view text) {
 // A small room the actor can move around in horizontally.
 GameState make_state() {
     return GameState(make_map("NAM-MAP 1\nwidth 5\nheight 3\nspawn 2 1\n---\n=====\n|...|\n=====\n"));
+}
+
+// A room wider than the initial 5x5 reveal, with a distinctive mountain '@' far
+// to the right (walkable, so the actor can approach it) that starts hidden.
+GameState make_big_state() {
+    return GameState(make_map(
+        "NAM-MAP 1\nwidth 9\nheight 3\nspawn 1 1\n---\n=========\n......@..\n=========\n"));
+}
+
+std::size_t count_char(const std::string& text, char needle) {
+    std::size_t total = 0;
+    for (const char c : text) {
+        if (c == needle) {
+            ++total;
+        }
+    }
+    return total;
+}
+
+int run_plain_state(GameState state, const std::string& commands, std::string& output,
+                    Settings settings = {}) {
+    ConsoleApp app(std::move(state), settings);
+    std::istringstream input(commands);
+    std::ostringstream out;
+    const int code = app.run_plain(input, out);
+    output = out.str();
+    return code;
 }
 
 int run_plain_with(const std::string& commands, std::string& output, Settings settings = {}) {
@@ -163,6 +192,31 @@ TEST_CASE("an unseeded plain session keeps its original welcome and no seed noti
     CHECK(code == 0);
     CHECK(output.find("Plain mode.") != std::string::npos);
     CHECK(output.find("Tiny World seed:") == std::string::npos);
+}
+
+TEST_CASE("fog hides distant terrain until the actor explores toward it") {
+    // TASK-020 / TEST-016: the far mountain '@' starts outside the 5x5 reveal
+    // and is hidden in the initial plain frame.
+    std::string hidden;
+    const int code_hidden = run_plain_state(make_big_state(), "q\n", hidden);
+    CHECK(code_hidden == 0);
+    CHECK(hidden.find('@') == std::string::npos);
+
+    // TEST-017: walking right three cells brings '@' into sight, so it appears.
+    std::string revealed;
+    const int code_revealed = run_plain_state(make_big_state(), "d\nd\nd\nq\n", revealed);
+    CHECK(code_revealed == 0);
+    CHECK(revealed.find('@') != std::string::npos);
+
+    // TEST-018: after stepping back out of range the mountain is remembered, so
+    // it remains present in the later plain frames rather than vanishing. The
+    // reveal contributes one frame; every extra '@' comes from a remembered
+    // frame after the actor left sight.
+    std::string remembered;
+    const int code_remembered = run_plain_state(make_big_state(), "d\nd\nd\na\na\nq\n", remembered);
+    CHECK(code_remembered == 0);
+    CHECK(count_char(remembered, '@') >= 2);
+    CHECK(remembered.find('\x1b') == std::string::npos);  // plain stays ANSI-free.
 }
 
 }  // TEST_SUITE("console")

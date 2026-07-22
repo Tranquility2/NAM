@@ -10,14 +10,20 @@
 #include "map.h"
 #include "terminal.h"
 #include "terrain.h"
+#include "visibility.h"
 
 namespace nam::console {
 
 // Everything the renderer needs about the world for one frame. It is plain data
-// (the map is referenced, not owned) so a frame can be produced and inspected
-// without a terminal, which keeps rendering testable.
+// (the map and visibility are referenced, not owned) so a frame can be produced
+// and inspected without a terminal, which keeps rendering testable.
+//
+// Both `map` and `visibility` are required for rendering: the renderer branches
+// on per-cell CellVisibility before reading terrain, so a null visibility
+// pointer is a caller error.
 struct RenderInput {
     const Map* map = nullptr;
+    const VisibilityMap* visibility = nullptr;
     Coordinates actor{};
     Terrain terrain{};
     std::size_t move_count = 0;

@@ -93,6 +93,7 @@ ConsoleApp::ConsoleApp(GameState state, Settings settings)
 RenderInput ConsoleApp::make_input(bool emphasize) const {
     RenderInput input;
     input.map = &state_.map();
+    input.visibility = &state_.visibility();
     input.actor = state_.actor_position();
     input.terrain = state_.actor_terrain();
     input.move_count = hud_.move_count();

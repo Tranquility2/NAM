@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "app_state.h"
@@ -11,6 +12,7 @@
 #include "renderer.h"
 #include "terminal.h"
 #include "terrain.h"
+#include "visibility.h"
 
 using namespace nam::console;
 
@@ -21,9 +23,23 @@ Map open_map(std::size_t width, std::size_t height) {
                Coordinates{0, 0});
 }
 
+// A single fully-revealed visibility grid large enough to cover every layout
+// test map. Existing layout tests predate fog and expect the whole map drawn,
+// so make_input references this all-visible grid; fog-specific tests below build
+// their own controlled VisibilityMap instead.
+const VisibilityMap& full_visibility() {
+    static const VisibilityMap revealed = [] {
+        VisibilityMap map(256, 256);
+        map.reveal_square(Coordinates{0, 0}, 512);
+        return map;
+    }();
+    return revealed;
+}
+
 RenderInput make_input(const Map& map) {
     RenderInput input;
     input.map = &map;
+    input.visibility = &full_visibility();
     input.actor = map.spawn();
     input.terrain = map.terrain_at(map.spawn());
     input.move_count = 3;
@@ -76,6 +92,54 @@ bool any_esc(const Frame& frame) {
 
 RenderConfig plain_config() { return RenderConfig{false, false, false, false}; }
 RenderConfig color_config() { return RenderConfig{true, true, false, true}; }
+
+// Concatenate a frame's raw rows so escape sequences can be searched globally.
+std::string join_raw(const Frame& frame) {
+    std::string out;
+    for (const std::string& row : frame) {
+        out += row;
+        out.push_back('\n');
+    }
+    return out;
+}
+
+// The first line of plain text (the top map row), without its newline.
+std::string first_line(const std::string& text) {
+    const std::size_t nl = text.find('\n');
+    return nl == std::string::npos ? text : text.substr(0, nl);
+}
+
+// A fog scene on an 11x1 map: after two reveals, x0..3 are remembered, x4..8 are
+// visible, and x9..10 are unexplored. Distinctive terrain marks each state so
+// leakage of a hidden glyph is detectable.
+struct FogScene {
+    Map map;
+    VisibilityMap visibility;
+};
+
+FogScene make_fog_scene() {
+    std::vector<Terrain> cells(11, Terrain::open);
+    cells[1] = Terrain::fields;     // x1: remembered, expect 'x'.
+    cells[6] = Terrain::water;      // x6: visible, expect '~'.
+    cells[10] = Terrain::mountain;  // x10: unexplored, '@' must never appear.
+    Map map(11, 1, std::move(cells), Coordinates{4, 0});
+    VisibilityMap visibility(11, 1);
+    visibility.reveal_square(Coordinates{2, 0}, 2);  // x0..4 visible.
+    visibility.reveal_square(Coordinates{6, 0}, 2);  // demote x0..3, x4..8 visible.
+    return {std::move(map), std::move(visibility)};
+}
+
+RenderInput fog_input(const FogScene& scene) {
+    RenderInput input;
+    input.map = &scene.map;
+    input.visibility = &scene.visibility;
+    input.actor = Coordinates{4, 0};  // guaranteed visible.
+    input.terrain = scene.map.terrain_at(input.actor);
+    input.move_count = 0;
+    input.attempt_count = 0;
+    input.message = "x";
+    return input;
+}
 
 }  // namespace
 
@@ -206,6 +270,92 @@ TEST_CASE("rendering is a pure function of its input") {
     const RenderInput input = make_input(map);
     CHECK(renderer.render(input, TerminalSize{50, 20}) ==
           renderer.render(input, TerminalSize{50, 20}));
+}
+
+TEST_CASE("unexplored cells render as spaces and never leak terrain") {
+    // TASK-019 / TEST-010: the far mountain '@' is unexplored and must be a
+    // blank, while remembered 'x' and visible '~' terrain are present.
+    const FogScene scene = make_fog_scene();
+    const Renderer renderer(plain_config());
+    const std::string text = renderer.render_plain(fog_input(scene));
+    const std::string row = first_line(text);
+
+    CHECK(row == ".x..O.~..  ");
+    CHECK(row.find('@') == std::string::npos);   // hidden terrain never leaks.
+    CHECK(row.find('x') != std::string::npos);   // remembered terrain present.
+    CHECK(row.find('~') != std::string::npos);   // visible terrain present.
+    CHECK(text.find('\x1b') == std::string::npos);  // plain mode stays ANSI-free.
+}
+
+TEST_CASE("remembered cells are dim under ANSI, even without colour") {
+    // TASK-019 / TEST-012: SGR dim appears whenever ANSI is enabled.
+    const FogScene scene = make_fog_scene();
+
+    const Renderer colored(color_config());
+    const Frame colored_frame = colored.render(fog_input(scene), TerminalSize{40, 24});
+    CHECK(join_raw(colored_frame).find("\033[2m") != std::string::npos);
+
+    const Renderer ansi_no_color(RenderConfig{false, true, false, false});
+    const Frame mono_frame = ansi_no_color.render(fog_input(scene), TerminalSize{40, 24});
+    CHECK(join_raw(mono_frame).find("\033[2m") != std::string::npos);
+
+    // Hidden terrain still never appears once escapes are stripped.
+    CHECK_FALSE(contains_glyph(colored_frame, '@'));
+}
+
+TEST_CASE("visible terrain is never dimmed") {
+    // TASK-019 / TEST-013: a fully-visible scene emits no dim sequence.
+    const Map map = open_map(8, 4);
+    const Renderer renderer(color_config());
+    const Frame frame = renderer.render(make_input(map), TerminalSize{40, 24});
+    CHECK(join_raw(frame).find("\033[2m") == std::string::npos);
+}
+
+TEST_CASE("ANSI-disabled fog output contains no escape byte") {
+    // TASK-019 / TEST-011 companion.
+    const FogScene scene = make_fog_scene();
+    const Renderer renderer(plain_config());
+    const Frame frame = renderer.render(fog_input(scene), TerminalSize{40, 24});
+    CHECK_FALSE(any_esc(frame));
+}
+
+TEST_CASE("actor styling resets and stripped fog rows keep exact width") {
+    // TASK-019 / TEST-014, TEST-015: the actor is drawn and reset, no dim leaks
+    // past it, and stripped rows stay within the viewport width.
+    const FogScene scene = make_fog_scene();
+    const Renderer renderer(color_config());
+    const Frame frame = renderer.render(fog_input(scene), TerminalSize{40, 24});
+
+    CHECK(contains_glyph(frame, actor_glyph));   // actor drawn.
+    const std::string raw = join_raw(frame);
+    CHECK(raw.find("\033[0m") != std::string::npos);  // styles are reset.
+
+    bool saw_map_row = false;
+    for (const std::string& row : frame) {
+        const std::string visible = strip_ansi(row);
+        CHECK(visible.size() <= 40);
+        if (visible.find(".x..O.~..") != std::string::npos) {
+            saw_map_row = true;
+        }
+    }
+    CHECK(saw_map_row);
+}
+
+TEST_CASE("no-colour ANSI actor emits no actor style but keeps remembered dim") {
+    // Regression: with use_ansi=true and use_color=false (real --no-color /
+    // NO_COLOR), remembered terrain must still dim (ESC[2m) while the actor
+    // reverts to a bare glyph with no bold (ESC[1m), reverse (ESC[7m), or
+    // bright-yellow (ESC[93m) escape.
+    const FogScene scene = make_fog_scene();  // remembered x0..3 and the actor.
+    const Renderer ansi_no_color(RenderConfig{false, true, false, false});
+    const Frame frame = ansi_no_color.render(fog_input(scene), TerminalSize{40, 24});
+    const std::string raw = join_raw(frame);
+
+    CHECK(raw.find("\033[2m") != std::string::npos);   // remembered dim survives.
+    CHECK(raw.find("\033[1m") == std::string::npos);    // no actor bold.
+    CHECK(raw.find("\033[7m") == std::string::npos);    // no reverse emphasis.
+    CHECK(raw.find("\033[93m") == std::string::npos);   // no actor colour.
+    CHECK(contains_glyph(frame, actor_glyph));          // actor still drawn.
 }
 
 }  // TEST_SUITE("console")
