@@ -6,6 +6,7 @@
 
 #include "coordinates.h"
 #include "direction.h"
+#include "game_state.h"
 #include "map.h"
 #include "terrain.h"
 
@@ -30,6 +31,29 @@ TEST_CASE("walls are the only impassable terrain") {
     CHECK(is_walkable(Terrain::hill));
     CHECK_FALSE(is_walkable(Terrain::wall_horizontal));
     CHECK_FALSE(is_walkable(Terrain::wall_vertical));
+}
+
+TEST_CASE("terrain visibility radius maps to the canonical 2/2/2/3/4/0/0 table") {
+    // TASK-005 / TEST-001: base terrain sees radius 2, hills 3, mountains 4, and
+    // both unoccupiable wall variants document radius 0.
+    CHECK(visibility_radius_of(Terrain::open) == 2);
+    CHECK(visibility_radius_of(Terrain::fields) == 2);
+    CHECK(visibility_radius_of(Terrain::water) == 2);
+    CHECK(visibility_radius_of(Terrain::hill) == 3);
+    CHECK(visibility_radius_of(Terrain::mountain) == 4);
+    CHECK(visibility_radius_of(Terrain::wall_horizontal) == 0);
+    CHECK(visibility_radius_of(Terrain::wall_vertical) == 0);
+}
+
+TEST_CASE("public GameState radius constants derive from the terrain table") {
+    // TASK-005 / TEST-002: the exposed constants must equal the canonical table
+    // rather than hard-coded literals so the two can never drift.
+    CHECK(GameState::base_visibility_radius == visibility_radius_of(Terrain::open));
+    CHECK(GameState::hill_visibility_radius == visibility_radius_of(Terrain::hill));
+    CHECK(GameState::mountain_visibility_radius == visibility_radius_of(Terrain::mountain));
+    CHECK(GameState::base_visibility_radius == 2);
+    CHECK(GameState::hill_visibility_radius == 3);
+    CHECK(GameState::mountain_visibility_radius == 4);
 }
 
 TEST_CASE("unknown symbols decode to no terrain") {

@@ -38,11 +38,30 @@ GameState make_big_state() {
 
 // A one-lane mountain corridor for stamina integration. From the left spawn the
 // four-cost mountains drain 12 -> 8 -> 4 -> 0 over three steps; a fourth step is
-// unaffordable. A distant water cell stays outside the actor's sight when the
-// run stalls, so it must never appear unless fog wrongly refreshes on the block.
+// unaffordable. A distinctive water cell sits at x=8, outside radius 4 from the
+// last successfully occupied mountain at x=3, so it must never appear unless fog
+// wrongly refreshes on the block.
 GameState make_cost_state() {
     return GameState(make_map(
-        "NAM-MAP 1\nwidth 9\nheight 3\nspawn 0 1\n---\n=========\n.@@@@.~..\n=========\n"));
+        "NAM-MAP 1\nwidth 9\nheight 3\nspawn 0 1\n---\n=========\n.@@@@...~\n=========\n"));
+}
+
+// A corridor with an open spawn at x=1, a hill at x=2, and a distinctive water
+// cell at x=5. The water sits at radius 3 from the hill but beyond radius 2 from
+// either the open spawn or the hill cell if it were flat, so only standing on
+// the hill reveals it. Stepping back off the hill keeps it as memory.
+GameState make_hill_state() {
+    return GameState(make_map(
+        "NAM-MAP 1\nwidth 9\nheight 3\nspawn 1 1\n---\n=========\n..^..~...\n=========\n"));
+}
+
+// A mountain corridor whose distinctive water at x=8 is reachable only from the
+// fourth mountain at x=4 (radius 4 -> x=8). Three steps drain 12 -> 8 -> 4 -> 0,
+// so the fourth mountain is unaffordable until a rest restores exactly enough
+// stamina to enter it and finally reveal the water.
+GameState make_mountain_reach_state() {
+    return GameState(make_map(
+        "NAM-MAP 1\nwidth 11\nheight 3\nspawn 0 1\n---\n===========\n.@@@@...~..\n===========\n"));
 }
 
 std::size_t count_char(const std::string& text, char needle) {
@@ -260,6 +279,49 @@ TEST_CASE("fog hides distant terrain until the actor explores toward it") {
     CHECK(code_remembered == 0);
     CHECK(count_char(remembered, '@') >= 2);
     CHECK(remembered.find('\x1b') == std::string::npos);  // plain stays ANSI-free.
+}
+
+TEST_CASE("entering a hill reveals a far glyph that persists as memory after leaving") {
+    // TASK-015 / TEST-015..016: the distinctive water at x=5 is hidden at the
+    // open spawn, appears only once the actor stands on the hill (radius 3), and
+    // remains present as remembered terrain after the actor steps back off.
+    std::string hidden;
+    const int code_hidden = run_plain_state(make_hill_state(), "q\n", hidden);
+    CHECK(code_hidden == 0);
+    CHECK(hidden.find('~') == std::string::npos);
+
+    std::string on_hill;
+    const int code_hill = run_plain_state(make_hill_state(), "d\nq\n", on_hill);
+    CHECK(code_hill == 0);
+    CHECK(on_hill.find('~') != std::string::npos);
+
+    // Leaving the hill keeps the water as memory, so it stays in later frames:
+    // one frame from the reveal plus at least one remembered frame afterwards.
+    std::string remembered;
+    const int code_remembered = run_plain_state(make_hill_state(), "d\na\nq\n", remembered);
+    CHECK(code_remembered == 0);
+    CHECK(count_char(remembered, '~') >= 2);
+    CHECK(remembered.find('\x1b') == std::string::npos);  // plain stays ANSI-free.
+}
+
+TEST_CASE("an unaffordable mountain keeps a far glyph hidden until a rest lets the actor enter") {
+    // TASK-016 / TEST-017: the water at x=8 lies at radius 4 from the fourth
+    // mountain. Draining to zero blocks that mountain, so the water stays hidden;
+    // only resting enough to afford and enter the mountain finally reveals it.
+    std::string blocked;
+    const int code_blocked = run_plain_state(make_mountain_reach_state(), "d\nd\nd\nd\nq\n", blocked);
+    CHECK(code_blocked == 0);
+    CHECK(blocked.find("Not enough stamina for mountain: need 4, have 0.") != std::string::npos);
+    CHECK(blocked.find('~') == std::string::npos);  // the blocked mountain reveals nothing.
+
+    std::string reached;
+    const int code_reached =
+        run_plain_state(make_mountain_reach_state(), "d\nd\nd\nr\nd\nq\n", reached);
+    CHECK(code_reached == 0);
+    CHECK(reached.find("Rested and recovered 4 stamina.") != std::string::npos);
+    CHECK(reached.find("Moved onto mountain for 4 stamina.") != std::string::npos);
+    CHECK(reached.find('~') != std::string::npos);  // entering the mountain reveals it.
+    CHECK(reached.find('\x1b') == std::string::npos);  // plain stays ANSI-free.
 }
 
 TEST_CASE("a scripted high-cost route shows costs, drains stamina, and blocks deterministically") {

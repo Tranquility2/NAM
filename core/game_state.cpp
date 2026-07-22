@@ -11,8 +11,9 @@ GameState::GameState(Map map)
     // map_ is declared before actor_position_ and visibility_, so it is fully
     // constructed here and map_.spawn()/width()/height() read the moved-into
     // member, not the moved-from argument. Reveal the initial sight square once
-    // the actor position and visibility buffer are initialized.
-    visibility_.reveal_square(actor_position_, base_visibility_radius);
+    // the actor position and visibility buffer are initialized, using the radius
+    // for the spawn terrain so an initial hill or mountain sees farther at once.
+    visibility_.reveal_square(actor_position_, visibility_radius());
 }
 
 MoveOutcome GameState::peek(Direction direction) const {
@@ -46,9 +47,11 @@ GameEvent GameState::move(Direction direction) {
         actor_position_ = outcome.to;
         stamina_ = outcome.stamina_after;
         // Only a successful move refreshes visibility, and only after the actor
-        // position and stamina are committed. Blocked attempts and peek leave
-        // fog and stamina unchanged.
-        visibility_.reveal_square(actor_position_, base_visibility_radius);
+        // position and stamina are committed. The radius is selected from the
+        // destination terrain the actor now stands on, so elevated terrain
+        // reveals farther. Blocked attempts and peek leave fog and stamina
+        // unchanged.
+        visibility_.reveal_square(actor_position_, visibility_radius());
     }
 
     GameEvent event;

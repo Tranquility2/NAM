@@ -39,11 +39,21 @@ public:
     [[nodiscard]] std::uint32_t stamina() const noexcept { return stamina_; }
     [[nodiscard]] std::uint32_t max_stamina() const noexcept { return maximum_stamina; }
 
-    // The exploration/sight radius revealed around the actor. Kept here as a
-    // core constant so later terrain, weather, daylight, or equipment modifiers
-    // can replace the fixed value without moving visibility state into a
-    // frontend. A radius of 2 yields the clipped 5x5 sight square.
-    static constexpr int base_visibility_radius = 2;
+    // The exploration/sight radius revealed around the actor is selected from
+    // the actor's current terrain via visibility_radius_of, so terrain, replay,
+    // SDL, and tests share one authoritative mapping instead of a fixed literal.
+    // Base terrain (open/fields/water) uses radius 2 for the clipped 5x5 sight
+    // square; hills use radius 3 (7x7) and mountains radius 4 (9x9). Later
+    // weather, daylight, or equipment modifiers can compose onto this baseline
+    // without moving visibility state into a frontend.
+    static constexpr int base_visibility_radius = visibility_radius_of(Terrain::open);
+    static constexpr int hill_visibility_radius = visibility_radius_of(Terrain::hill);
+    static constexpr int mountain_visibility_radius = visibility_radius_of(Terrain::mountain);
+
+    // The sight radius for the actor's current terrain. A move refreshes fog
+    // using this value after committing position and stamina, so elevated
+    // terrain reveals farther the moment the actor stands on it.
+    [[nodiscard]] int visibility_radius() const { return visibility_radius_of(actor_terrain()); }
 
     // Frontend-neutral exploration memory around the actor. Its dimensions match
     // the owned Map, and the actor cell is always currently visible.

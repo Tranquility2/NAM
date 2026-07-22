@@ -24,6 +24,15 @@ Map make_map(std::string_view text) {
 constexpr std::string_view kMap =
     "NAM-MAP 1\nwidth 5\nheight 5\nspawn 2 2\n---\n.....\n.=.=.\n.....\n.=.=.\n.....\n";
 
+// An 11x11 open field with a hill '^' and mountain '@' immediately right of the
+// spawn at (4,5), so a script can enter and leave both elevated terrains and
+// exercise radius growth (2 -> 3 -> 4) and shrink (4 -> 3 -> 2).
+constexpr std::string_view kTerrainMap =
+    "NAM-MAP 1\nwidth 11\nheight 11\nspawn 4 5\n---\n"
+    "...........\n...........\n...........\n...........\n...........\n"
+    ".....^@....\n...........\n...........\n...........\n...........\n"
+    "...........\n";
+
 // A scripted command: either a movement in a direction, or a rest in place.
 struct Command {
     bool is_rest = false;
@@ -144,6 +153,43 @@ TEST_CASE("identical mixed movement and rest scripts produce identical results")
     CHECK(a.stamina() == b.stamina());
     CHECK(a.render() == b.render());
     CHECK(visibility_signature(a) == visibility_signature(b));
+}
+
+TEST_CASE("terrain-transition scripts produce identical radius and visibility") {
+    // TASK-014 / TEST-014: a script that enters and leaves hill and mountain
+    // terrain must yield identical current radius and every visibility cell on
+    // two independent games from the same map.
+    const std::vector<Command> script{
+        move_cmd(Direction::right),  // open (4,5) -> hill (5,5), radius 3
+        move_cmd(Direction::right),  // hill (5,5) -> mountain (6,5), radius 4
+        rest_cmd(),                  // rest on the mountain, visibility unchanged
+        move_cmd(Direction::left),   // mountain -> hill, radius 3
+        move_cmd(Direction::left),   // hill -> open, radius 2
+        move_cmd(Direction::down),   // open ground, radius 2
+        move_cmd(Direction::up)};    // back up, radius 2
+
+    GameState a(make_map(kTerrainMap));
+    GameState b(make_map(kTerrainMap));
+
+    // Even the initial spawn radius and fog must match before any command.
+    CHECK(a.visibility_radius() == b.visibility_radius());
+    CHECK(visibility_signature(a) == visibility_signature(b));
+
+    for (const Command& command : script) {
+        const GameEvent ea = apply(a, command);
+        const GameEvent eb = apply(b, command);
+        CHECK(ea.sequence == eb.sequence);
+        CHECK(a.actor_position() == b.actor_position());
+        CHECK(a.stamina() == b.stamina());
+        // The terrain-selected sight radius is identical after every command.
+        CHECK(a.visibility_radius() == b.visibility_radius());
+        CHECK(visibility_signature(a) == visibility_signature(b));
+    }
+
+    // The script actually visited both elevated terrains: after the two right
+    // steps the second game reached the mountain's radius 4, and after returning
+    // the actor is back on base terrain at radius 2.
+    CHECK(a.visibility_radius() == 2);
 }
 
 TEST_CASE("peek is a pure function of state and direction") {
