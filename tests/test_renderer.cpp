@@ -47,8 +47,7 @@ RenderInput make_input(const Map& map) {
     input.stamina = 7;
     input.max_stamina = 12;
     input.message = "Moved onto open ground for 1 stamina.";
-    input.recent = {RecentMove{Direction::up, MoveResult::moved},
-                    RecentMove{Direction::left, MoveResult::blocked_by_terrain}};
+    input.recent = {RecentMove{Direction::up}, RecentMove{Direction::left}};
     return input;
 }
 
@@ -435,6 +434,34 @@ TEST_CASE("no-colour ANSI actor emits no actor style but keeps remembered dim") 
     CHECK(raw.find("\033[7m") == std::string::npos);    // no reverse emphasis.
     CHECK(raw.find("\033[93m") == std::string::npos);   // no actor colour.
     CHECK(contains_glyph(frame, actor_glyph));          // actor still drawn.
+}
+
+TEST_CASE("recent history renders only upper-case successful direction letters") {
+    // TASK-014 / TEST-012: every recent entry is a successful move, so the HUD
+    // recent line shows only upper-case direction letters and never a lower-case
+    // blocked marker.
+    const Map map = open_map(8, 4);
+    RenderInput input = make_input(map);
+    input.recent = {RecentMove{Direction::up}, RecentMove{Direction::down},
+                    RecentMove{Direction::left}, RecentMove{Direction::right}};
+    const Renderer renderer(plain_config());
+    const Frame frame = renderer.render(input, TerminalSize{80, 24});
+    const std::string visible = join_visible(frame);
+
+    const std::size_t recent = visible.find("Recent:");
+    REQUIRE(recent != std::string::npos);
+    const std::string tail = visible.substr(recent);
+    const std::size_t line_end = tail.find('\n');
+    const std::string recent_line = tail.substr(0, line_end);
+
+    CHECK(recent_line.find('U') != std::string::npos);
+    CHECK(recent_line.find('D') != std::string::npos);
+    CHECK(recent_line.find('L') != std::string::npos);
+    CHECK(recent_line.find('R') != std::string::npos);
+    // No lower-case blocked markers survive: every entry is a real move.
+    for (const char lower : {'u', 'd', 'l', 'r'}) {
+        CHECK(recent_line.find(lower) == std::string::npos);
+    }
 }
 
 }  // TEST_SUITE("console")

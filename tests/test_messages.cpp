@@ -4,6 +4,7 @@
 
 #include "coordinates.h"
 #include "direction.h"
+#include "game_event.h"
 #include "map_parser.h"
 #include "messages.h"
 #include "move_outcome.h"
@@ -75,6 +76,16 @@ TEST_CASE("boundary and impassable-terrain wording carries no stamina cost") {
     MoveOutcome wall{MoveResult::blocked_by_terrain, {0, 0}, {0, 0}, Terrain::wall_horizontal,
                     0, 7, 7};
     CHECK(describe_move(wall) == "Blocked by wall.");
+}
+
+TEST_CASE("rest messages state the recovered amount or that stamina is full") {
+    // A positive recovery reports the exact amount.
+    CHECK(describe_rest(RestedEvent{0, 4, 4}) == "Rested and recovered 4 stamina.");
+    CHECK(describe_rest(RestedEvent{10, 2, 12}) == "Rested and recovered 2 stamina.");
+    CHECK(describe_rest(RestedEvent{11, 1, 12}) == "Rested and recovered 1 stamina.");
+
+    // A rest at full stamina recovers zero and reports the full-stamina message.
+    CHECK(describe_rest(RestedEvent{12, 0, 12}) == "Stamina is already full.");
 }
 
 TEST_CASE("map errors describe the source and position when present") {

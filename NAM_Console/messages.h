@@ -3,6 +3,7 @@
 #include <string>
 
 #include "direction.h"
+#include "game_event.h"
 #include "map_parser.h"
 #include "move_outcome.h"
 #include "terrain.h"
@@ -27,6 +28,11 @@ namespace nam::console {
 // rule-provided stamina cost carried in the MoveOutcome; boundary and
 // impassable-terrain outcomes have no cost and keep their existing wording.
 [[nodiscard]] std::string describe_move(const MoveOutcome& outcome);
+
+// A sentence describing a rest command for the HUD's latest-event line. A rest
+// that recovered one or more stamina reports the exact amount; a rest at full
+// stamina reports that stamina is already full.
+[[nodiscard]] std::string describe_rest(const RestedEvent& rested);
 
 // A user-facing explanation of why a map failed to load, including the source
 // and line/column when the parser reported them.

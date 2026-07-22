@@ -55,6 +55,19 @@ std::size_t count_char(const std::string& text, char needle) {
     return total;
 }
 
+std::size_t count_substr(const std::string& text, const std::string& needle) {
+    if (needle.empty()) {
+        return 0;
+    }
+    std::size_t total = 0;
+    std::size_t pos = text.find(needle);
+    while (pos != std::string::npos) {
+        ++total;
+        pos = text.find(needle, pos + needle.size());
+    }
+    return total;
+}
+
 int run_plain_state(GameState state, const std::string& commands, std::string& output,
                     Settings settings = {}) {
     ConsoleApp app(std::move(state), settings);
@@ -72,6 +85,14 @@ int run_plain_with(const std::string& commands, std::string& output, Settings se
     const int code = app.run_plain(input, out);
     output = out.str();
     return code;
+}
+
+// A stranded-recovery map: three four-cost mountains drain 12 -> 8 -> 4 -> 0 from
+// the left spawn, then a water cell (cost 3) sits immediately after. Resting from
+// zero recovers 4, which is exactly enough to enter the water and leave 1.
+GameState make_rest_state() {
+    return GameState(make_map(
+        "NAM-MAP 1\nwidth 6\nheight 3\nspawn 0 1\n---\n======\n.@@@~.\n======\n"));
 }
 
 }  // namespace
@@ -110,6 +131,19 @@ TEST_CASE("quit is recognised from Escape and q") {
     CHECK_FALSE(is_quit_event(KeyEvent::of_character('w')));
     CHECK_FALSE(is_quit_event(KeyEvent::of(Key::up)));
     CHECK_FALSE(is_quit_event(KeyEvent::of(Key::end_of_input)));
+}
+
+TEST_CASE("rest is recognised from lower- and upper-case r only") {
+    CHECK(is_rest_event(KeyEvent::of_character('r')));
+    CHECK(is_rest_event(KeyEvent::of_character('R')));
+    CHECK_FALSE(is_rest_event(KeyEvent::of_character('q')));
+    CHECK_FALSE(is_rest_event(KeyEvent::of_character('d')));  // 'd'/'l' stay movement.
+    CHECK_FALSE(is_rest_event(KeyEvent::of_character('l')));
+    CHECK_FALSE(is_rest_event(KeyEvent::of(Key::right)));
+    CHECK_FALSE(is_rest_event(KeyEvent::of(Key::escape)));
+    // A rest key is never mistaken for a movement direction.
+    CHECK_FALSE(direction_for(KeyEvent::of_character('r')).has_value());
+    CHECK_FALSE(direction_for(KeyEvent::of_character('R')).has_value());
 }
 
 TEST_CASE("plain mode plays a scripted session and exits cleanly") {
@@ -254,6 +288,86 @@ TEST_CASE("a scripted high-cost route shows costs, drains stamina, and blocks de
     const int code_again = run_plain_state(make_cost_state(), "d\nd\nd\nd\nq\n", second);
     CHECK(code_again == code);
     CHECK(second == output);
+}
+
+TEST_CASE("plain mode recognises both r and rest as the rest command") {
+    std::string spelled;
+    const int a = run_plain_state(make_rest_state(), "rest\nq\n", spelled);
+    CHECK(a == 0);
+    CHECK(spelled.find("Stamina is already full.") != std::string::npos);
+    CHECK(spelled.find("Unknown command") == std::string::npos);
+
+    std::string letter;
+    const int b = run_plain_state(make_rest_state(), "r\nq\n", letter);
+    CHECK(b == 0);
+    CHECK(letter.find("Stamina is already full.") != std::string::npos);
+    CHECK(letter.find("Unknown command") == std::string::npos);
+}
+
+TEST_CASE("resting from zero lets the actor complete the next water move") {
+    // Drain to zero on the mountains, then a water step is blocked; rest recovers
+    // four, which is exactly enough to enter the water and leave one stamina.
+    std::string blocked_first;
+    const int code_blocked =
+        run_plain_state(make_rest_state(), "d\nd\nd\nd\nq\n", blocked_first);
+    CHECK(code_blocked == 0);
+    CHECK(blocked_first.find("Stamina: 0/12") != std::string::npos);
+    CHECK(blocked_first.find("Not enough stamina for water: need 3, have 0.") !=
+          std::string::npos);
+
+    std::string recovered;
+    const int code = run_plain_state(make_rest_state(), "d\nd\nd\nr\nd\nq\n", recovered);
+    CHECK(code == 0);
+    CHECK(recovered.find("Rested and recovered 4 stamina.") != std::string::npos);
+    CHECK(recovered.find("Moved onto water for 3 stamina.") != std::string::npos);
+    CHECK(recovered.find("Stamina: 1/12") != std::string::npos);
+    CHECK(recovered.find('\x1b') == std::string::npos);  // plain stays ANSI-free.
+}
+
+TEST_CASE("one rest command produces exactly one additional plain frame") {
+    // Each plain command emits one frame; every frame carries exactly one "Pos "
+    // status line, so counting them counts frames. Adding one rest command adds
+    // exactly one frame relative to an otherwise identical session.
+    std::string one_rest;
+    run_plain_state(make_rest_state(), "r\nq\n", one_rest);
+    const std::size_t frames_one = count_substr(one_rest, "Pos ");
+
+    std::string two_rest;
+    run_plain_state(make_rest_state(), "r\nr\nq\n", two_rest);
+    const std::size_t frames_two = count_substr(two_rest, "Pos ");
+
+    // Adding exactly one more rest command adds exactly one more frame.
+    CHECK(frames_two == frames_one + 1);
+}
+
+TEST_CASE("a rest never leaves a marker in the recent-move history") {
+    // Debug plain frames expose the recent line. A blocked wall bump and a rest
+    // both leave the route history untouched; only the successful move appears.
+    Settings settings;
+    settings.debug = true;
+    std::string output;
+    // From spawn (0,1): 'a' bumps the left wall boundary (blocked), 'd' moves
+    // right onto a mountain (successful), 'r' rests. Only the successful right
+    // move (R) should appear in the recent line.
+    const int code = run_plain_state(make_rest_state(), "a\nd\nr\nq\n", output, settings);
+    CHECK(code == 0);
+    const std::size_t recent = output.rfind("Recent:");
+    REQUIRE(recent != std::string::npos);
+    const std::string tail = output.substr(recent);
+    const std::string recent_line = tail.substr(0, tail.find('\n'));
+    CHECK(recent_line.find('R') != std::string::npos);   // the successful move.
+    CHECK(recent_line.find('L') == std::string::npos);   // no blocked-left marker.
+    CHECK(recent_line.find('l') == std::string::npos);   // no lower-case blocked marker.
+}
+
+TEST_CASE("repeated rest sessions are byte-identical and ANSI-free") {
+    std::string first;
+    std::string second;
+    const int code_a = run_plain_state(make_rest_state(), "d\nd\nd\nr\nd\nq\n", first);
+    const int code_b = run_plain_state(make_rest_state(), "d\nd\nd\nr\nd\nq\n", second);
+    CHECK(code_a == code_b);
+    CHECK(first == second);
+    CHECK(first.find('\x1b') == std::string::npos);
 }
 
 }  // TEST_SUITE("console")

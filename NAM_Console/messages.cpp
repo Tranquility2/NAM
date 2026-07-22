@@ -52,6 +52,13 @@ std::string describe_move(const MoveOutcome& outcome) {
     return "Nothing happened.";
 }
 
+std::string describe_rest(const RestedEvent& rested) {
+    if (rested.stamina_recovered == 0) {
+        return "Stamina is already full.";
+    }
+    return "Rested and recovered " + std::to_string(rested.stamina_recovered) + " stamina.";
+}
+
 std::string describe_map_error(const MapLoadError& error) {
     std::string text = "Could not load map";
     if (!error.source.empty()) {

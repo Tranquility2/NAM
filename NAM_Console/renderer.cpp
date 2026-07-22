@@ -204,13 +204,10 @@ constexpr int color_actor = 93;  // Bright yellow.
     }
     std::string text = "Recent:";
     for (const RecentMove& move : recent) {
-        char letter = direction_letter(move.direction);
-        // Upper-case = the move landed; lower-case = it was blocked.
-        if (move.result != MoveResult::moved) {
-            letter = static_cast<char>(letter - 'A' + 'a');
-        }
+        // Every stored entry is a successful move, so the direction letter is
+        // always upper-case; blocked attempts and rest are never recorded here.
         text.push_back(' ');
-        text.push_back(letter);
+        text.push_back(direction_letter(move.direction));
     }
     return text;
 }
@@ -300,7 +297,7 @@ constexpr int color_actor = 93;  // Bright yellow.
     Frame frame;
     frame.reserve(static_cast<std::size_t>(rows));
     if (standard) {
-        frame.push_back(fit_plain("NAM - arrows/WASD move, q to quit", columns));
+        frame.push_back(fit_plain("NAM - arrows/WASD move, r rest, q quit", columns));
     }
     frame.insert(frame.end(), static_cast<std::size_t>(top_filler), std::string());
     for (std::string& line : map_lines) {

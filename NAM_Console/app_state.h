@@ -6,14 +6,15 @@
 
 #include "direction.h"
 #include "game_event.h"
-#include "move_outcome.h"
 
 namespace nam::console {
 
-// One entry in the bounded recent-move history.
+// One entry in the bounded recent-move history. Recent history records
+// successful movements only: every stored entry represents an actual step the
+// actor took, so it carries just the direction and no blocked-result field.
+// Boundary, wall, stamina blocks, and rest never produce an entry.
 struct RecentMove {
     Direction direction{};
-    MoveResult result{};
 };
 
 // Structured, bounded gameplay tracking. This replaces the old ever-growing
@@ -26,9 +27,13 @@ public:
     // The most recent moves kept for display. Fixed so the HUD never grows.
     static constexpr std::size_t recent_capacity = 12;
 
-    // Record a movement event, updating the counters, the bounded history, and
-    // the latest-event message from its MoveAttemptedEvent payload. The event's
-    // sequence is not consumed or displayed yet.
+    // Record a game event, updating the counters, the bounded history, and the
+    // latest-event message. For a MoveAttemptedEvent this counts an attempt,
+    // updates the success flag and move count, appends to the successful-only
+    // history when the move landed, and sets the movement message. For a
+    // RestedEvent it updates only the message and clears the success flag, leaving
+    // movement counters and history untouched. The event's sequence is not
+    // consumed or displayed yet.
     void record_event(const GameEvent& event);
 
     // Replace the latest-event message without recording a move (used for

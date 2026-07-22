@@ -38,6 +38,7 @@ public:
 private:
     [[nodiscard]] RenderInput make_input(bool emphasize) const;
     void apply_move(Direction direction, bool& emphasize);
+    void apply_rest(bool& emphasize);
 
     GameState state_;
     Settings settings_;
@@ -50,6 +51,11 @@ private:
 
 // Whether an event asks to quit (Escape, or 'q'). Exposed for testing.
 [[nodiscard]] bool is_quit_event(const KeyEvent& event) noexcept;
+
+// Whether an event asks to rest in place (lower- or upper-case 'r'). Rest is a
+// distinct command family from movement, so it is mapped separately from
+// direction_for. Exposed for direct testing.
+[[nodiscard]] bool is_rest_event(const KeyEvent& event) noexcept;
 
 // Top-level orchestration: choose interactive vs plain mode from settings and
 // platform capability, create the session if needed, and run. Returns the

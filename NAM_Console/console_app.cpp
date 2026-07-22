@@ -34,11 +34,12 @@ namespace {
     return word;
 }
 
-enum class PlainCommand { none, quit, up, down, left, right, unknown };
+enum class PlainCommand { none, quit, rest, up, down, left, right, unknown };
 
 [[nodiscard]] PlainCommand parse_plain_command(const std::string& normalized) {
     if (normalized.empty()) return PlainCommand::none;
     if (normalized == "q" || normalized == "quit" || normalized == "exit") return PlainCommand::quit;
+    if (normalized == "r" || normalized == "rest") return PlainCommand::rest;
     if (normalized == "w" || normalized == "k" || normalized == "up") return PlainCommand::up;
     if (normalized == "s" || normalized == "j" || normalized == "down") return PlainCommand::down;
     if (normalized == "a" || normalized == "h" || normalized == "left") return PlainCommand::left;
@@ -52,8 +53,8 @@ enum class PlainCommand { none, quit, up, down, left, right, unknown };
 // shown through format_seed_for_display, so raw control bytes never reach output.
 [[nodiscard]] std::string initial_message(const Settings& settings, bool interactive) {
     std::string message = interactive
-                              ? "Welcome to NAM. Arrow keys or WASD to move, q or Esc to quit."
-                              : "Plain mode. Commands: w/a/s/d or up/down/left/right, q to quit.";
+                              ? "Welcome to NAM. Arrow keys or WASD to move, r to rest, q or Esc to quit."
+                              : "Plain mode. Commands: w/a/s/d or up/down/left/right, r to rest, q to quit.";
     if (settings.seed_text) {
         message += " Tiny World seed: ";
         message += format_seed_for_display(*settings.seed_text);
@@ -87,6 +88,10 @@ bool is_quit_event(const KeyEvent& event) noexcept {
     return event.key == Key::character && lower(event.character) == 'q';
 }
 
+bool is_rest_event(const KeyEvent& event) noexcept {
+    return event.key == Key::character && lower(event.character) == 'r';
+}
+
 ConsoleApp::ConsoleApp(GameState state, Settings settings)
     : state_(std::move(state)), settings_(std::move(settings)) {}
 
@@ -111,6 +116,13 @@ void ConsoleApp::apply_move(Direction direction, bool& emphasize) {
     const MoveAttemptedEvent& payload = std::get<MoveAttemptedEvent>(event.data);
     hud_.record_event(event);
     emphasize = payload.outcome.result == MoveResult::moved;
+}
+
+void ConsoleApp::apply_rest(bool& emphasize) {
+    const GameEvent event = state_.rest();
+    hud_.record_event(event);
+    // Rest never moves the actor, so it never earns move emphasis.
+    emphasize = false;
 }
 
 int ConsoleApp::run_interactive(TerminalSession& session) {
@@ -147,6 +159,11 @@ int ConsoleApp::run_interactive(TerminalSession& session) {
                 if (is_quit_event(event)) {
                     hud_.set_message("Goodbye.");
                     running = false;
+                    break;
+                }
+                if (is_rest_event(event)) {
+                    apply_rest(emphasize);
+                    dirty = true;  // Stamina and/or HUD message changed.
                     break;
                 }
                 if (const std::optional<Direction> direction = direction_for(event)) {
@@ -191,13 +208,14 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
             case PlainCommand::none:
                 hud_.set_message("Position held. Enter a move or q to quit.");
                 break;
+            case PlainCommand::rest:  apply_rest(emphasize); break;
             case PlainCommand::up:    apply_move(Direction::up, emphasize); break;
             case PlainCommand::down:  apply_move(Direction::down, emphasize); break;
             case PlainCommand::left:  apply_move(Direction::left, emphasize); break;
             case PlainCommand::right: apply_move(Direction::right, emphasize); break;
             case PlainCommand::unknown:
                 hud_.set_message("Unknown command '" + command +
-                                 "'. Try w/a/s/d, up/down/left/right, or q.");
+                                 "'. Try w/a/s/d, up/down/left/right, r to rest, or q.");
                 break;
         }
 
