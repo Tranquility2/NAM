@@ -102,7 +102,7 @@ constexpr int color_actor = 93;  // Bright yellow.
     bool style_active = false;
     int active_style = style_none;
 
-    const auto reset_style = [&row, &style_active, &active_style, style_none]() {
+    const auto reset_style = [&row, &style_active, &active_style]() {
         if (style_active) {
             row += "\033[0m";
             style_active = false;
