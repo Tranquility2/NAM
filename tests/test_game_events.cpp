@@ -236,4 +236,57 @@ TEST_CASE("a rest at full stamina still consumes exactly one sequence number") {
     CHECK(next.sequence == 1);
 }
 
+TEST_CASE("two-field movement-event aggregate construction keeps a default objective update") {
+    // REQ-015: adding the nested ObjectiveUpdate must not break existing
+    // two-field aggregate initialization of a movement event. The third member is
+    // value-initialized: equal seeking before/after and no transition.
+    const MoveOutcome outcome{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 1, 12, 11};
+    const MoveAttemptedEvent event{Direction::right, outcome};
+    CHECK(event.objective_update.before == ObjectiveStatus::seeking_beacon);
+    CHECK(event.objective_update.after == ObjectiveStatus::seeking_beacon);
+    CHECK(event.objective_update.transition == ObjectiveTransition::none);
+}
+
+TEST_CASE("every movement event carries the exact objective update in one contiguous stream") {
+    // A one-row corridor whose beacon is the far cell (4,0): walking out and back
+    // produces one ordered event per command, each nesting the exact before/after
+    // status and the typed transition for that command.
+    GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n"));
+    REQUIRE(state.objective().beacon == Coordinates{4, 0});
+
+    std::uint64_t expected_sequence = 0;
+    const auto check_move = [&](Direction direction, ObjectiveStatus before, ObjectiveStatus after,
+                                ObjectiveTransition transition) {
+        const GameEvent event = state.move(direction);
+        CHECK(event.sequence == expected_sequence);
+        ++expected_sequence;
+        const MoveAttemptedEvent& move = payload_of(event);
+        CHECK(move.objective_update.before == before);
+        CHECK(move.objective_update.after == after);
+        CHECK(move.objective_update.transition == transition);
+    };
+
+    using S = ObjectiveStatus;
+    using T = ObjectiveTransition;
+    check_move(Direction::right, S::seeking_beacon, S::seeking_beacon, T::none);
+    check_move(Direction::right, S::seeking_beacon, S::seeking_beacon, T::none);
+    check_move(Direction::right, S::seeking_beacon, S::seeking_beacon, T::none);
+    check_move(Direction::right, S::seeking_beacon, S::returning_to_spawn, T::beacon_discovered);
+    check_move(Direction::left, S::returning_to_spawn, S::returning_to_spawn, T::none);
+    check_move(Direction::left, S::returning_to_spawn, S::returning_to_spawn, T::none);
+    check_move(Direction::left, S::returning_to_spawn, S::returning_to_spawn, T::none);
+    check_move(Direction::left, S::returning_to_spawn, S::completed, T::expedition_completed);
+    CHECK(state.objective_completed());
+}
+
+TEST_CASE("a blocked movement event reports no objective transition") {
+    GameState state(mixed_map());
+    (void)state.move(Direction::right);  // advance to (1,0) so a wall sits to the right.
+    const GameEvent blocked = state.move(Direction::right);
+    CHECK(payload_of(blocked).outcome.result == MoveResult::blocked_by_terrain);
+    CHECK(payload_of(blocked).objective_update.transition == ObjectiveTransition::none);
+    CHECK(payload_of(blocked).objective_update.before ==
+          payload_of(blocked).objective_update.after);
+}
+
 }  // TEST_SUITE("game")

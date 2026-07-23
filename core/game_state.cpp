@@ -6,13 +6,15 @@
 
 GameState::GameState(Map map)
     : map_(std::move(map)),
+      objective_(create_beacon_objective(map_)),
       actor_position_(map_.spawn()),
       visibility_(map_.width(), map_.height()) {
-    // map_ is declared before actor_position_ and visibility_, so it is fully
-    // constructed here and map_.spawn()/width()/height() read the moved-into
-    // member, not the moved-from argument. Reveal the initial sight square once
-    // the actor position and visibility buffer are initialized, using the radius
-    // for the spawn terrain so an initial hill or mountain sees farther at once.
+    // map_ is declared before objective_, actor_position_, and visibility_, so it
+    // is fully constructed here and map_.spawn()/width()/height() and the beacon
+    // placement read the moved-into member, not the moved-from argument. Reveal
+    // the initial sight square once the actor position and visibility buffer are
+    // initialized, using the radius for the spawn terrain so an initial hill or
+    // mountain sees farther at once.
     visibility_.reveal_square(actor_position_, visibility_radius());
 }
 
@@ -43,6 +45,12 @@ GameEvent GameState::move(Direction direction) {
     // peek remains the single source of movement outcomes; move only commits the
     // result and wraps it in an ordered event.
     const MoveOutcome outcome = peek(direction);
+
+    // Capture the objective status before any commit so the emitted event brackets
+    // the exact objective state around this command.
+    const ObjectiveStatus objective_before = objective_.status;
+    ObjectiveTransition objective_transition = ObjectiveTransition::none;
+
     if (outcome.result == MoveResult::moved) {
         actor_position_ = outcome.to;
         stamina_ = outcome.stamina_after;
@@ -52,11 +60,17 @@ GameEvent GameState::move(Direction direction) {
         // reveals farther. Blocked attempts and peek leave fog and stamina
         // unchanged.
         visibility_.reveal_square(actor_position_, visibility_radius());
+        // Advance the objective only after position, stamina, and visibility have
+        // committed, so a discovered beacon or completed return reflects the
+        // fully updated state. Blocked attempts never advance the objective.
+        objective_transition = advance_objective(objective_, actor_position_, map_.spawn());
     }
 
     GameEvent event;
     event.sequence = next_event_sequence_;
-    event.data = MoveAttemptedEvent{direction, outcome};
+    event.data = MoveAttemptedEvent{direction, outcome,
+                                    ObjectiveUpdate{objective_before, objective_.status,
+                                                    objective_transition}};
     ++next_event_sequence_;
     return event;
 }

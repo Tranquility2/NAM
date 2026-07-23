@@ -8,6 +8,7 @@
 #include "game_event.h"
 #include "map.h"
 #include "move_outcome.h"
+#include "objective.h"
 #include "terrain.h"
 #include "visibility.h"
 
@@ -59,6 +60,19 @@ public:
     // the owned Map, and the actor cell is always currently visible.
     [[nodiscard]] const VisibilityMap& visibility() const noexcept { return visibility_; }
 
+    // The core-owned beacon objective: its placement, generated name, and current
+    // status. Every GameState receives one deterministic objective from its map,
+    // and a successful move advances it after position, stamina, and visibility
+    // commit. Frontends only present this state and react to the typed
+    // transitions carried on movement events.
+    [[nodiscard]] const BeaconObjective& objective() const noexcept { return objective_; }
+
+    // True once the beacon expedition has completed (the actor entered the beacon
+    // and returned to spawn, or the map had a single reachable cell at spawn).
+    [[nodiscard]] bool objective_completed() const noexcept {
+        return objective_.status == ObjectiveStatus::completed;
+    }
+
     // Compute the outcome of moving one step without changing any state.
     [[nodiscard]] MoveOutcome peek(Direction direction) const;
 
@@ -84,6 +98,10 @@ public:
 
 private:
     Map map_;
+    // Declared immediately after map_ and initialized from the constructed map_
+    // (never the moved-from constructor argument), so beacon placement reads a
+    // fully valid map.
+    BeaconObjective objective_;
     Coordinates actor_position_;
     VisibilityMap visibility_;
     std::uint32_t stamina_ = maximum_stamina;

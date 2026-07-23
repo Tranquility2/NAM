@@ -11,6 +11,7 @@
 #include "map.h"
 #include "map_parser.h"
 #include "move_outcome.h"
+#include "objective.h"
 #include "visibility.h"
 
 namespace {
@@ -190,6 +191,55 @@ TEST_CASE("terrain-transition scripts produce identical radius and visibility") 
     // steps the second game reached the mountain's radius 4, and after returning
     // the actor is back on base terrain at radius 2.
     CHECK(a.visibility_radius() == 2);
+}
+
+TEST_CASE("identical maps and scripts produce identical beacon objectives and updates") {
+    // TASK-008 / TEST-012: two independent games from the same corridor map agree
+    // on the beacon coordinate, generated name, status, and the objective update
+    // nested in every movement event, alongside actor, stamina, visibility, and
+    // event order. The script walks out to the far beacon at (4,0) and returns to
+    // spawn, so it exercises discovery and completion transitions.
+    constexpr std::string_view kCorridor =
+        "NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n";
+    const std::vector<Command> script{
+        move_cmd(Direction::right), move_cmd(Direction::right), move_cmd(Direction::right),
+        move_cmd(Direction::right), move_cmd(Direction::left),  move_cmd(Direction::left),
+        move_cmd(Direction::left),  move_cmd(Direction::left)};
+
+    GameState a(make_map(kCorridor));
+    GameState b(make_map(kCorridor));
+
+    // The beacon placement and generated name are identical before any command.
+    CHECK(a.objective().beacon == b.objective().beacon);
+    CHECK(a.objective().name == b.objective().name);
+    CHECK(a.objective().status == b.objective().status);
+    CHECK(a.objective().beacon == Coordinates{4, 0});
+
+    std::uint64_t expected_sequence = 0;
+    for (const Command& command : script) {
+        const GameEvent ea = apply(a, command);
+        const GameEvent eb = apply(b, command);
+
+        CHECK(ea.sequence == expected_sequence);
+        CHECK(eb.sequence == expected_sequence);
+        ++expected_sequence;
+
+        const MoveAttemptedEvent& pa = std::get<MoveAttemptedEvent>(ea.data);
+        const MoveAttemptedEvent& pb = std::get<MoveAttemptedEvent>(eb.data);
+        CHECK(pa.objective_update.before == pb.objective_update.before);
+        CHECK(pa.objective_update.after == pb.objective_update.after);
+        CHECK(pa.objective_update.transition == pb.objective_update.transition);
+
+        CHECK(a.objective().status == b.objective().status);
+        CHECK(a.actor_position() == b.actor_position());
+        CHECK(a.stamina() == b.stamina());
+        CHECK(visibility_signature(a) == visibility_signature(b));
+    }
+
+    CHECK(a.objective_completed());
+    CHECK(b.objective_completed());
+    CHECK(a.objective().name == b.objective().name);
+    CHECK(a.render() == b.render());
 }
 
 TEST_CASE("peek is a pure function of state and direction") {

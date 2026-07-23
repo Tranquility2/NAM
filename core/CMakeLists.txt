@@ -16,6 +16,8 @@ add_library(nam_core STATIC
     map_parser.cpp
     game_state.h
     game_state.cpp
+    objective.h
+    objective.cpp
     pcg32.h
     pcg32.cpp
     world_generation.h

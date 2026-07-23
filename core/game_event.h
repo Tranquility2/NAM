@@ -5,6 +5,7 @@
 
 #include "direction.h"
 #include "move_outcome.h"
+#include "objective.h"
 
 // Frontend-neutral, ordered events emitted by the core as commands are
 // processed. Events are plain value types: no presentation text, no ownership
@@ -19,9 +20,17 @@
 // attempt. A blocked attempt (boundary, terrain, or insufficient stamina) still
 // carries these fields with an unchanged before/after value, so consumers never
 // re-derive movement cost from the map.
+//
+// `objective_update` nests the typed beacon-objective change for this exact
+// command: its before/after status brackets the objective around the move, and
+// its transition is beacon_discovered on the move that first enters the beacon,
+// expedition_completed on the move that returns to spawn, and none otherwise.
+// It is default-initialized so existing two-field aggregate construction of a
+// movement event remains valid.
 struct MoveAttemptedEvent {
     Direction direction{};
     MoveOutcome outcome{};
+    ObjectiveUpdate objective_update{};
 };
 
 // The single event a rest command produces. Rest is its own command family: it
