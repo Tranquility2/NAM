@@ -6,6 +6,7 @@
 #include "game_event.h"
 #include "map_parser.h"
 #include "move_outcome.h"
+#include "objective.h"
 #include "terrain.h"
 
 // User-facing wording lives entirely in the frontend. The core returns typed,
@@ -37,5 +38,26 @@ namespace nam::console {
 // A user-facing explanation of why a map failed to load, including the source
 // and line/column when the parser reported them.
 [[nodiscard]] std::string describe_map_error(const MapLoadError& error);
+
+// The HUD objective line for the current expedition phase. Seeking names the
+// beacon and its glyph and asks the player to reach it and return; returning asks
+// only to return to spawn; completed reports the finished expedition by name.
+[[nodiscard]] std::string objective_line(const BeaconObjective& objective);
+
+// A single bounded "Goal:" line summarising the objective phase for the compact
+// layout, which has no room for the full objective sentence.
+[[nodiscard]] std::string goal_line(const BeaconObjective& objective);
+
+// The latest-event message shown when a move first enters the beacon cell,
+// replacing the ordinary move wording for that command.
+[[nodiscard]] std::string describe_beacon_discovered(const std::string& name);
+
+// The latest-event message shown when a move completes the return to spawn,
+// replacing the ordinary move wording for that command.
+[[nodiscard]] std::string describe_expedition_completed(const std::string& name);
+
+// The initial and final message for a single-reachable-cell map, where the
+// beacon coincides with spawn and the expedition is already complete.
+[[nodiscard]] std::string describe_spawn_beacon(const std::string& name);
 
 }  // namespace nam::console

@@ -9,6 +9,7 @@
 #include "coordinates.h"
 #include "frame.h"
 #include "map.h"
+#include "objective.h"
 #include "terminal.h"
 #include "terrain.h"
 #include "visibility.h"
@@ -34,6 +35,11 @@ struct RenderInput {
     std::string message;
     std::vector<RecentMove> recent;
     bool emphasize_actor = false;  // One-frame emphasis after a successful move.
+
+    // Optional beacon objective to present. Production input always supplies the
+    // core-owned objective; renderer-only fixtures may leave it null to render a
+    // frame without any objective overlay or objective line.
+    const BeaconObjective* objective = nullptr;
 };
 
 // How the renderer is allowed to draw. `use_ansi` gates all control/colour
@@ -49,6 +55,11 @@ struct RenderConfig {
 // The player glyph. Chosen so it collides with no terrain symbol
 // ('.', '@', '~', 'x', '^', '=', '|').
 inline constexpr char actor_glyph = 'O';
+
+// The beacon objective glyph. A semantic overlay drawn on the beacon cell when it
+// is visible or remembered and the actor is not standing on it; it never replaces
+// or mutates the underlying Terrain.
+inline constexpr char beacon_glyph = '*';
 
 // Composes frames from world state. Pure with respect to its inputs: the same
 // RenderInput and size always yield the same Frame, and nothing is written to

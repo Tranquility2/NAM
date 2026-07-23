@@ -108,6 +108,9 @@ RenderInput ConsoleApp::make_input(bool emphasize) const {
     input.message = hud_.message();
     input.recent.assign(hud_.recent().begin(), hud_.recent().end());
     input.emphasize_actor = emphasize;
+    // Production input always presents the core-owned objective; the renderer
+    // gates the beacon overlay on visibility and shows the objective line.
+    input.objective = &state_.objective();
     return input;
 }
 
@@ -116,6 +119,18 @@ void ConsoleApp::apply_move(Direction direction, bool& emphasize) {
     const MoveAttemptedEvent& payload = std::get<MoveAttemptedEvent>(event.data);
     hud_.record_event(event);
     emphasize = payload.outcome.result == MoveResult::moved;
+    // Replace the ordinary move wording only for the typed objective transitions;
+    // every other successful or blocked move keeps its normal message.
+    switch (payload.objective_update.transition) {
+        case ObjectiveTransition::beacon_discovered:
+            hud_.set_message(describe_beacon_discovered(state_.objective().name));
+            break;
+        case ObjectiveTransition::expedition_completed:
+            hud_.set_message(describe_expedition_completed(state_.objective().name));
+            break;
+        case ObjectiveTransition::none:
+            break;
+    }
 }
 
 void ConsoleApp::apply_rest(bool& emphasize) {
@@ -125,13 +140,46 @@ void ConsoleApp::apply_rest(bool& emphasize) {
     emphasize = false;
 }
 
+namespace {
+
+// Adapts the production TerminalSession onto the mockable InteractiveSession
+// interface so the shared loop is transport-agnostic and directly testable.
+class TerminalSessionAdapter final : public InteractiveSession {
+public:
+    explicit TerminalSessionAdapter(TerminalSession& session) noexcept : session_(session) {}
+
+    [[nodiscard]] bool supports_ansi() const override { return session_.supports_ansi(); }
+    [[nodiscard]] TerminalSize size() const override { return session_.size(); }
+    [[nodiscard]] KeyEvent read_event() override { return session_.read_event(); }
+    void draw(const Frame& frame) override { session_.draw(frame); }
+
+private:
+    TerminalSession& session_;
+};
+
+}  // namespace
+
 int ConsoleApp::run_interactive(TerminalSession& session) {
+    TerminalSessionAdapter adapter(session);
+    return run_interactive(adapter);
+}
+
+int ConsoleApp::run_interactive(InteractiveSession& session) {
     RenderConfig config;
     config.use_ansi = session.supports_ansi();
     config.use_color = settings_.use_color && config.use_ansi;
     config.debug = settings_.debug;
     config.emphasis = settings_.animation && config.use_ansi;
     const Renderer renderer(config);
+
+    // Initial objective completion (single reachable walkable cell): the beacon
+    // is at spawn and the expedition starts done. Draw exactly one completed
+    // frame and exit without ever reading input.
+    if (state_.objective_completed()) {
+        hud_.set_message(describe_spawn_beacon(state_.objective().name));
+        session.draw(renderer.render(make_input(false), session.size()));
+        return 0;
+    }
 
     hud_.set_message(initial_message(settings_, /*interactive=*/true));
 
@@ -169,6 +217,15 @@ int ConsoleApp::run_interactive(TerminalSession& session) {
                 if (const std::optional<Direction> direction = direction_for(event)) {
                     apply_move(*direction, emphasize);
                     dirty = true;  // Position and/or HUD message changed.
+                    if (state_.objective_completed()) {
+                        // The expedition just completed. Draw exactly one final
+                        // completed frame explicitly, then stop the loop, so the
+                        // running && dirty gate below cannot suppress this frame
+                        // and no further input is read.
+                        session.draw(renderer.render(make_input(emphasize), session.size()));
+                        running = false;
+                        dirty = false;
+                    }
                 }
                 // Recognized-but-unmapped events (Home/End/Enter/unknown) change
                 // nothing and are intentionally ignored: no movement, no redraw.
@@ -189,6 +246,15 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
     const RenderConfig config{/*use_color=*/false, /*use_ansi=*/false, settings_.debug,
                               /*emphasis=*/false};
     const Renderer renderer(config);
+
+    // Initial objective completion (single reachable walkable cell): render
+    // exactly one completed block and return without consuming any command lines.
+    if (state_.objective_completed()) {
+        hud_.set_message(describe_spawn_beacon(state_.objective().name));
+        output << renderer.render_plain(make_input(false));
+        output.flush();
+        return 0;
+    }
 
     hud_.set_message(initial_message(settings_, /*interactive=*/false));
     output << renderer.render_plain(make_input(false));
@@ -222,6 +288,11 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
         output << renderer.render_plain(make_input(false));
         output.flush();
         if (quit) {
+            return 0;
+        }
+        // A completing move ends the run after its one final completed block;
+        // later command lines are left unconsumed.
+        if (state_.objective_completed()) {
             return 0;
         }
     }

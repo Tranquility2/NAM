@@ -23,7 +23,8 @@ constexpr int standard_min_map_rows = 3;
 
 // --- Colour helpers ---------------------------------------------------------
 
-constexpr int color_actor = 93;  // Bright yellow.
+constexpr int color_actor = 93;   // Bright yellow.
+constexpr int color_beacon = 96;  // Bright cyan: a currently visible beacon.
 
 [[nodiscard]] std::string sgr(int code) {
     return "\033[" + std::to_string(code) + "m";
@@ -82,6 +83,12 @@ constexpr int color_actor = 93;  // Bright yellow.
 //     even if colour is disabled.
 //   * visible    -> the terrain glyph with its normal colour mapping.
 //   * the actor  -> the existing actor styling, always drawn as actor_glyph.
+// The beacon objective is a semantic overlay applied only after visibility
+// classification and only when the actor is not on the cell: a visible beacon is
+// drawn as beacon_glyph in bright cyan (ESC[96m) under colour, a remembered
+// beacon reuses the dim-memory style, and an unexplored beacon stays blank like
+// any other unexplored cell so a hidden objective never leaks. Plain and
+// no-colour modes emit only the glyph with no new escape sequence.
 // ANSI style transitions explicitly reset before switching kinds so dim or
 // colour state cannot leak into adjacent cells, padding, HUD text, or later
 // rows; a styled row always ends with ESC[0m.
@@ -113,12 +120,19 @@ constexpr int color_actor = 93;  // Bright yellow.
     for (int offset = 0; offset < cols; ++offset) {
         const Coordinates here{x0 + offset, y};
         const bool is_actor = here == input.actor;
+        // The beacon overlay is applied only after visibility classification and
+        // never while the actor stands on the cell, so the actor glyph keeps
+        // priority and the beacon reappears once the actor leaves.
+        const bool is_beacon = input.objective != nullptr && here == input.objective->beacon;
 
         if (!ansi) {
             if (is_actor) {
                 row.push_back(actor_glyph);
             } else if (visibility.at(here) == CellVisibility::unexplored) {
                 row.push_back(' ');
+            } else if (is_beacon) {
+                // Visible or remembered beacon: plain mode emits only the glyph.
+                row.push_back(beacon_glyph);
             } else {
                 // Plain mode cannot distinguish remembered from visible without
                 // changing canonical glyphs, so both use the terrain glyph.
@@ -164,13 +178,15 @@ constexpr int color_actor = 93;  // Bright yellow.
                 style_active = true;
                 active_style = style_remembered;
             }
-            row.push_back(symbol_of(map.terrain_at(here)));
+            // A remembered beacon reuses the dim-memory style as its overlay.
+            row.push_back(is_beacon ? beacon_glyph : symbol_of(map.terrain_at(here)));
             continue;
         }
 
-        // Currently visible terrain: normal styling, never dimmed.
+        // Currently visible terrain: normal styling, never dimmed. A visible
+        // beacon overrides the terrain colour with bright cyan under colour.
         if (colored) {
-            const int code = color_for(map.terrain_at(here));
+            const int code = is_beacon ? color_beacon : color_for(map.terrain_at(here));
             if (active_style != code) {
                 reset_style();
                 row += sgr(code);
@@ -180,7 +196,7 @@ constexpr int color_actor = 93;  // Bright yellow.
         } else {
             reset_style();
         }
-        row.push_back(symbol_of(map.terrain_at(here)));
+        row.push_back(is_beacon ? beacon_glyph : symbol_of(map.terrain_at(here)));
     }
 
     reset_style();
@@ -254,6 +270,11 @@ constexpr int color_actor = 93;  // Bright yellow.
         hud.push_back("Pos " + position_text(input.actor) + "   Stamina: " + stamina_text(input) +
                       "   Terrain: " + terrain_name(input.terrain) +
                       "   Moves: " + std::to_string(input.move_count));
+        // The objective line sits after the status line and before the latest
+        // event message.
+        if (input.objective != nullptr) {
+            hud.push_back(objective_line(*input.objective));
+        }
         hud.push_back("> " + input.message);
         hud.push_back(recent_text(input.recent));
         if (config.debug) {
@@ -264,6 +285,10 @@ constexpr int color_actor = 93;  // Bright yellow.
                              terrain_name(input.terrain) + "  M:" + std::to_string(input.move_count) +
                              "  " + input.message;
         hud.push_back(std::move(status));
+        // Compact layout adds one bounded Goal line for the objective phase.
+        if (input.objective != nullptr) {
+            hud.push_back(goal_line(*input.objective));
+        }
         if (config.debug) {
             hud.push_back(debug_text(input, size));
         }
@@ -329,7 +354,12 @@ Frame Renderer::render(const RenderInput& input, TerminalSize size) const {
         return too_small_panel(columns, rows);
     }
 
-    const int hud_rows = config_.debug ? 4 : 3;
+    const int base_hud_rows = config_.debug ? 4 : 3;
+    // The optional objective line adds one HUD row in the standard layout, so the
+    // standard/compact threshold must budget for it to keep the map region and
+    // the defensive clamp from ever dropping a HUD line.
+    const int objective_rows = input.objective != nullptr ? 1 : 0;
+    const int hud_rows = base_hud_rows + objective_rows;
     const bool standard = columns >= standard_min_columns &&
                           rows >= (1 + hud_rows + standard_min_map_rows);
 
@@ -349,6 +379,11 @@ std::string Renderer::render_plain(const RenderInput& input) const {
     text += "Pos " + position_text(input.actor) + "  Stamina: " + stamina_text(input) +
             "  Terrain: " + terrain_name(input.terrain) +
             "  Moves: " + std::to_string(input.move_count) + "\n";
+    // The objective line sits after the status line and before the latest event
+    // message, matching the standard interactive layout order.
+    if (input.objective != nullptr) {
+        text += objective_line(*input.objective) + "\n";
+    }
     text += input.message + "\n";
     if (config_.debug) {
         text += recent_text(input.recent) + "\n";

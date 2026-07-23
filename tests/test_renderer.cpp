@@ -9,6 +9,7 @@
 #include "coordinates.h"
 #include "map.h"
 #include "move_outcome.h"
+#include "objective.h"
 #include "renderer.h"
 #include "terminal.h"
 #include "terrain.h"
@@ -151,6 +152,42 @@ RenderInput fog_input(const FogScene& scene) {
     input.attempt_count = 0;
     input.message = "x";
     return input;
+}
+
+// A fog scene on an 11x1 open map: after two reveals x0..3 are remembered,
+// x4..8 are visible, and x9..10 are unexplored. The beacon overlay can be probed
+// against every visibility state without any distinctive terrain interfering.
+struct BeaconScene {
+    Map map;
+    VisibilityMap visibility;
+};
+
+BeaconScene make_beacon_scene() {
+    Map map(11, 1, std::vector<Terrain>(11, Terrain::open), Coordinates{4, 0});
+    VisibilityMap visibility(11, 1);
+    visibility.reveal_square(Coordinates{2, 0}, 2);  // x0..4 visible.
+    visibility.reveal_square(Coordinates{6, 0}, 2);  // demote x0..3, x4..8 visible.
+    return {std::move(map), std::move(visibility)};
+}
+
+RenderInput beacon_input(const BeaconScene& scene, Coordinates actor,
+                         const BeaconObjective& objective) {
+    RenderInput input;
+    input.map = &scene.map;
+    input.visibility = &scene.visibility;
+    input.actor = actor;
+    input.terrain = scene.map.terrain_at(actor);
+    input.message = "x";
+    input.objective = &objective;
+    return input;
+}
+
+BeaconObjective beacon_at(Coordinates cell, ObjectiveStatus status) {
+    BeaconObjective objective;
+    objective.beacon = cell;
+    objective.name = "Glass River Beacon";
+    objective.status = status;
+    return objective;
 }
 
 }  // namespace
@@ -461,6 +498,172 @@ TEST_CASE("recent history renders only upper-case successful direction letters")
     // No lower-case blocked markers survive: every entry is a real move.
     for (const char lower : {'u', 'd', 'l', 'r'}) {
         CHECK(recent_line.find(lower) == std::string::npos);
+    }
+}
+
+TEST_CASE("an unexplored beacon leaks no glyph, colour, or objective coordinate") {
+    // TASK-015 / TEST-013 / SEC-002: a beacon on an unexplored cell renders as a
+    // blank exactly like any other unexplored cell. The map row (not the HUD
+    // objective line, which legitimately names the '*' glyph) must carry no '*'.
+    const BeaconScene scene = make_beacon_scene();
+    const BeaconObjective objective = beacon_at(Coordinates{10, 0},  // unexplored.
+                                                ObjectiveStatus::seeking_beacon);
+    const Renderer plain(plain_config());
+    const std::string text = plain.render_plain(beacon_input(scene, Coordinates{4, 0}, objective));
+    CHECK(first_line(text).find(beacon_glyph) == std::string::npos);  // no '*' in the map row.
+
+    const Renderer colored(color_config());
+    const Frame frame = colored.render(beacon_input(scene, Coordinates{4, 0}, objective),
+                                       TerminalSize{40, 24});
+    CHECK(join_raw(frame).find("\033[96m") == std::string::npos);  // no beacon colour.
+}
+
+TEST_CASE("a visible beacon renders the glyph in bright cyan under colour") {
+    // TASK-015 / TEST-013.
+    const BeaconScene scene = make_beacon_scene();
+    const BeaconObjective objective = beacon_at(Coordinates{6, 0},  // visible.
+                                                ObjectiveStatus::seeking_beacon);
+    const Renderer renderer(color_config());
+    const Frame frame = renderer.render(beacon_input(scene, Coordinates{4, 0}, objective),
+                                        TerminalSize{40, 24});
+
+    CHECK(contains_glyph(frame, beacon_glyph));               // '*' drawn,
+    CHECK(join_raw(frame).find("\033[96m") != std::string::npos);  // in bright cyan,
+    CHECK(join_raw(frame).find("\033[0m") != std::string::npos);   // and reset afterwards.
+}
+
+TEST_CASE("a remembered beacon uses the dim-memory style, never bright cyan") {
+    // TASK-015 / TEST-013: a remembered beacon reuses ESC[2m and emits no new
+    // colour, even under colour.
+    const BeaconScene scene = make_beacon_scene();
+    const BeaconObjective objective = beacon_at(Coordinates{1, 0},  // remembered.
+                                                ObjectiveStatus::returning_to_spawn);
+    const Renderer renderer(color_config());
+    const Frame frame = renderer.render(beacon_input(scene, Coordinates{4, 0}, objective),
+                                        TerminalSize{40, 24});
+
+    CHECK(contains_glyph(frame, beacon_glyph));                     // '*' drawn,
+    CHECK(join_raw(frame).find("\033[2m") != std::string::npos);    // dimmed,
+    CHECK(join_raw(frame).find("\033[96m") == std::string::npos);   // never bright cyan.
+}
+
+TEST_CASE("the actor glyph wins on the beacon and the glyph returns after leaving") {
+    // TASK-015 / TEST-014.
+    const BeaconScene scene = make_beacon_scene();
+    const BeaconObjective objective = beacon_at(Coordinates{6, 0},  // visible cell.
+                                                ObjectiveStatus::seeking_beacon);
+    const Renderer renderer(plain_config());
+
+    // Actor standing on the beacon: the actor glyph is shown and no '*' appears.
+    const std::string on_beacon =
+        renderer.render_plain(beacon_input(scene, Coordinates{6, 0}, objective));
+    CHECK(first_line(on_beacon).find(actor_glyph) != std::string::npos);
+    CHECK(first_line(on_beacon).find(beacon_glyph) == std::string::npos);
+
+    // Actor elsewhere: the beacon glyph reappears on its visible cell.
+    const std::string off_beacon =
+        renderer.render_plain(beacon_input(scene, Coordinates{4, 0}, objective));
+    CHECK(first_line(off_beacon).find(beacon_glyph) != std::string::npos);
+}
+
+TEST_CASE("plain and no-colour beacon rendering emit the glyph with no new escape") {
+    // TASK-015 / REQ-028: plain mode shows only '*'; no-colour ANSI shows '*'
+    // without the bright-cyan escape (remembered dim still applies elsewhere).
+    const BeaconScene scene = make_beacon_scene();
+    const BeaconObjective objective = beacon_at(Coordinates{6, 0},  // visible.
+                                                ObjectiveStatus::seeking_beacon);
+
+    const Renderer plain(plain_config());
+    const std::string text = plain.render_plain(beacon_input(scene, Coordinates{4, 0}, objective));
+    CHECK(first_line(text).find(beacon_glyph) != std::string::npos);
+    CHECK(text.find('\x1b') == std::string::npos);
+
+    const Renderer no_color(RenderConfig{false, true, false, false});
+    const Frame frame = no_color.render(beacon_input(scene, Coordinates{4, 0}, objective),
+                                        TerminalSize{40, 24});
+    CHECK(contains_glyph(frame, beacon_glyph));
+    CHECK(join_raw(frame).find("\033[96m") == std::string::npos);  // no bright cyan.
+}
+
+TEST_CASE("the standard layout shows the objective line after status and before the message") {
+    // TASK-015 / TEST-015 / REQ-030.
+    const Map map = open_map(8, 4);
+    const BeaconObjective objective = beacon_at(Coordinates{7, 3}, ObjectiveStatus::seeking_beacon);
+    RenderInput input = make_input(map);
+    input.objective = &objective;
+    const Renderer renderer(plain_config());
+    const Frame frame = renderer.render(input, TerminalSize{80, 24});
+    const std::string visible = join_visible(frame);
+
+    const std::size_t status = visible.find("Stamina: 7/12");
+    const std::size_t objline = visible.find(
+        "Objective: Reach Glass River Beacon (*), then return to spawn.");
+    const std::size_t message = visible.find("> Moved onto open ground");
+    REQUIRE(status != std::string::npos);
+    REQUIRE(objline != std::string::npos);
+    REQUIRE(message != std::string::npos);
+    CHECK(status < objline);   // objective follows the status line,
+    CHECK(objline < message);  // and precedes the latest-event message.
+    CHECK(frame.size() == 24);
+    for (const std::string& row : frame) {
+        CHECK(strip_ansi(row).size() <= 80);
+    }
+}
+
+TEST_CASE("the compact layout adds a bounded Goal line") {
+    // TASK-015 / TEST-015 / REQ-030.
+    const Map map = open_map(8, 4);
+    const BeaconObjective objective = beacon_at(Coordinates{7, 3}, ObjectiveStatus::seeking_beacon);
+    RenderInput input = make_input(map);
+    input.objective = &objective;
+    const Renderer renderer(plain_config());
+    const Frame frame = renderer.render(input, TerminalSize{30, 10});
+    const std::string visible = join_visible(frame);
+
+    CHECK(visible.find("Goal: reach Glass River Beacon") != std::string::npos);
+    CHECK(frame.size() == 10);
+    for (const std::string& row : frame) {
+        CHECK(strip_ansi(row).size() <= 30);
+    }
+}
+
+TEST_CASE("plain rendering places the objective line after status and before the message") {
+    // TASK-015 / TEST-015 / REQ-030.
+    const Map map = open_map(8, 4);
+    const BeaconObjective objective =
+        beacon_at(Coordinates{7, 3}, ObjectiveStatus::returning_to_spawn);
+    RenderInput input = make_input(map);
+    input.objective = &objective;
+    const Renderer renderer(plain_config());
+    const std::string text = renderer.render_plain(input);
+
+    const std::size_t status = text.find("Stamina: 7/12");
+    const std::size_t objline = text.find("Objective: Return to spawn.");
+    const std::size_t message = text.find("Moved onto open ground");
+    REQUIRE(status != std::string::npos);
+    REQUIRE(objline != std::string::npos);
+    REQUIRE(message != std::string::npos);
+    CHECK(status < objline);
+    CHECK(objline < message);
+    CHECK(text.find('\x1b') == std::string::npos);
+}
+
+TEST_CASE("the objective line keeps the frame bounded across a range of sizes") {
+    // TASK-015 / TEST-015 / REQ-031: adding the objective row never overflows or
+    // shortens the frame.
+    const Map map = open_map(30, 12);
+    const BeaconObjective objective = beacon_at(Coordinates{29, 11}, ObjectiveStatus::seeking_beacon);
+    const Renderer renderer(color_config());
+    for (int rows = 6; rows <= 40; rows += 7) {
+        for (int cols = 16; cols <= 100; cols += 21) {
+            RenderInput input = make_input(map);
+            input.objective = &objective;
+            const Frame frame = renderer.render(input, TerminalSize{cols, rows});
+            CHECK(frame.size() == static_cast<std::size_t>(rows));
+            for (const std::string& row : frame) {
+                CHECK(strip_ansi(row).size() <= static_cast<std::size_t>(cols));
+            }
+        }
     }
 }
 

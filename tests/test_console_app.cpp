@@ -6,13 +6,17 @@
 #include <string_view>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include "console_app.h"
+#include "frame.h"
 #include "game_state.h"
 #include "input.h"
 #include "map.h"
 #include "map_parser.h"
+#include "objective.h"
 #include "settings.h"
+#include "terminal.h"
 
 using namespace nam::console;
 
@@ -113,6 +117,56 @@ GameState make_rest_state() {
     return GameState(make_map(
         "NAM-MAP 1\nwidth 6\nheight 3\nspawn 0 1\n---\n======\n.@@@~.\n======\n"));
 }
+
+// A one-row open corridor whose farthest reachable cell is the far end (4,0), so
+// the beacon sits there. Walking right four cells discovers it; walking back four
+// cells returns to spawn and completes the expedition.
+GameState make_corridor_state() {
+    return GameState(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n"));
+}
+
+// The deterministic beacon name of the corridor map, read from an independent
+// GameState so expectations use the exact generated name.
+std::string corridor_beacon_name() {
+    return make_corridor_state().objective().name;
+}
+
+// A single-reachable-cell map: the spawn is sealed by a wall, so the beacon is at
+// spawn and the objective starts completed.
+GameState make_single_cell_state() {
+    return GameState(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.=.\n"));
+}
+
+std::string single_cell_beacon_name() {
+    return make_single_cell_state().objective().name;
+}
+
+// A scripted, TTY-free InteractiveSession: it replays a fixed list of key events,
+// counts draws and reads, and yields end_of_input once the script is exhausted so
+// the loop can never block. This proves the final-frame draw count and that no
+// input is read after the expedition completes.
+class FakeSession final : public InteractiveSession {
+public:
+    explicit FakeSession(std::vector<KeyEvent> events) : events_(std::move(events)) {}
+
+    [[nodiscard]] bool supports_ansi() const override { return false; }
+    [[nodiscard]] TerminalSize size() const override { return TerminalSize{80, 24}; }
+    [[nodiscard]] KeyEvent read_event() override {
+        ++reads;
+        if (read_index_ < events_.size()) {
+            return events_[read_index_++];
+        }
+        return KeyEvent::of(Key::end_of_input);
+    }
+    void draw(const Frame&) override { ++draws; }
+
+    int draws = 0;
+    int reads = 0;
+
+private:
+    std::vector<KeyEvent> events_;
+    std::size_t read_index_ = 0;
+};
 
 }  // namespace
 
@@ -430,6 +484,109 @@ TEST_CASE("repeated rest sessions are byte-identical and ANSI-free") {
     CHECK(code_a == code_b);
     CHECK(first == second);
     CHECK(first.find('\x1b') == std::string::npos);
+}
+
+TEST_CASE("plain mode shows the deterministic objective line from the first frame") {
+    // TASK-020 / REQ-029: the seeking objective line, naming the beacon, appears
+    // in the very first plain frame before any command.
+    const std::string name = corridor_beacon_name();
+    std::string output;
+    const int code = run_plain_state(make_corridor_state(), "q\n", output);
+    CHECK(code == 0);
+    const std::string expected = "Objective: Reach " + name + " (*), then return to spawn.";
+    CHECK(output.find(expected) != std::string::npos);
+}
+
+TEST_CASE("plain mode replaces the move message only when a move discovers the beacon") {
+    // TASK-020 / TEST-016: the discovery wording appears only on the move that
+    // enters the beacon, not on the earlier approach moves.
+    const std::string name = corridor_beacon_name();
+    const std::string discovered = "Reached " + name + ". Return to spawn.";
+
+    // Three approach moves (to x=3) never trigger the discovery message.
+    std::string approach;
+    run_plain_state(make_corridor_state(), "d\nd\nd\nq\n", approach);
+    CHECK(approach.find(discovered) == std::string::npos);
+    CHECK(approach.find("Moved onto open ground for 1 stamina.") != std::string::npos);
+
+    // The fourth move enters the beacon and shows the discovery message.
+    std::string entered;
+    run_plain_state(make_corridor_state(), "d\nd\nd\nd\nq\n", entered);
+    CHECK(entered.find(discovered) != std::string::npos);
+    CHECK(entered.find("Objective: Return to spawn.") != std::string::npos);
+}
+
+TEST_CASE("plain mode completes and exits automatically on return to spawn") {
+    // TASK-020 / TEST-016 / TEST-017 / REQ-033 / REQ-036: walking out and back
+    // completes the expedition, prints the exact final wording, exits 0 without a
+    // quit command, and ignores every trailing command line.
+    const std::string name = corridor_beacon_name();
+    const std::string completed =
+        "Objective complete: returned to spawn after reaching " + name + ".";
+
+    std::string output;
+    // Four rights discover the beacon; four lefts return to spawn; the trailing
+    // rights must never be consumed.
+    const int code = run_plain_state(make_corridor_state(), "d\nd\nd\nd\na\na\na\na\nd\nd\n", output);
+    CHECK(code == 0);
+    CHECK(output.find(completed) != std::string::npos);
+    CHECK(output.find("Objective complete: " + name + ".") != std::string::npos);  // final line.
+
+    // Exactly one initial frame plus one frame per processed command up to and
+    // including the completing move: 1 + 8 = 9 frames, and no more.
+    CHECK(count_substr(output, "Pos ") == 9);
+    // The completed run never emits an "End of input" frame from the trailing
+    // commands, proving they were not consumed.
+    CHECK(output.find("End of input") == std::string::npos);
+}
+
+TEST_CASE("plain mode renders one completed block immediately for a single-cell map") {
+    // TASK-020 / TEST-019 / REQ-011 / REQ-034: a single reachable cell completes
+    // at spawn, rendering exactly one block and ignoring trailing commands.
+    const std::string name = single_cell_beacon_name();
+    std::string output;
+    const int code = run_plain_state(make_single_cell_state(), "d\nq\n", output);
+    CHECK(code == 0);
+    CHECK(output.find("Objective complete: " + name + " is at spawn.") != std::string::npos);
+    CHECK(count_substr(output, "Pos ") == 1);        // exactly one block,
+    CHECK(output.find("Goodbye") == std::string::npos);  // the quit was never read.
+}
+
+TEST_CASE("a fake interactive session draws one final completed frame and stops reading") {
+    // TASK-020 / TEST-018: the shared interactive loop, driven through the
+    // mockable session, draws exactly one initial frame plus one per processed
+    // command including the completing move, reads no input after completion, and
+    // returns 0 — all without a real TTY.
+    const std::string name = corridor_beacon_name();
+    std::vector<KeyEvent> script{
+        KeyEvent::of_character('d'), KeyEvent::of_character('d'), KeyEvent::of_character('d'),
+        KeyEvent::of_character('d'), KeyEvent::of_character('a'), KeyEvent::of_character('a'),
+        KeyEvent::of_character('a'), KeyEvent::of_character('a')};
+    FakeSession session(std::move(script));
+
+    ConsoleApp app(make_corridor_state(), Settings{});
+    const int code = app.run_interactive(session);
+
+    CHECK(code == 0);
+    CHECK(session.reads == 8);   // exactly the eight scripted commands, no read after completion.
+    CHECK(session.draws == 9);   // one initial frame plus one per processed command.
+    CHECK(app.final_message() ==
+          "Objective complete: returned to spawn after reaching " + name + ".");
+}
+
+TEST_CASE("a fake interactive session completes a single-cell map without reading input") {
+    // TASK-020 / TEST-019 / REQ-035: an already-completed objective draws exactly
+    // one frame, never reads input, and exits 0.
+    const std::string name = single_cell_beacon_name();
+    FakeSession session(std::vector<KeyEvent>{});
+
+    ConsoleApp app(make_single_cell_state(), Settings{});
+    const int code = app.run_interactive(session);
+
+    CHECK(code == 0);
+    CHECK(session.reads == 0);  // no input consumed.
+    CHECK(session.draws == 1);  // exactly one completed frame.
+    CHECK(app.final_message() == "Objective complete: " + name + " is at spawn.");
 }
 
 }  // TEST_SUITE("console")

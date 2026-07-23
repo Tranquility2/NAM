@@ -76,4 +76,40 @@ std::string describe_map_error(const MapLoadError& error) {
     return text;
 }
 
+std::string objective_line(const BeaconObjective& objective) {
+    switch (objective.status) {
+        case ObjectiveStatus::seeking_beacon:
+            return "Objective: Reach " + objective.name + " (*), then return to spawn.";
+        case ObjectiveStatus::returning_to_spawn:
+            return "Objective: Return to spawn.";
+        case ObjectiveStatus::completed:
+            return "Objective complete: " + objective.name + ".";
+    }
+    return "Objective: Reach " + objective.name + " (*), then return to spawn.";
+}
+
+std::string goal_line(const BeaconObjective& objective) {
+    switch (objective.status) {
+        case ObjectiveStatus::seeking_beacon:
+            return "Goal: reach " + objective.name;
+        case ObjectiveStatus::returning_to_spawn:
+            return "Goal: return to spawn";
+        case ObjectiveStatus::completed:
+            return "Goal: complete";
+    }
+    return "Goal: reach " + objective.name;
+}
+
+std::string describe_beacon_discovered(const std::string& name) {
+    return "Reached " + name + ". Return to spawn.";
+}
+
+std::string describe_expedition_completed(const std::string& name) {
+    return "Objective complete: returned to spawn after reaching " + name + ".";
+}
+
+std::string describe_spawn_beacon(const std::string& name) {
+    return "Objective complete: " + name + " is at spawn.";
+}
+
 }  // namespace nam::console

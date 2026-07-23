@@ -8,9 +8,22 @@
 #include "map_parser.h"
 #include "messages.h"
 #include "move_outcome.h"
+#include "objective.h"
 #include "terrain.h"
 
 using namespace nam::console;
+
+namespace {
+
+BeaconObjective objective_with(ObjectiveStatus status) {
+    BeaconObjective objective;
+    objective.beacon = Coordinates{4, 0};
+    objective.name = "Glass River Beacon";
+    objective.status = status;
+    return objective;
+}
+
+}  // namespace
 
 TEST_SUITE("console") {
 
@@ -113,6 +126,32 @@ TEST_CASE("map errors omit position details that do not apply") {
     const std::string text = describe_map_error(error);
     CHECK(text.find("line") == std::string::npos);
     CHECK(text.find("column") == std::string::npos);
+}
+
+TEST_CASE("the objective line states the exact wording for every phase") {
+    CHECK(objective_line(objective_with(ObjectiveStatus::seeking_beacon)) ==
+          "Objective: Reach Glass River Beacon (*), then return to spawn.");
+    CHECK(objective_line(objective_with(ObjectiveStatus::returning_to_spawn)) ==
+          "Objective: Return to spawn.");
+    CHECK(objective_line(objective_with(ObjectiveStatus::completed)) ==
+          "Objective complete: Glass River Beacon.");
+}
+
+TEST_CASE("the compact goal line stays short for every phase") {
+    CHECK(goal_line(objective_with(ObjectiveStatus::seeking_beacon)) ==
+          "Goal: reach Glass River Beacon");
+    CHECK(goal_line(objective_with(ObjectiveStatus::returning_to_spawn)) ==
+          "Goal: return to spawn");
+    CHECK(goal_line(objective_with(ObjectiveStatus::completed)) == "Goal: complete");
+}
+
+TEST_CASE("beacon transition messages match the exact required wording") {
+    CHECK(describe_beacon_discovered("Glass River Beacon") ==
+          "Reached Glass River Beacon. Return to spawn.");
+    CHECK(describe_expedition_completed("Glass River Beacon") ==
+          "Objective complete: returned to spawn after reaching Glass River Beacon.");
+    CHECK(describe_spawn_beacon("Glass River Beacon") ==
+          "Objective complete: Glass River Beacon is at spawn.");
 }
 
 }  // TEST_SUITE("console")
