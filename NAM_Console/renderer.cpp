@@ -322,7 +322,7 @@ constexpr int color_beacon = 96;  // Bright cyan: a currently visible beacon.
     Frame frame;
     frame.reserve(static_cast<std::size_t>(rows));
     if (standard) {
-        frame.push_back(fit_plain("NAM - arrows/WASD move, r rest, q quit", columns));
+        frame.push_back(fit_plain("NAM - arrows/WASD move, r rest, j journal, q quit", columns));
     }
     frame.insert(frame.end(), static_cast<std::size_t>(top_filler), std::string());
     for (std::string& line : map_lines) {
@@ -401,6 +401,41 @@ constexpr int color_beacon = 96;  // Bright cyan: a currently visible beacon.
     return text;
 }
 
+// --- Journal screen ---------------------------------------------------------
+
+// The fixed journal header and the fixed control hint. The controls name the
+// scroll, return, and quit actions (REQ-031); `j`, Enter, and Escape all return.
+constexpr char journal_header[] = "EXPEDITION JOURNAL";
+constexpr char journal_controls[] =
+    "Up/Down scroll  PgUp/PgDn page  j/Enter/Esc return  q quit";
+constexpr char journal_empty_line[] = "(No journal entries yet.)";
+
+// The rows an interactive journal reserves for the header and the control hint,
+// leaving the remainder for entry rows. Kept in one place so page capacity and
+// frame assembly can never drift (GUD-004 / RISK-005).
+constexpr int journal_reserved_rows = 2;
+
+// The numbered, chronological entry lines. When the journal is empty this is the
+// single placeholder line so both the frame and the plain block show it.
+[[nodiscard]] std::vector<std::string> journal_entry_lines(const Journal& journal) {
+    std::vector<std::string> lines;
+    if (journal.empty()) {
+        lines.emplace_back(journal_empty_line);
+        return lines;
+    }
+    const std::vector<JournalEntry>& entries = journal.entries();
+    lines.reserve(entries.size());
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        lines.push_back(std::to_string(i + 1) + ". " + format_entry(entries[i]));
+    }
+    return lines;
+}
+
+// The entry-row capacity for a resolved row count, at least one row.
+[[nodiscard]] int journal_capacity_for_rows(int rows) {
+    return std::max(1, rows - journal_reserved_rows);
+}
+
 }  // namespace
 
 Frame Renderer::render(const RenderInput& input, TerminalSize size) const {
@@ -462,6 +497,57 @@ Frame Renderer::render_completion(const CompletionSummary& summary, TerminalSize
 
 std::string Renderer::render_completion_plain(const CompletionSummary& summary) const {
     return panel_block(completion_lines(summary));
+}
+
+int Renderer::journal_page_capacity(TerminalSize size) const {
+    const int rows = size.valid() ? size.rows : fallback_rows;
+    return journal_capacity_for_rows(rows);
+}
+
+Frame Renderer::render_journal(const Journal& journal, int scroll_top, TerminalSize size) const {
+    const int columns = size.valid() ? size.columns : fallback_columns;
+    const int rows = size.valid() ? size.rows : fallback_rows;
+
+    if (columns < absolute_min_columns || rows < absolute_min_rows) {
+        return too_small_panel(columns, rows);
+    }
+
+    const std::vector<std::string> entries = journal_entry_lines(journal);
+    const int total = static_cast<int>(entries.size());
+    const int capacity = journal_capacity_for_rows(rows);
+    const int max_top = std::max(0, total - capacity);
+    const int top = std::max(0, std::min(scroll_top, max_top));
+
+    Frame frame;
+    frame.reserve(static_cast<std::size_t>(rows));
+    frame.push_back(fit_plain(journal_header, columns));
+    for (int offset = 0; offset < capacity; ++offset) {
+        const int index = top + offset;
+        if (index < total) {
+            frame.push_back(fit_plain(entries[static_cast<std::size_t>(index)], columns));
+        } else {
+            frame.emplace_back();
+        }
+    }
+    frame.push_back(fit_plain(journal_controls, columns));
+
+    // Defensive clamp so the frame is exactly `rows` lines regardless of rounding.
+    if (frame.size() > static_cast<std::size_t>(rows)) {
+        frame.resize(static_cast<std::size_t>(rows));
+    } else {
+        while (frame.size() < static_cast<std::size_t>(rows)) {
+            frame.emplace_back();
+        }
+    }
+    return frame;
+}
+
+std::string Renderer::render_journal_plain(const Journal& journal) const {
+    std::vector<std::string> lines;
+    lines.emplace_back(journal_header);
+    const std::vector<std::string> entries = journal_entry_lines(journal);
+    lines.insert(lines.end(), entries.begin(), entries.end());
+    return panel_block(lines);
 }
 
 }  // namespace nam::console

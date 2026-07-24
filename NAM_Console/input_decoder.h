@@ -17,6 +17,7 @@ namespace nam::console {
 // It recognizes a bounded grammar and can never read unboundedly or block
 // forever waiting for a continuation:
 //   * CSI arrows/Home/End:  ESC [ A|B|C|D|H|F  and  ESC [ 1~|4~|7~|8~
+//   * CSI Page Up/Down:     ESC [ 5~|6~
 //   * SS3 arrows/Home/End:  ESC O A|B|C|D|H|F
 //   * a bare Escape (no continuation within the timeout)
 //   * any other CSI sequence is consumed through its final byte and reported as

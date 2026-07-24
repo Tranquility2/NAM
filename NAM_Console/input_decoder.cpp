@@ -41,6 +41,8 @@ namespace {
         if (digits == params.size()) {
             if (params == "1" || params == "7") return KeyEvent::of(Key::home);
             if (params == "4" || params == "8") return KeyEvent::of(Key::end);
+            if (params == "5") return KeyEvent::of(Key::page_up);
+            if (params == "6") return KeyEvent::of(Key::page_down);
         }
     }
 

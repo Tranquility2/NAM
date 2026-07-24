@@ -9,7 +9,8 @@ make
 make run
 ```
 
-Move with the arrow keys, WASD, or HJKL. Press `q` or `Esc` to quit.
+Move with the arrow keys or WASD (H/K/L also work). Press `j` to open the
+expedition journal, `r` to rest, and `q` or `Esc` to quit.
 
 ```sh
 make test

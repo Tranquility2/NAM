@@ -61,6 +61,11 @@ TEST_CASE("CSI Home/End arrive as both letter and numeric forms") {
     CHECK(decode(std::string{ESC} + "[8~").key == Key::end);
 }
 
+TEST_CASE("CSI Page Up and Page Down decode to the journal scroll keys") {
+    CHECK(decode(std::string{ESC} + "[5~").key == Key::page_up);
+    CHECK(decode(std::string{ESC} + "[6~").key == Key::page_down);
+}
+
 TEST_CASE("SS3 sequences map arrows and Home/End") {
     CHECK(decode(std::string{ESC} + "OA").key == Key::up);
     CHECK(decode(std::string{ESC} + "OB").key == Key::down);
@@ -99,7 +104,6 @@ TEST_CASE("a continuation that times out mid-sequence never moves the actor") {
 
 TEST_CASE("unknown CSI sequences are consumed and reported as unknown") {
     CHECK(decode(std::string{ESC} + "[Z").key == Key::unknown);   // shift-tab.
-    CHECK(decode(std::string{ESC} + "[5~").key == Key::unknown);  // page up.
     CHECK(decode(std::string{ESC} + "[3~").key == Key::unknown);  // delete.
     CHECK(decode(std::string{ESC} + "[1;5C").key == Key::unknown);  // ctrl-arrow.
 }

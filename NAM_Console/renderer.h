@@ -8,6 +8,7 @@
 #include "app_state.h"
 #include "coordinates.h"
 #include "frame.h"
+#include "journal.h"
 #include "map.h"
 #include "objective.h"
 #include "terminal.h"
@@ -113,6 +114,29 @@ public:
     // Render the expedition-completion screen as an ANSI-free plain-text block: the
     // exact completion lines, one per line, with a single trailing newline.
     [[nodiscard]] std::string render_completion_plain(const CompletionSummary& summary) const;
+
+    // The number of journal entry rows one interactive journal page shows for the
+    // given terminal size (GUD-004). ConsoleApp uses this single source of truth
+    // to compute the newest page and to scroll by page so the application and the
+    // renderer can never disagree. An unknown size resolves to the 80x24 fallback.
+    [[nodiscard]] int journal_page_capacity(TerminalSize size) const;
+
+    // Build the bounded interactive journal frame. Entries are shown in
+    // chronological order from top to bottom; `scroll_top` is the index of the
+    // topmost visible entry and is clamped into range so rendering stays pure and
+    // in-bounds (REQ-025 / REQ-030 / REQ-032). The frame has exactly `size.rows`
+    // rows and keeps every row within `size.columns`, uses the 80x24 fallback for
+    // an unknown size, and reuses the shared window-too-small panel below the
+    // absolute minimum. It carries no ANSI escape bytes.
+    [[nodiscard]] Frame render_journal(const Journal& journal, int scroll_top,
+                                       TerminalSize size) const;
+
+    // Render the complete journal as an ANSI-free plain-text block: an
+    // `EXPEDITION JOURNAL` header, every entry numbered from 1, the empty-state
+    // placeholder when there are no entries, and a single trailing newline
+    // (REQ-029). It is not terminal-height bounded because redirected output is
+    // not screen-limited.
+    [[nodiscard]] std::string render_journal_plain(const Journal& journal) const;
 
 private:
     RenderConfig config_;

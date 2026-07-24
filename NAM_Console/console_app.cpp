@@ -1,5 +1,6 @@
 #include "console_app.h"
 
+#include <algorithm>
 #include <cctype>
 #include <iostream>
 #include <utility>
@@ -34,14 +35,15 @@ namespace {
     return word;
 }
 
-enum class PlainCommand { none, quit, rest, up, down, left, right, unknown };
+enum class PlainCommand { none, quit, rest, journal, up, down, left, right, unknown };
 
 [[nodiscard]] PlainCommand parse_plain_command(const std::string& normalized) {
     if (normalized.empty()) return PlainCommand::none;
     if (normalized == "q" || normalized == "quit" || normalized == "exit") return PlainCommand::quit;
     if (normalized == "r" || normalized == "rest") return PlainCommand::rest;
+    if (normalized == "j" || normalized == "journal") return PlainCommand::journal;
     if (normalized == "w" || normalized == "k" || normalized == "up") return PlainCommand::up;
-    if (normalized == "s" || normalized == "j" || normalized == "down") return PlainCommand::down;
+    if (normalized == "s" || normalized == "down") return PlainCommand::down;
     if (normalized == "a" || normalized == "h" || normalized == "left") return PlainCommand::left;
     if (normalized == "d" || normalized == "l" || normalized == "right") return PlainCommand::right;
     return PlainCommand::unknown;
@@ -53,8 +55,10 @@ enum class PlainCommand { none, quit, rest, up, down, left, right, unknown };
 // shown through format_seed_for_display, so raw control bytes never reach output.
 [[nodiscard]] std::string initial_message(const Settings& settings, bool interactive) {
     std::string message = interactive
-                              ? "Welcome to NAM. Arrow keys or WASD to move, r to rest, q or Esc to quit."
-                              : "Plain mode. Commands: w/a/s/d or up/down/left/right, r to rest, q to quit.";
+                              ? "Welcome to NAM. Arrow keys or WASD to move, r to rest, j for "
+                                "journal, q or Esc to quit."
+                              : "Plain mode. Commands: w/a/s/d or up/down/left/right, r to rest, j "
+                                "for journal, q to quit.";
     if (settings.seed_text) {
         message += " Tiny World seed: ";
         message += format_seed_for_display(*settings.seed_text);
@@ -73,7 +77,7 @@ std::optional<Direction> direction_for(const KeyEvent& event) noexcept {
         case Key::character:
             switch (lower(event.character)) {
                 case 'w': case 'k': return Direction::up;
-                case 's': case 'j': return Direction::down;
+                case 's': return Direction::down;
                 case 'a': case 'h': return Direction::left;
                 case 'd': case 'l': return Direction::right;
                 default: return std::nullopt;
@@ -90,6 +94,10 @@ bool is_quit_event(const KeyEvent& event) noexcept {
 
 bool is_rest_event(const KeyEvent& event) noexcept {
     return event.key == Key::character && lower(event.character) == 'r';
+}
+
+bool is_journal_event(const KeyEvent& event) noexcept {
+    return event.key == Key::character && lower(event.character) == 'j';
 }
 
 ConsoleApp::ConsoleApp(GameState state, Settings settings)
@@ -118,6 +126,7 @@ ObjectiveTransition ConsoleApp::apply_move(Direction direction, bool& emphasize)
     const GameEvent event = state_.move(direction);
     const MoveAttemptedEvent& payload = std::get<MoveAttemptedEvent>(event.data);
     hud_.record_event(event);
+    journal_.record_event(event, state_.objective().name);
     emphasize = payload.outcome.result == MoveResult::moved;
     // Replace the ordinary move wording only for the typed objective transitions;
     // every other successful or blocked move keeps its normal message.
@@ -137,6 +146,7 @@ ObjectiveTransition ConsoleApp::apply_move(Direction direction, bool& emphasize)
 void ConsoleApp::apply_rest(bool& emphasize) {
     const GameEvent event = state_.rest();
     hud_.record_event(event);
+    journal_.record_event(event, state_.objective().name);
     // Rest never moves the actor, so it never earns move emphasis.
     emphasize = false;
 }
@@ -157,6 +167,26 @@ void ConsoleApp::enter_completion() {
     presentation_ = Presentation::expedition_complete;
     completion_summary_ = make_completion_summary();
     restored_message_ = restored_completion_message(state_.objective().name);
+}
+
+void ConsoleApp::open_journal(int capacity) {
+    previous_presentation_ = presentation_;
+    presentation_ = Presentation::journal;
+    const int total = static_cast<int>(journal_.size());
+    // Open on the newest page while keeping chronological top-to-bottom order.
+    journal_scroll_ = std::max(0, total - capacity);
+}
+
+void ConsoleApp::dismiss_journal() {
+    presentation_ = previous_presentation_;
+}
+
+void ConsoleApp::scroll_journal(int delta, int capacity) {
+    const int total = static_cast<int>(journal_.size());
+    const int max_top = std::max(0, total - capacity);
+    int next = journal_scroll_ + delta;
+    next = std::max(0, std::min(next, max_top));
+    journal_scroll_ = next;
 }
 
 namespace {
@@ -209,9 +239,42 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
         }
     };
 
+    // Draw the frame for the current non-journal presentation. Used to restore the
+    // exact underlying screen when the journal is dismissed, and shared by the
+    // journal-open flow (REQ-022).
+    const auto draw_underlying = [&] {
+        switch (presentation_) {
+            case Presentation::gameplay:
+                session.draw(renderer.render(make_input(false), session.size()));
+                break;
+            case Presentation::beacon_discovery:
+                session.draw(renderer.render_discovery(state_.objective().name, session.size()));
+                break;
+            case Presentation::expedition_complete:
+                session.draw(renderer.render_completion(completion_summary_, session.size()));
+                break;
+            case Presentation::journal:
+                break;  // The journal is never its own underlying screen.
+        }
+    };
+
+    // Open the journal over the current presentation and draw its newest page.
+    const auto open_journal_screen = [&] {
+        open_journal(renderer.journal_page_capacity(session.size()));
+        session.draw(renderer.render_journal(journal_, journal_scroll_, session.size()));
+    };
+
+    // Reclamp the scroll for the current size and redraw the journal. Used by
+    // scrolling and by resize so the visible window never leaves range.
+    const auto scroll_and_draw = [&](int delta) {
+        scroll_journal(delta, renderer.journal_page_capacity(session.size()));
+        session.draw(renderer.render_journal(journal_, journal_scroll_, session.size()));
+    };
+
     // Initial objective completion (single reachable walkable cell): start directly
     // on the completion screen and wait for an explicit acknowledgement (REQ-027).
     if (state_.objective_completed()) {
+        journal_.record_initial_completion(state_.objective().name);
         enter_completion();
         session.draw(renderer.render_completion(completion_summary_, session.size()));
     } else {
@@ -243,6 +306,10 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
                         if (is_quit_event(event)) {
                             hud_.set_message("Goodbye.");
                             running = false;
+                            break;
+                        }
+                        if (is_journal_event(event)) {
+                            open_journal_screen();
                             break;
                         }
                         if (is_rest_event(event)) {
@@ -286,6 +353,12 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
                             running = false;
                             break;
                         }
+                        if (is_journal_event(event)) {
+                            // Opening the journal never dismisses discovery; it is
+                            // restored intact when the journal closes (REQ-022).
+                            open_journal_screen();
+                            break;
+                        }
                         if (const std::optional<Direction> direction = direction_for(event)) {
                             // A movement key dismisses discovery and executes that
                             // same movement exactly once (REQ-018 / RISK-003).
@@ -315,6 +388,12 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
                         running = false;  // Acknowledge and exit 0.
                         break;
                     default:
+                        if (is_journal_event(event)) {
+                            // Opening the journal never acknowledges completion; the
+                            // completion screen is restored when it closes (REQ-022).
+                            open_journal_screen();
+                            break;
+                        }
                         if (is_quit_event(event)) {
                             running = false;  // q or Escape acknowledges and exits 0.
                             break;
@@ -322,6 +401,71 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
                         // Every movement key, rest key, and other key leaves the
                         // completion screen active, emits no event, and never calls
                         // move or rest (REQ-025 / RISK-004): no state change, no draw.
+                        break;
+                }
+                break;
+
+            case Presentation::journal:
+                switch (event.key) {
+                    case Key::end_of_input:
+                        // Restore the previous state first so final_message observes
+                        // completion when appropriate (REQ-038); a journal opened over
+                        // gameplay or discovery keeps the existing EOF goodbye.
+                        dismiss_journal();
+                        if (previous_presentation_ != Presentation::expedition_complete) {
+                            hud_.set_message("End of input. Goodbye.");
+                        }
+                        running = false;
+                        break;
+                    case Key::interrupt:
+                        dismiss_journal();
+                        if (previous_presentation_ != Presentation::expedition_complete) {
+                            hud_.set_message("Interrupted. Goodbye.");
+                        }
+                        running = false;
+                        break;
+                    case Key::resize:
+                        scroll_and_draw(0);  // Reclamp for the new size and redraw.
+                        break;
+                    case Key::up:
+                        scroll_and_draw(-1);
+                        break;
+                    case Key::down:
+                        scroll_and_draw(1);
+                        break;
+                    case Key::page_up:
+                        scroll_and_draw(-renderer.journal_page_capacity(session.size()));
+                        break;
+                    case Key::page_down:
+                        scroll_and_draw(renderer.journal_page_capacity(session.size()));
+                        break;
+                    case Key::enter:
+                        // Enter returns to the exact previous state (REQ-022/REQ-023).
+                        dismiss_journal();
+                        draw_underlying();
+                        break;
+                    default:
+                        // Escape and j dismiss the journal; this must run before any
+                        // general quit predicate so Escape returns instead of quitting
+                        // (REQ-023 / TASK-014).
+                        if (event.key == Key::escape || is_journal_event(event)) {
+                            dismiss_journal();
+                            draw_underlying();
+                            break;
+                        }
+                        if (event.key == Key::character && lower(event.character) == 'q') {
+                            // q quits the game. Restore the previous presentation first
+                            // so completion keeps its final message (REQ-038); other
+                            // previous states keep the goodbye wording.
+                            dismiss_journal();
+                            if (previous_presentation_ != Presentation::expedition_complete) {
+                                hud_.set_message("Goodbye.");
+                            }
+                            running = false;
+                            break;
+                        }
+                        // Every other key leaves the journal open, emits no event, and
+                        // mutates no game/HUD/journal state (REQ-024 / REQ-033).
                         break;
                 }
                 break;
@@ -358,6 +502,7 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
     // on the completion screen and wait for an explicit acknowledgement or end of
     // input (REQ-027).
     if (state_.objective_completed()) {
+        journal_.record_initial_completion(state_.objective().name);
         enter_completion();
         output << renderer.render_completion_plain(completion_summary_);
     } else {
@@ -373,9 +518,21 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
         const PlainCommand parsed = parse_plain_command(command);
         bool emphasize = false;
 
+        // A journal command prints the complete journal block once and immediately
+        // resumes in the same presentation state: it never dismisses discovery,
+        // acknowledges completion, emits an event, or prints an extra frame
+        // (REQ-027 / REQ-028).
+        if (parsed == PlainCommand::journal) {
+            output << renderer.render_journal_plain(journal_);
+            output.flush();
+            continue;
+        }
+
         switch (presentation_) {
             case Presentation::gameplay:
                 switch (parsed) {
+                    case PlainCommand::journal:
+                        break;  // Handled before the switch; unreachable here.
                     case PlainCommand::quit:
                         hud_.set_message("Goodbye.");
                         output << renderer.render_plain(make_input(false));
@@ -404,8 +561,9 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
                         present_move_result(apply_move(Direction::right, emphasize));
                         break;
                     case PlainCommand::unknown:
-                        hud_.set_message("Unknown command '" + command +
-                                         "'. Try w/a/s/d, up/down/left/right, r to rest, or q.");
+                        hud_.set_message(
+                            "Unknown command '" + command +
+                            "'. Try w/a/s/d, up/down/left/right, r to rest, j for journal, or q.");
                         output << renderer.render_plain(make_input(false));
                         output.flush();
                         break;
@@ -414,6 +572,8 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
 
             case Presentation::beacon_discovery:
                 switch (parsed) {
+                    case PlainCommand::journal:
+                        break;  // Handled before the switch; unreachable here.
                     case PlainCommand::quit:
                         // Quit normally from the discovery screen (REQ-020).
                         hud_.set_message("Goodbye.");
@@ -452,6 +612,8 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
 
             case Presentation::expedition_complete:
                 switch (parsed) {
+                    case PlainCommand::journal:
+                        break;  // Handled before the switch; unreachable here.
                     case PlainCommand::none:
                     case PlainCommand::quit:
                         // An empty line, q, quit, or exit acknowledges completion and
@@ -471,6 +633,9 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
                         break;
                 }
                 break;
+
+            case Presentation::journal:
+                break;  // Plain mode never enters the journal presentation state.
         }
     }
 

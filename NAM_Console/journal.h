@@ -12,8 +12,8 @@
 namespace nam::console {
 
 // The frontend-owned expedition journal. It is derived entirely from the ordered
-// core GameEvent stream plus the core-owned beacon name, and it holds no core
-// type, no terminal dimensions, and no presentation state (REQ-001 / GUD-003).
+// core GameEvent stream plus the core-owned beacon name, and it holds no terminal
+// dimensions or presentation state (REQ-001 / GUD-003).
 // Entries are structured value types rather than pre-rendered prose (REQ-004),
 // so a future narrator or export path can re-render them without re-deriving
 // anything from the map.
@@ -25,10 +25,10 @@ namespace nam::console {
 struct TravelEntry {
     Direction direction{};
     Terrain terrain{};
-    std::uint32_t steps = 0;
+    std::uint64_t steps = 0;
     std::uint64_t first_sequence = 0;
     std::uint64_t last_sequence = 0;
-    std::uint32_t stamina_spent = 0;
+    std::uint64_t stamina_spent = 0;
 };
 
 // A single rest command (REQ-009). A rest at full stamina still produces an entry

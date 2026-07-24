@@ -81,6 +81,8 @@ void write_console(HANDLE handle, std::string_view bytes) {
         case VK_RIGHT:  return KeyEvent::of(Key::right);
         case VK_HOME:   return KeyEvent::of(Key::home);
         case VK_END:    return KeyEvent::of(Key::end);
+        case VK_PRIOR:  return KeyEvent::of(Key::page_up);
+        case VK_NEXT:   return KeyEvent::of(Key::page_down);
         case VK_RETURN: return KeyEvent::of(Key::enter);
         case VK_ESCAPE: return KeyEvent::of(Key::escape);
         default:

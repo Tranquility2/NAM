@@ -7,6 +7,9 @@
 
 #include "app_state.h"
 #include "coordinates.h"
+#include "direction.h"
+#include "game_event.h"
+#include "journal.h"
 #include "map.h"
 #include "move_outcome.h"
 #include "objective.h"
@@ -94,6 +97,24 @@ bool any_esc(const Frame& frame) {
 
 RenderConfig plain_config() { return RenderConfig{false, false, false, false}; }
 RenderConfig color_config() { return RenderConfig{true, true, false, true}; }
+
+// Build a journal of `count` distinct eastward single-step travel entries, each
+// on its own terrain change so no merging occurs and numbering is 1..count.
+Journal make_travel_journal(std::uint32_t count) {
+    Journal journal;
+    const Terrain terrains[] = {Terrain::open, Terrain::fields, Terrain::hill};
+    for (std::uint32_t i = 0; i < count; ++i) {
+        MoveAttemptedEvent move;
+        move.direction = Direction::right;
+        move.outcome.result = MoveResult::moved;
+        // Alternate terrain and direction so consecutive entries never merge.
+        move.direction = (i % 2 == 0) ? Direction::right : Direction::left;
+        move.outcome.terrain = terrains[i % 3];
+        move.outcome.stamina_cost = 1;
+        journal.record_event(GameEvent{i, move}, "Beacon");
+    }
+    return journal;
+}
 
 // Concatenate a frame's raw rows so escape sequences can be searched globally.
 std::string join_raw(const Frame& frame) {
@@ -824,6 +845,117 @@ TEST_CASE("objective screens are exactly rows tall and bounded across a range of
             }
         }
     }
+}
+
+TEST_CASE("the plain journal block is ANSI-free with a header and one trailing newline") {
+    const Renderer renderer(RenderConfig{false, false, false, false});
+    const Journal journal = make_travel_journal(3);
+    const std::string block = renderer.render_journal_plain(journal);
+
+    CHECK(block.find('\x1b') == std::string::npos);
+    CHECK(block.rfind("EXPEDITION JOURNAL", 0) == 0);  // Header is the first line.
+    CHECK(block.find("1. ") != std::string::npos);
+    CHECK(block.find("2. ") != std::string::npos);
+    CHECK(block.find("3. ") != std::string::npos);
+    REQUIRE_FALSE(block.empty());
+    CHECK(block.back() == '\n');
+    CHECK(block[block.size() - 2] != '\n');  // Exactly one trailing newline.
+}
+
+TEST_CASE("the empty plain journal block shows the placeholder") {
+    const Renderer renderer(RenderConfig{false, false, false, false});
+    const Journal empty;
+    const std::string block = renderer.render_journal_plain(empty);
+    CHECK(block == std::string("EXPEDITION JOURNAL\n(No journal entries yet.)\n"));
+}
+
+TEST_CASE("the interactive journal frame is exactly row and column bounded across sizes") {
+    const Renderer renderer(color_config());
+    const Journal journal = make_travel_journal(40);
+    for (int rows = 6; rows <= 40; rows += 7) {
+        for (int cols = 16; cols <= 100; cols += 21) {
+            const TerminalSize size{cols, rows};
+            const Frame frame = renderer.render_journal(journal, 0, size);
+            CHECK(frame.size() == static_cast<std::size_t>(rows));
+            for (const std::string& row : frame) {
+                CHECK(row.find('\x1b') == std::string::npos);
+                CHECK(row.size() <= static_cast<std::size_t>(cols));
+            }
+        }
+    }
+}
+
+TEST_CASE("the interactive journal frame shows header and controls") {
+    const Renderer renderer(color_config());
+    const Journal journal = make_travel_journal(5);
+    const Frame frame = renderer.render_journal(journal, 0, TerminalSize{60, 12});
+    const std::string visible = join_visible(frame);
+    CHECK(visible.find("EXPEDITION JOURNAL") != std::string::npos);
+    CHECK(visible.find("return") != std::string::npos);
+    CHECK(visible.find("quit") != std::string::npos);
+    CHECK(visible.find("scroll") != std::string::npos);
+}
+
+TEST_CASE("an empty interactive journal frame shows the placeholder") {
+    const Renderer renderer(color_config());
+    const Journal empty;
+    const Frame frame = renderer.render_journal(empty, 0, TerminalSize{60, 10});
+    const std::string visible = join_visible(frame);
+    CHECK(visible.find("(No journal entries yet.)") != std::string::npos);
+    CHECK(frame.size() == 10);
+}
+
+TEST_CASE("journal page capacity matches the header and controls reservation") {
+    const Renderer renderer(color_config());
+    // Header + controls reserve two rows, leaving rows-2 entry rows.
+    CHECK(renderer.journal_page_capacity(TerminalSize{60, 12}) == 10);
+    CHECK(renderer.journal_page_capacity(TerminalSize{60, 24}) == 22);
+    // An unknown size resolves to the 80x24 fallback.
+    CHECK(renderer.journal_page_capacity(TerminalSize{0, 0}) == 22);
+}
+
+TEST_CASE("the interactive journal scrolls chronologically and clamps at both ends") {
+    const Renderer renderer(color_config());
+    const Journal journal = make_travel_journal(20);
+    const TerminalSize size{60, 7};  // capacity 5 entry rows.
+    const int capacity = renderer.journal_page_capacity(size);
+    REQUIRE(capacity == 5);
+
+    // scroll_top 0 shows entries 1..5 chronologically, top to bottom.
+    const std::string top = join_visible(renderer.render_journal(journal, 0, size));
+    CHECK(top.find("1. ") != std::string::npos);
+    CHECK(top.find("5. ") != std::string::npos);
+    CHECK(top.find("6. ") == std::string::npos);
+
+    // The newest page (scroll_top 15) shows entries 16..20.
+    const std::string bottom = join_visible(renderer.render_journal(journal, 15, size));
+    CHECK(bottom.find("16. ") != std::string::npos);
+    CHECK(bottom.find("20. ") != std::string::npos);
+    CHECK(bottom.find("15. ") == std::string::npos);
+
+    // Over-scroll clamps to the newest page rather than running past the end.
+    const std::string clamped = join_visible(renderer.render_journal(journal, 999, size));
+    CHECK(clamped == bottom);
+    // Negative scroll clamps to the oldest page.
+    const std::string neg = join_visible(renderer.render_journal(journal, -5, size));
+    CHECK(neg == top);
+}
+
+TEST_CASE("the interactive journal reuses the too-small panel below the minimum") {
+    const Renderer renderer(color_config());
+    const Journal journal = make_travel_journal(5);
+    const Frame frame = renderer.render_journal(journal, 0, TerminalSize{11, 5});
+    const std::string visible = join_visible(frame);
+    CHECK(visible.find("Window") != std::string::npos);
+}
+
+TEST_CASE("journal rendering is deterministic for identical inputs") {
+    const Renderer renderer(color_config());
+    const Journal journal = make_travel_journal(12);
+    const TerminalSize size{72, 15};
+    CHECK(join_raw(renderer.render_journal(journal, 3, size)) ==
+          join_raw(renderer.render_journal(journal, 3, size)));
+    CHECK(renderer.render_journal_plain(journal) == renderer.render_journal_plain(journal));
 }
 
 }  // TEST_SUITE("console")

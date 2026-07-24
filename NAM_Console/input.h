@@ -21,6 +21,8 @@ enum class Key : std::uint8_t {
     right,         // Cursor right.
     home,          // Home key.
     end,           // End key.
+    page_up,       // Page Up: scroll the journal one visible page toward older entries.
+    page_down,     // Page Down: scroll the journal one visible page toward newer entries.
     enter,         // Return/Enter.
     escape,        // A bare Escape press (not the start of a sequence).
     resize,        // The terminal was resized; the frame must be rebuilt.

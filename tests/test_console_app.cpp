@@ -195,12 +195,27 @@ TEST_CASE("movement keys and command letters map to directions") {
     CHECK(direction_for(KeyEvent::of_character('w')) == Direction::up);
     CHECK(direction_for(KeyEvent::of_character('k')) == Direction::up);
     CHECK(direction_for(KeyEvent::of_character('s')) == Direction::down);
-    CHECK(direction_for(KeyEvent::of_character('j')) == Direction::down);
     CHECK(direction_for(KeyEvent::of_character('a')) == Direction::left);
     CHECK(direction_for(KeyEvent::of_character('h')) == Direction::left);
     CHECK(direction_for(KeyEvent::of_character('d')) == Direction::right);
     CHECK(direction_for(KeyEvent::of_character('l')) == Direction::right);
     CHECK(direction_for(KeyEvent::of_character('W')) == Direction::up);  // case-insensitive.
+}
+
+TEST_CASE("j is reserved for the journal and is no longer a movement alias") {
+    // 'j' used to move down; it now opens the journal and yields no direction.
+    CHECK_FALSE(direction_for(KeyEvent::of_character('j')).has_value());
+    CHECK_FALSE(direction_for(KeyEvent::of_character('J')).has_value());
+    CHECK(is_journal_event(KeyEvent::of_character('j')));
+    CHECK(is_journal_event(KeyEvent::of_character('J')));
+    CHECK_FALSE(is_journal_event(KeyEvent::of_character('s')));
+    CHECK_FALSE(is_journal_event(KeyEvent::of(Key::down)));
+    // Down movement still works through 's' and the arrow key.
+    CHECK(direction_for(KeyEvent::of_character('s')) == Direction::down);
+    CHECK(direction_for(KeyEvent::of(Key::down)) == Direction::down);
+    // The journal key is never mistaken for quit or rest.
+    CHECK_FALSE(is_quit_event(KeyEvent::of_character('j')));
+    CHECK_FALSE(is_rest_event(KeyEvent::of_character('j')));
 }
 
 TEST_CASE("non-movement events yield no direction") {
@@ -757,6 +772,197 @@ TEST_CASE("a fake interactive session waits on the completion screen for a singl
     CHECK(session.reads == 2);  // the ignored movement key and the acknowledgement.
     CHECK(session.draws == 1);  // exactly one completion frame, redrawn for nothing else.
     CHECK(app.final_message() == "Expedition complete: " + name + ".");
+}
+
+TEST_CASE("the journal opens over gameplay and dismisses back with j") {
+    // TASK-016 / REQ-021 / REQ-022: j opens the journal over gameplay, j dismisses it
+    // back to the gameplay frame, and a later quit keeps the ordinary goodbye.
+    std::vector<KeyEvent> script{KeyEvent::of_character('j'), KeyEvent::of_character('j'),
+                                 KeyEvent::of_character('q')};
+    FakeSession session(std::move(script));
+
+    ConsoleApp app(make_state(), Settings{});
+    const int code = app.run_interactive(session);
+
+    CHECK(code == 0);
+    CHECK(session.reads == 3);
+    CHECK(session.draws == 3);  // initial gameplay + journal + dismissal gameplay frame.
+    CHECK(app.final_message() == "Goodbye.");
+}
+
+TEST_CASE("Escape dismisses the journal instead of quitting the game") {
+    // TASK-016 / REQ-023: on the journal, Escape returns to the previous state; it is
+    // handled before any general quit predicate. A later q then quits normally.
+    std::vector<KeyEvent> script{KeyEvent::of_character('j'), KeyEvent::of(Key::escape),
+                                 KeyEvent::of_character('q')};
+    FakeSession session(std::move(script));
+
+    ConsoleApp app(make_state(), Settings{});
+    const int code = app.run_interactive(session);
+
+    CHECK(code == 0);
+    CHECK(session.reads == 3);
+    CHECK(session.draws == 3);  // initial + journal + dismissal; the quit draws nothing.
+    CHECK(app.final_message() == "Goodbye.");
+}
+
+TEST_CASE("journal scrolling keys each redraw and emit no core event") {
+    // TASK-016 / REQ-024 / REQ-033: Up/Down and Page Up/Page Down each redraw the
+    // journal without moving, completing, or otherwise mutating state; the run ends
+    // with the ordinary goodbye and never reaches completion.
+    std::vector<KeyEvent> script{
+        KeyEvent::of_character('d'),  KeyEvent::of_character('j'), KeyEvent::of(Key::up),
+        KeyEvent::of(Key::down),      KeyEvent::of(Key::page_up),  KeyEvent::of(Key::page_down),
+        KeyEvent::of_character('j'),  KeyEvent::of_character('q')};
+    FakeSession session(std::move(script));
+
+    ConsoleApp app(make_state(), Settings{});
+    const int code = app.run_interactive(session);
+
+    CHECK(code == 0);
+    CHECK(session.reads == 8);
+    // initial + one move + open journal + four scroll redraws + dismissal frame.
+    CHECK(session.draws == 8);
+    CHECK(app.final_message() == "Goodbye.");
+}
+
+TEST_CASE("the journal opens over discovery and returns to the discovery screen") {
+    // TASK-016 / REQ-022: opening the journal over discovery never dismisses it; the
+    // discovery screen is restored intact and a later quit keeps its goodbye.
+    std::vector<KeyEvent> script{KeyEvent::of_character('d'), KeyEvent::of_character('j'),
+                                 KeyEvent::of(Key::escape), KeyEvent::of_character('q')};
+    FakeSession session(std::move(script));
+
+    ConsoleApp app(make_adjacent_state(), Settings{});
+    const int code = app.run_interactive(session);
+
+    CHECK(code == 0);
+    CHECK(session.reads == 4);
+    // initial + discovery + journal + discovery restored; the quit draws nothing.
+    CHECK(session.draws == 4);
+    CHECK(app.final_message() == "Goodbye.");
+}
+
+TEST_CASE("quitting the journal opened over completion preserves the completion message") {
+    // TASK-016 / REQ-026 / REQ-038: q on a journal opened over completion restores the
+    // completion presentation first, so the expedition-complete final message survives.
+    const std::string name = adjacent_beacon_name();
+    std::vector<KeyEvent> script{KeyEvent::of_character('d'), KeyEvent::of_character('a'),
+                                 KeyEvent::of_character('j'), KeyEvent::of_character('q')};
+    FakeSession session(std::move(script));
+
+    ConsoleApp app(make_adjacent_state(), Settings{});
+    const int code = app.run_interactive(session);
+
+    CHECK(code == 0);
+    CHECK(session.reads == 4);
+    CHECK(session.draws == 4);  // initial + discovery + completion + journal.
+    CHECK(app.final_message() == "Expedition complete: " + name + ".");
+}
+
+TEST_CASE("dismissing the journal over completion returns to completion without acknowledging") {
+    // TASK-016 / REQ-022: Enter on a journal opened over completion returns to the
+    // completion screen; a later Enter acknowledges and exits with the final message.
+    const std::string name = adjacent_beacon_name();
+    std::vector<KeyEvent> script{KeyEvent::of_character('d'), KeyEvent::of_character('a'),
+                                 KeyEvent::of_character('j'), KeyEvent::of(Key::enter),
+                                 KeyEvent::of(Key::enter)};
+    FakeSession session(std::move(script));
+
+    ConsoleApp app(make_adjacent_state(), Settings{});
+    const int code = app.run_interactive(session);
+
+    CHECK(code == 0);
+    CHECK(session.reads == 5);
+    // initial + discovery + completion + journal + completion restored.
+    CHECK(session.draws == 5);
+    CHECK(app.final_message() == "Expedition complete: " + name + ".");
+}
+
+TEST_CASE("end of input on a journal over gameplay uses the goodbye wording") {
+    // TASK-016 / REQ-026: EOF while the journal is open over gameplay restores the
+    // previous state and keeps the ordinary end-of-input goodbye.
+    std::vector<KeyEvent> script{KeyEvent::of_character('j')};
+    FakeSession session(std::move(script));
+
+    ConsoleApp app(make_state(), Settings{});
+    const int code = app.run_interactive(session);
+
+    CHECK(code == 0);
+    CHECK(session.reads == 2);  // the journal open plus the end-of-input read.
+    CHECK(session.draws == 2);  // initial gameplay + journal.
+    CHECK(app.final_message() == "End of input. Goodbye.");
+}
+
+TEST_CASE("end of input on a journal over completion preserves the completion message") {
+    // TASK-016 / REQ-026 / REQ-038: EOF on a journal opened over completion restores
+    // completion first, so the final message stays the expedition-complete text.
+    const std::string name = adjacent_beacon_name();
+    std::vector<KeyEvent> script{KeyEvent::of_character('d'), KeyEvent::of_character('a'),
+                                 KeyEvent::of_character('j')};
+    FakeSession session(std::move(script));
+
+    ConsoleApp app(make_adjacent_state(), Settings{});
+    const int code = app.run_interactive(session);
+
+    CHECK(code == 0);
+    CHECK(session.reads == 4);  // discovery, completion, journal open, EOF read.
+    CHECK(session.draws == 4);
+    CHECK(app.final_message() == "Expedition complete: " + name + ".");
+}
+
+TEST_CASE("the journal redraws on resize while open") {
+    // TASK-016 / REQ-024: a resize while the journal is open reclamps and redraws the
+    // journal frame rather than the underlying screen.
+    std::vector<KeyEvent> script{KeyEvent::of_character('j'), KeyEvent::of(Key::resize),
+                                 KeyEvent::of_character('j'), KeyEvent::of_character('q')};
+    FakeSession session(std::move(script));
+
+    ConsoleApp app(make_state(), Settings{});
+    const int code = app.run_interactive(session);
+
+    CHECK(code == 0);
+    CHECK(session.reads == 4);
+    CHECK(session.draws == 4);  // initial + journal + resize redraw + dismissal frame.
+    CHECK(app.final_message() == "Goodbye.");
+}
+
+TEST_CASE("plain j prints the journal once and immediately resumes gameplay") {
+    // TASK-016 / REQ-027: a plain journal command prints one complete journal block
+    // and continues without printing an extra gameplay frame.
+    std::string output;
+    const int code = run_plain_with("j\nq\n", output);
+    CHECK(code == 0);
+    CHECK(output.find("EXPEDITION JOURNAL") != std::string::npos);
+    CHECK(output.find("(No journal entries yet.)") != std::string::npos);
+    // Only the initial frame and the quit frame carry a status line; j adds none.
+    CHECK(count_substr(output, "Pos ") == 2);
+}
+
+TEST_CASE("plain j records prior moves and does not dismiss discovery") {
+    // TASK-016 / REQ-028: on the discovery screen a plain journal command prints the
+    // block (including the recorded travel and discovery entries) without dismissing
+    // discovery, acknowledging, or emitting an event.
+    const std::string name = corridor_beacon_name();
+    std::string output;
+    const int code = run_plain_state(make_corridor_state(), "d\nd\nd\nj\nq\n", output);
+    CHECK(code == 0);
+    CHECK(output.find("EXPEDITION JOURNAL") != std::string::npos);
+    CHECK(output.find("Traveled east across open ground for 3 steps.") != std::string::npos);
+    CHECK(output.find("Discovered " + name + ".") != std::string::npos);
+}
+
+TEST_CASE("plain j on a completed single-cell map prints the initial completion entry") {
+    // TASK-016 / REQ-028 / REQ-012: the journal on an already-completed map shows the
+    // explicit initial-completion entry and printing it does not re-acknowledge.
+    const std::string name = single_cell_beacon_name();
+    std::string output;
+    const int code = run_plain_state(make_single_cell_state(), "j\n", output);
+    CHECK(code == 0);
+    CHECK(output.find("EXPEDITION JOURNAL") != std::string::npos);
+    CHECK(output.find("Found " + name + " at spawn; the expedition was already complete.") !=
+          std::string::npos);
+    CHECK(output.find("Goodbye") == std::string::npos);  // EOF acknowledgement stays quiet.
 }
 
 }  // TEST_SUITE("console")
