@@ -19,6 +19,8 @@ set(nam_console_lib_sources
     input.h
     input_decoder.cpp
     input_decoder.h
+    journal.cpp
+    journal.h
     messages.cpp
     messages.h
     renderer.cpp

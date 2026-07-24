@@ -73,7 +73,7 @@ nam_add_unit_test(nam_input_tests
 
 nam_add_unit_test(nam_console_tests
     SOURCES test_settings.cpp test_renderer.cpp test_messages.cpp
-            test_app_state.cpp test_console_app.cpp)
+            test_app_state.cpp test_console_app.cpp test_journal.cpp)
 
 # --- CLI integration tests --------------------------------------------------
 #
