@@ -61,6 +61,19 @@ inline constexpr char actor_glyph = 'O';
 // or mutates the underlying Terrain.
 inline constexpr char beacon_glyph = '*';
 
+// A frontend-only summary of a completed expedition, shown on the completion
+// screen. It carries the generated beacon name and the HUD/game counters as they
+// stood immediately after the completing move: the successful move count, the
+// total attempt count, and the final current/maximum stamina. It holds no core
+// type and never exposes seed text, map paths, or objective coordinates.
+struct CompletionSummary {
+    std::string beacon_name;
+    std::size_t move_count = 0;
+    std::size_t attempt_count = 0;
+    std::uint32_t stamina = 0;
+    std::uint32_t max_stamina = 0;
+};
+
 // Composes frames from world state. Pure with respect to its inputs: the same
 // RenderInput and size always yield the same Frame, and nothing is written to
 // any stream here.
@@ -80,6 +93,26 @@ public:
     // Render a self-contained plain-text block (no cursor moves, no colour) for
     // line-oriented mode: readable in redirected output and by screen readers.
     [[nodiscard]] std::string render_plain(const RenderInput& input) const;
+
+    // Build the interactive beacon-discovery screen for the given size. The frame
+    // has exactly `size.rows` rows, keeps every row within `size.columns`, centres
+    // the fixed discovery lines when space permits, uses the 80x24 fallback for an
+    // unknown size, and falls back to the shared window-too-small panel below the
+    // absolute minimum. It carries no ANSI escape bytes.
+    [[nodiscard]] Frame render_discovery(const std::string& beacon_name, TerminalSize size) const;
+
+    // Render the beacon-discovery screen as an ANSI-free plain-text block: the
+    // exact discovery lines, one per line, with a single trailing newline.
+    [[nodiscard]] std::string render_discovery_plain(const std::string& beacon_name) const;
+
+    // Build the interactive expedition-completion screen, bounded exactly like
+    // render_discovery, from a frontend-only completion summary.
+    [[nodiscard]] Frame render_completion(const CompletionSummary& summary,
+                                          TerminalSize size) const;
+
+    // Render the expedition-completion screen as an ANSI-free plain-text block: the
+    // exact completion lines, one per line, with a single trailing newline.
+    [[nodiscard]] std::string render_completion_plain(const CompletionSummary& summary) const;
 
 private:
     RenderConfig config_;

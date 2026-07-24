@@ -15,6 +15,17 @@
 
 namespace nam::console {
 
+// The console's presentation state, kept deliberately independent of the core
+// ObjectiveStatus (GUD-003). `gameplay` shows the map/HUD frame; `beacon_discovery`
+// is a temporary acknowledgement screen shown after a move first reaches the
+// beacon and is dismissed by the next input; `expedition_complete` is shown after
+// the return to spawn and stays active until the player acknowledges it.
+enum class Presentation {
+    gameplay,
+    beacon_discovery,
+    expedition_complete,
+};
+
 // A minimal, mockable view of an interactive terminal session: exactly the four
 // operations the interactive loop needs. The production TerminalSession is
 // adapted onto this interface, and tests provide a fake implementation so the
@@ -53,17 +64,35 @@ public:
     // never touches raw mode or the cursor, and stays readable when redirected.
     [[nodiscard]] int run_plain(std::istream& input, std::ostream& output);
 
-    // The final latest-event message, shown once after interactive teardown.
-    [[nodiscard]] const std::string& final_message() const noexcept { return hud_.message(); }
+    // The final line shown once after interactive teardown. A completed run shows
+    // the fixed "Expedition complete: <name>." message so acknowledgement can never
+    // overwrite it; any other end (quit, end of input, interrupt) keeps its HUD
+    // goodbye wording.
+    [[nodiscard]] const std::string& final_message() const noexcept {
+        return presentation_ == Presentation::expedition_complete ? restored_message_
+                                                                  : hud_.message();
+    }
 
 private:
     [[nodiscard]] RenderInput make_input(bool emphasize) const;
-    void apply_move(Direction direction, bool& emphasize);
+    // Apply one movement command and return the objective transition it caused so
+    // the caller can choose the resulting presentation state.
+    [[nodiscard]] ObjectiveTransition apply_move(Direction direction, bool& emphasize);
     void apply_rest(bool& emphasize);
+
+    // Build the frontend-only completion summary from the HUD counters and game
+    // stamina exactly as they stand after the completing event has been recorded.
+    [[nodiscard]] CompletionSummary make_completion_summary() const;
+    // Enter the completion presentation: build the summary and set the restored
+    // final message. Emits no core event.
+    void enter_completion();
 
     GameState state_;
     Settings settings_;
     Hud hud_;
+    Presentation presentation_ = Presentation::gameplay;
+    CompletionSummary completion_summary_;
+    std::string restored_message_;
 };
 
 // Map a semantic event to a movement direction, or std::nullopt when the event

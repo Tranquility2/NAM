@@ -344,6 +344,63 @@ constexpr int color_beacon = 96;  // Bright cyan: a currently visible beacon.
     return frame;
 }
 
+// --- Objective screens ------------------------------------------------------
+
+// The exact discovery-screen logical lines in order (REQ-017): the fixed banner,
+// the generated beacon name, and the two fixed instruction lines.
+[[nodiscard]] std::vector<std::string> discovery_lines(const std::string& beacon_name) {
+    return {std::string("BEACON DISCOVERED"), beacon_name,
+            std::string("Return to spawn to complete the expedition."),
+            std::string("Press Enter to continue, or use a movement key.")};
+}
+
+// The exact completion-screen logical lines in order (REQ-023): the fixed banner,
+// the named beacon, the move/attempt counters, the final stamina pair, and the
+// fixed acknowledgement instruction. All counters are converted to decimal.
+[[nodiscard]] std::vector<std::string> completion_lines(const CompletionSummary& summary) {
+    return {std::string("EXPEDITION COMPLETE"),
+            "Beacon: " + summary.beacon_name,
+            "Moves: " + std::to_string(summary.move_count),
+            "Attempts: " + std::to_string(summary.attempt_count),
+            "Final stamina: " + std::to_string(summary.stamina) + "/" +
+                std::to_string(summary.max_stamina),
+            std::string("Press Enter or q to exit.")};
+}
+
+// Compose a bounded, ANSI-free panel frame from a set of logical lines. The frame
+// has exactly `rows` rows and every row is fit within `columns`; the lines are
+// centred vertically and horizontally when space permits. An unknown size uses
+// the 80x24 fallback and a size below the absolute minimum reuses the shared
+// window-too-small panel so tiny terminals behave exactly as before.
+[[nodiscard]] Frame panel_frame(const std::vector<std::string>& lines, TerminalSize size) {
+    const int columns = size.valid() ? size.columns : fallback_columns;
+    const int rows = size.valid() ? size.rows : fallback_rows;
+    if (columns < absolute_min_columns || rows < absolute_min_rows) {
+        return too_small_panel(columns, rows);
+    }
+    Frame frame(static_cast<std::size_t>(rows), std::string());
+    const int count = static_cast<int>(lines.size());
+    const int top = std::max(0, (rows - count) / 2);
+    for (int i = 0; i < count; ++i) {
+        const int target = top + i;
+        if (target >= 0 && target < rows) {
+            frame[static_cast<std::size_t>(target)] = center_plain(lines[i], columns);
+        }
+    }
+    return frame;
+}
+
+// Join logical lines into an ANSI-free plain-text block: one line each, with a
+// single trailing newline after the last line.
+[[nodiscard]] std::string panel_block(const std::vector<std::string>& lines) {
+    std::string text;
+    for (const std::string& line : lines) {
+        text += line;
+        text.push_back('\n');
+    }
+    return text;
+}
+
 }  // namespace
 
 Frame Renderer::render(const RenderInput& input, TerminalSize size) const {
@@ -389,6 +446,22 @@ std::string Renderer::render_plain(const RenderInput& input) const {
         text += recent_text(input.recent) + "\n";
     }
     return text;
+}
+
+Frame Renderer::render_discovery(const std::string& beacon_name, TerminalSize size) const {
+    return panel_frame(discovery_lines(beacon_name), size);
+}
+
+std::string Renderer::render_discovery_plain(const std::string& beacon_name) const {
+    return panel_block(discovery_lines(beacon_name));
+}
+
+Frame Renderer::render_completion(const CompletionSummary& summary, TerminalSize size) const {
+    return panel_frame(completion_lines(summary), size);
+}
+
+std::string Renderer::render_completion_plain(const CompletionSummary& summary) const {
+    return panel_block(completion_lines(summary));
 }
 
 }  // namespace nam::console

@@ -248,11 +248,11 @@ TEST_CASE("two-field movement-event aggregate construction keeps a default objec
 }
 
 TEST_CASE("every movement event carries the exact objective update in one contiguous stream") {
-    // A one-row corridor whose beacon is the far cell (4,0): walking out and back
-    // produces one ordered event per command, each nesting the exact before/after
-    // status and the typed transition for that command.
+    // A one-row corridor whose beacon is the distant scenic-fallback cell (3,0):
+    // walking out and back produces one ordered event per command, each nesting
+    // the exact before/after status and the typed transition for that command.
     GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n"));
-    REQUIRE(state.objective().beacon == Coordinates{4, 0});
+    REQUIRE(state.objective().beacon == Coordinates{3, 0});
 
     std::uint64_t expected_sequence = 0;
     const auto check_move = [&](Direction direction, ObjectiveStatus before, ObjectiveStatus after,
@@ -270,9 +270,7 @@ TEST_CASE("every movement event carries the exact objective update in one contig
     using T = ObjectiveTransition;
     check_move(Direction::right, S::seeking_beacon, S::seeking_beacon, T::none);
     check_move(Direction::right, S::seeking_beacon, S::seeking_beacon, T::none);
-    check_move(Direction::right, S::seeking_beacon, S::seeking_beacon, T::none);
     check_move(Direction::right, S::seeking_beacon, S::returning_to_spawn, T::beacon_discovered);
-    check_move(Direction::left, S::returning_to_spawn, S::returning_to_spawn, T::none);
     check_move(Direction::left, S::returning_to_spawn, S::returning_to_spawn, T::none);
     check_move(Direction::left, S::returning_to_spawn, S::returning_to_spawn, T::none);
     check_move(Direction::left, S::returning_to_spawn, S::completed, T::expedition_completed);

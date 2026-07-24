@@ -24,8 +24,9 @@ constexpr std::array<const char*, 16> kSecondWords{
     "Peak", "Reach", "River", "Spire", "Stone", "Vale", "Watch", "Way"};
 
 // The four cardinal neighbour offsets. Order does not affect the selected cell:
-// distances are uniform and the farthest cell is chosen in a separate row-major
-// pass, so breadth-first neighbour order is never the tie-breaker.
+// distances are uniform and the beacon is chosen from a separately collected
+// row-major candidate pool, so breadth-first neighbour order is never the
+// tie-breaker.
 constexpr std::array<Coordinates, 4> kCardinalOffsets{
     Coordinates{0, -1}, Coordinates{0, 1}, Coordinates{-1, 0}, Coordinates{1, 0}};
 
@@ -74,6 +75,20 @@ constexpr std::array<Coordinates, 4> kCardinalOffsets{
     return distance;
 }
 
+// The canonical fingerprint hashed to select the beacon among distant scenic
+// candidates: the exact map text followed by the spawn coordinate. It contains
+// only canonical map terrain glyphs and decimal spawn coordinates, never a map
+// path, seed text, the original CLI seed text, the clock, environment state, or
+// any mutable global state, so selection is a pure function of the map and spawn.
+[[nodiscard]] std::string placement_fingerprint(const Map& map, Coordinates spawn) {
+    std::string input = map.to_string();
+    input += "\nspawn ";
+    input += std::to_string(spawn.x);
+    input += " ";
+    input += std::to_string(spawn.y);
+    return input;
+}
+
 // The canonical fingerprint hashed into the beacon name: the exact map text, the
 // spawn coordinate, and the beacon coordinate. It contains only canonical map
 // terrain glyphs and decimal coordinates, never a map path, seed text, or any
@@ -112,30 +127,72 @@ BeaconObjective create_beacon_objective(const Map& map) {
     const int width = static_cast<int>(map.width());
     const int height = static_cast<int>(map.height());
 
-    // Select the farthest reachable cell in a separate row-major pass so the
-    // choice is independent of breadth-first neighbour order: start from spawn
-    // (distance 0) and replace the candidate only for a strictly greater
-    // distance, so the earliest row-major cell wins any tie.
+    const auto flat_index = [width](int x, int y) {
+        return static_cast<std::size_t>(y) * static_cast<std::size_t>(width) +
+               static_cast<std::size_t>(x);
+    };
+
+    // The greatest nonnegative shortest-path distance among reachable cells.
+    // Unreachable cells hold -1 and never raise it.
+    int maximum_distance = 0;
+    for (const int cell_distance : distance) {
+        if (cell_distance > maximum_distance) {
+            maximum_distance = cell_distance;
+        }
+    }
+
     Coordinates beacon = spawn;
-    int best_distance = 0;
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            const std::size_t flat =
-                static_cast<std::size_t>(y) * static_cast<std::size_t>(width) +
-                static_cast<std::size_t>(x);
-            const int cell_distance = distance[flat];
-            if (cell_distance > best_distance) {
-                best_distance = cell_distance;
-                beacon = Coordinates{x, y};
+    // When no cell is farther than spawn, spawn is the only reachable walkable
+    // cell: the beacon stays at spawn and the expedition starts completed. This
+    // also avoids any threshold or modulo arithmetic in the trivial case.
+    if (maximum_distance > 0) {
+        // The minimum eligible distance is the exact integer ceiling of 75% of
+        // maximum_distance: subtracting the truncated quarter rounds the retained
+        // three quarters up, so no floating point is involved.
+        const int minimum_distance = maximum_distance - maximum_distance / 4;
+
+        // Collect distant candidates in row-major order so the deterministic hash
+        // selection is platform-independent. A candidate is reachable, walkable,
+        // not spawn, and at least the minimum eligible distance. Scenic candidates
+        // (hills and mountains as one pool) are preferred; the full distant pool
+        // is the fallback when no scenic candidate is distant enough.
+        std::vector<Coordinates> scenic;
+        std::vector<Coordinates> distant;
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                const int cell_distance = distance[flat_index(x, y)];
+                if (cell_distance < minimum_distance) {
+                    continue;
+                }
+                const Coordinates cell{x, y};
+                if (cell == spawn) {
+                    continue;
+                }
+                const Terrain terrain = map.terrain_at(cell);
+                if (!is_walkable(terrain)) {
+                    continue;
+                }
+                distant.push_back(cell);
+                if (terrain == Terrain::hill || terrain == Terrain::mountain) {
+                    scenic.push_back(cell);
+                }
             }
+        }
+
+        const std::vector<Coordinates>& candidates = scenic.empty() ? distant : scenic;
+        // A nontrivial map always yields at least the maximum-distance cell, so
+        // the pool is never empty; the guard documents that and rules out any
+        // modulo-by-zero on the selection below.
+        if (!candidates.empty()) {
+            const std::uint64_t placement_hash =
+                hash_seed_text(placement_fingerprint(map, spawn));
+            beacon = candidates[static_cast<std::size_t>(placement_hash % candidates.size())];
         }
     }
 
     BeaconObjective objective;
     objective.beacon = beacon;
     objective.name = generate_beacon_name(map, spawn, beacon);
-    // When no cell is farther than spawn, spawn is the only reachable walkable
-    // cell: the beacon sits at spawn and the expedition is already completed.
     objective.status =
         (beacon == spawn) ? ObjectiveStatus::completed : ObjectiveStatus::seeking_beacon;
     return objective;

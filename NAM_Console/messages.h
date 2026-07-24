@@ -60,4 +60,18 @@ namespace nam::console {
 // beacon coincides with spawn and the expedition is already complete.
 [[nodiscard]] std::string describe_spawn_beacon(const std::string& name);
 
+// The plain-mode reminder shown when the beacon-discovery screen is active and
+// the player enters a command that neither dismisses it nor moves.
+[[nodiscard]] std::string discovery_reminder();
+
+// The plain-mode reminder shown when the completion screen is active and the
+// player enters any command other than an acknowledgement.
+[[nodiscard]] std::string completion_reminder();
+
+// The single line printed once on the restored normal screen after an
+// interactive run whose expedition completed, naming the finished beacon. While
+// completion is being acknowledged this replaces every goodbye/EOF/interrupt
+// line so the acknowledgement can never overwrite it.
+[[nodiscard]] std::string restored_completion_message(const std::string& name);
+
 }  // namespace nam::console

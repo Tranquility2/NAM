@@ -154,4 +154,18 @@ TEST_CASE("beacon transition messages match the exact required wording") {
           "Objective complete: Glass River Beacon is at spawn.");
 }
 
+TEST_CASE("objective-screen reminders and restored completion wording are exact") {
+    // REQ-020 / REQ-026 / REQ-028: the plain-mode reminders and the restored
+    // normal-screen completion line use their exact fixed wording, and the
+    // restored line names the finished beacon.
+    CHECK(discovery_reminder() ==
+          "Beacon discovered. Press Enter or use a movement command to continue.");
+    CHECK(completion_reminder() == "Run complete. Press Enter or q to exit.");
+    CHECK(restored_completion_message("Glass River Beacon") ==
+          "Expedition complete: Glass River Beacon.");
+    // The restored completion line carries neither the pre-completion goodbye
+    // wording nor any coordinate.
+    CHECK(restored_completion_message("Glass River Beacon").find("Goodbye") == std::string::npos);
+}
+
 }  // TEST_SUITE("console")

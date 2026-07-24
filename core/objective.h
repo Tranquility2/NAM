@@ -6,11 +6,15 @@
 #include "map.h"
 
 // Frontend-neutral beacon objective: every map receives one deterministic named
-// beacon placed on the reachable walkable cell whose shortest cardinal path from
-// spawn contains the greatest number of moves. The player must enter the beacon
-// cell and then return to spawn to complete the expedition. Placement, naming,
-// and the status machine live entirely in the core so any frontend only presents
-// this state and reacts to the typed transitions it produces.
+// beacon placed on a distant scenic reachable cell. The beacon is chosen from the
+// cells whose shortest cardinal path from spawn is at least the minimum eligible
+// distance (the exact integer ceiling of 75% of the greatest reachable distance),
+// preferring hills and mountains and falling back to any distant walkable cell,
+// then selected deterministically by a portable hash so the same map always
+// yields the same beacon. The player must enter the beacon cell and then return
+// to spawn to complete the expedition. Placement, naming, and the status machine
+// live entirely in the core so any frontend only presents this state and reacts
+// to the typed transitions it produces.
 
 // The phase of the beacon expedition. A new nontrivial objective starts at
 // seeking_beacon; entering the beacon cell moves it to returning_to_spawn; a
@@ -51,9 +55,15 @@ struct ObjectiveUpdate {
 };
 
 // Build the complete initial objective for a map: run a cardinal breadth-first
-// search from the map's spawn over walkable terrain, select the reachable
-// walkable cell with the greatest shortest-path move count (earliest row-major on
-// ties), generate the deterministic name, and set the initial status. When spawn
+// search from the map's spawn over walkable terrain, find the greatest reachable
+// shortest-path distance, and collect the distant candidate cells (at least the
+// minimum eligible distance, which is the exact integer ceiling of 75% of that
+// greatest distance). Scenic candidates (hills and mountains, treated as one
+// pool) are preferred; when none are distant enough the full distant walkable
+// pool is used. The beacon is the candidate chosen by hashing the map-and-spawn
+// fingerprint modulo the row-major candidate count, so selection is deterministic
+// and platform-independent rather than always the single farthest cell. The
+// deterministic name is then generated and the initial status is set. When spawn
 // is the only reachable walkable cell the beacon is placed at spawn and the
 // objective starts completed.
 [[nodiscard]] BeaconObjective create_beacon_objective(const Map& map);

@@ -667,4 +667,163 @@ TEST_CASE("the objective line keeps the frame bounded across a range of sizes") 
     }
 }
 
+// --- Objective screens ------------------------------------------------------
+
+// The visible, whitespace-trimmed content of each frame row, dropping the blank
+// centring rows, so a panel's logical lines can be checked directly.
+std::vector<std::string> panel_content_lines(const Frame& frame) {
+    std::vector<std::string> lines;
+    for (const std::string& row : frame) {
+        const std::string visible = strip_ansi(row);
+        const std::size_t begin = visible.find_first_not_of(' ');
+        if (begin == std::string::npos) {
+            continue;  // a blank centring row.
+        }
+        const std::size_t end = visible.find_last_not_of(' ');
+        lines.push_back(visible.substr(begin, end - begin + 1));
+    }
+    return lines;
+}
+
+std::vector<std::string> split_lines(const std::string& text) {
+    std::vector<std::string> lines;
+    std::size_t start = 0;
+    while (start < text.size()) {
+        const std::size_t nl = text.find('\n', start);
+        if (nl == std::string::npos) {
+            lines.push_back(text.substr(start));
+            break;
+        }
+        lines.push_back(text.substr(start, nl - start));
+        start = nl + 1;
+    }
+    return lines;
+}
+
+TEST_CASE("the interactive discovery screen contains the exact ordered lines and stays bounded") {
+    // REQ-017 / REQ-031 / TEST-009: exactly the four discovery lines in order,
+    // exactly `rows` rows, each within `columns`, and no ANSI escape byte.
+    const Renderer renderer(color_config());
+    const Frame frame = renderer.render_discovery("Glass River Beacon", TerminalSize{60, 16});
+    CHECK(frame.size() == 16);
+    CHECK_FALSE(any_esc(frame));
+    for (const std::string& row : frame) {
+        CHECK(strip_ansi(row).size() <= 60);
+    }
+    const std::vector<std::string> lines = panel_content_lines(frame);
+    REQUIRE(lines.size() == 4);
+    CHECK(lines[0] == "BEACON DISCOVERED");
+    CHECK(lines[1] == "Glass River Beacon");
+    CHECK(lines[2] == "Return to spawn to complete the expedition.");
+    CHECK(lines[3] == "Press Enter to continue, or use a movement key.");
+}
+
+TEST_CASE("the plain discovery block is the exact lines with one trailing newline and no ANSI") {
+    // REQ-033 / TEST-009: the plain discovery block is the four logical lines, one
+    // per line, with a single trailing newline and no escape byte.
+    const Renderer renderer(plain_config());
+    const std::string block = renderer.render_discovery_plain("Glass River Beacon");
+    CHECK(block ==
+          "BEACON DISCOVERED\n"
+          "Glass River Beacon\n"
+          "Return to spawn to complete the expedition.\n"
+          "Press Enter to continue, or use a movement key.\n");
+    CHECK(block.find('\x1b') == std::string::npos);
+    // Exactly one trailing newline: the last character is a newline and the one
+    // before it is not.
+    REQUIRE(block.size() >= 2);
+    CHECK(block.back() == '\n');
+    CHECK(block[block.size() - 2] != '\n');
+}
+
+TEST_CASE("the interactive completion screen contains the exact ordered summary lines") {
+    // REQ-023 / REQ-024 / TEST-013: exactly the six completion lines in order,
+    // with the counters and final stamina rendered in decimal.
+    const Renderer renderer(color_config());
+    const CompletionSummary summary{"Glass River Beacon", 8, 11, 3, 12};
+    const Frame frame = renderer.render_completion(summary, TerminalSize{40, 16});
+    CHECK(frame.size() == 16);
+    CHECK_FALSE(any_esc(frame));
+    for (const std::string& row : frame) {
+        CHECK(strip_ansi(row).size() <= 40);
+    }
+    const std::vector<std::string> lines = panel_content_lines(frame);
+    REQUIRE(lines.size() == 6);
+    CHECK(lines[0] == "EXPEDITION COMPLETE");
+    CHECK(lines[1] == "Beacon: Glass River Beacon");
+    CHECK(lines[2] == "Moves: 8");
+    CHECK(lines[3] == "Attempts: 11");
+    CHECK(lines[4] == "Final stamina: 3/12");
+    CHECK(lines[5] == "Press Enter or q to exit.");
+}
+
+TEST_CASE("the plain completion block is the exact lines with one trailing newline and no ANSI") {
+    // REQ-033 / TEST-013.
+    const Renderer renderer(plain_config());
+    const CompletionSummary summary{"Glass River Beacon", 8, 11, 3, 12};
+    const std::string block = renderer.render_completion_plain(summary);
+    CHECK(block ==
+          "EXPEDITION COMPLETE\n"
+          "Beacon: Glass River Beacon\n"
+          "Moves: 8\n"
+          "Attempts: 11\n"
+          "Final stamina: 3/12\n"
+          "Press Enter or q to exit.\n");
+    CHECK(block.find('\x1b') == std::string::npos);
+    const std::vector<std::string> lines = split_lines(block);
+    REQUIRE(lines.size() == 6);
+    CHECK(lines.front() == "EXPEDITION COMPLETE");
+}
+
+TEST_CASE("objective screens use the 80x24 fallback for an unknown size") {
+    // REQ-031: an invalid size falls back to 80x24, so the frame has 24 rows.
+    const Renderer renderer(color_config());
+    const Frame discovery = renderer.render_discovery("Glass River Beacon", TerminalSize{0, 0});
+    CHECK(discovery.size() == 24);
+    const CompletionSummary summary{"Glass River Beacon", 8, 11, 3, 12};
+    const Frame completion = renderer.render_completion(summary, TerminalSize{0, 0});
+    CHECK(completion.size() == 24);
+    for (const std::string& row : discovery) {
+        CHECK(strip_ansi(row).size() <= 80);
+    }
+}
+
+TEST_CASE("objective screens below the minimum reuse the bounded too-small panel") {
+    // REQ-032: a size below the absolute minimum shows the shared window-too-small
+    // panel, bounded to the requested size.
+    const Renderer renderer(color_config());
+    const Frame discovery = renderer.render_discovery("Glass River Beacon", TerminalSize{11, 5});
+    CHECK(discovery.size() == 5);
+    bool mentions_small = false;
+    for (const std::string& row : discovery) {
+        if (row.find("Window") != std::string::npos) {
+            mentions_small = true;
+        }
+        CHECK(row.size() <= 11);
+    }
+    CHECK(mentions_small);
+}
+
+TEST_CASE("objective screens are exactly rows tall and bounded across a range of sizes") {
+    // REQ-031 / TEST-009: every above-minimum size yields exactly `rows` rows, each
+    // within `columns`, for both the discovery and completion screens.
+    const Renderer renderer(color_config());
+    const CompletionSummary summary{"Glass River Beacon", 8, 11, 3, 12};
+    for (int rows = 6; rows <= 40; rows += 7) {
+        for (int cols = 16; cols <= 100; cols += 21) {
+            const Frame discovery =
+                renderer.render_discovery("Glass River Beacon", TerminalSize{cols, rows});
+            const Frame completion = renderer.render_completion(summary, TerminalSize{cols, rows});
+            CHECK(discovery.size() == static_cast<std::size_t>(rows));
+            CHECK(completion.size() == static_cast<std::size_t>(rows));
+            for (const std::string& row : discovery) {
+                CHECK(strip_ansi(row).size() <= static_cast<std::size_t>(cols));
+            }
+            for (const std::string& row : completion) {
+                CHECK(strip_ansi(row).size() <= static_cast<std::size_t>(cols));
+            }
+        }
+    }
+}
+
 }  // TEST_SUITE("console")

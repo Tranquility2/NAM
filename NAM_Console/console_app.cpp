@@ -114,7 +114,7 @@ RenderInput ConsoleApp::make_input(bool emphasize) const {
     return input;
 }
 
-void ConsoleApp::apply_move(Direction direction, bool& emphasize) {
+ObjectiveTransition ConsoleApp::apply_move(Direction direction, bool& emphasize) {
     const GameEvent event = state_.move(direction);
     const MoveAttemptedEvent& payload = std::get<MoveAttemptedEvent>(event.data);
     hud_.record_event(event);
@@ -131,6 +131,7 @@ void ConsoleApp::apply_move(Direction direction, bool& emphasize) {
         case ObjectiveTransition::none:
             break;
     }
+    return payload.objective_update.transition;
 }
 
 void ConsoleApp::apply_rest(bool& emphasize) {
@@ -138,6 +139,24 @@ void ConsoleApp::apply_rest(bool& emphasize) {
     hud_.record_event(event);
     // Rest never moves the actor, so it never earns move emphasis.
     emphasize = false;
+}
+
+CompletionSummary ConsoleApp::make_completion_summary() const {
+    // Built only after the HUD has recorded the completing event, so the counts and
+    // final stamina include that move (REQ-024 / RISK-005).
+    CompletionSummary summary;
+    summary.beacon_name = state_.objective().name;
+    summary.move_count = hud_.move_count();
+    summary.attempt_count = hud_.attempt_count();
+    summary.stamina = state_.stamina();
+    summary.max_stamina = state_.max_stamina();
+    return summary;
+}
+
+void ConsoleApp::enter_completion() {
+    presentation_ = Presentation::expedition_complete;
+    completion_summary_ = make_completion_summary();
+    restored_message_ = restored_completion_message(state_.objective().name);
 }
 
 namespace {
@@ -172,70 +191,140 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
     config.emphasis = settings_.animation && config.use_ansi;
     const Renderer renderer(config);
 
-    // Initial objective completion (single reachable walkable cell): the beacon
-    // is at spawn and the expedition starts done. Draw exactly one completed
-    // frame and exit without ever reading input.
+    // Draw the single resulting frame after a movement command has been applied and
+    // choose the next presentation state from its objective transition. Used by both
+    // the gameplay and the discovery branches so a discovery-dismissing movement key
+    // can transition straight to completion without an intermediate gameplay frame
+    // (REQ-019).
+    const auto present_move_result = [&](ObjectiveTransition transition, bool emphasize) {
+        if (transition == ObjectiveTransition::expedition_completed) {
+            enter_completion();
+            session.draw(renderer.render_completion(completion_summary_, session.size()));
+        } else if (transition == ObjectiveTransition::beacon_discovered) {
+            presentation_ = Presentation::beacon_discovery;
+            session.draw(renderer.render_discovery(state_.objective().name, session.size()));
+        } else {
+            presentation_ = Presentation::gameplay;
+            session.draw(renderer.render(make_input(emphasize), session.size()));
+        }
+    };
+
+    // Initial objective completion (single reachable walkable cell): start directly
+    // on the completion screen and wait for an explicit acknowledgement (REQ-027).
     if (state_.objective_completed()) {
-        hud_.set_message(describe_spawn_beacon(state_.objective().name));
+        enter_completion();
+        session.draw(renderer.render_completion(completion_summary_, session.size()));
+    } else {
+        hud_.set_message(initial_message(settings_, /*interactive=*/true));
+        presentation_ = Presentation::gameplay;
         session.draw(renderer.render(make_input(false), session.size()));
-        return 0;
     }
 
-    hud_.set_message(initial_message(settings_, /*interactive=*/true));
-
     bool running = true;
-    session.draw(renderer.render(make_input(false), session.size()));
-
     while (running) {
         const KeyEvent event = session.read_event();
         bool emphasize = false;
-        bool dirty = false;
 
-        switch (event.key) {
-            case Key::end_of_input:
-                hud_.set_message("End of input. Goodbye.");
-                running = false;
-                break;
-            case Key::interrupt:
-                hud_.set_message("Interrupted. Goodbye.");
-                running = false;
-                break;
-            case Key::resize:
-                dirty = true;  // Terminal geometry changed: rebuild the frame.
-                break;
-            default:
-                if (is_quit_event(event)) {
-                    hud_.set_message("Goodbye.");
-                    running = false;
-                    break;
-                }
-                if (is_rest_event(event)) {
-                    apply_rest(emphasize);
-                    dirty = true;  // Stamina and/or HUD message changed.
-                    break;
-                }
-                if (const std::optional<Direction> direction = direction_for(event)) {
-                    apply_move(*direction, emphasize);
-                    dirty = true;  // Position and/or HUD message changed.
-                    if (state_.objective_completed()) {
-                        // The expedition just completed. Draw exactly one final
-                        // completed frame explicitly, then stop the loop, so the
-                        // running && dirty gate below cannot suppress this frame
-                        // and no further input is read.
-                        session.draw(renderer.render(make_input(emphasize), session.size()));
+        switch (presentation_) {
+            case Presentation::gameplay:
+                switch (event.key) {
+                    case Key::end_of_input:
+                        hud_.set_message("End of input. Goodbye.");
                         running = false;
-                        dirty = false;
-                    }
+                        break;
+                    case Key::interrupt:
+                        hud_.set_message("Interrupted. Goodbye.");
+                        running = false;
+                        break;
+                    case Key::resize:
+                        session.draw(renderer.render(make_input(false), session.size()));
+                        break;
+                    default:
+                        if (is_quit_event(event)) {
+                            hud_.set_message("Goodbye.");
+                            running = false;
+                            break;
+                        }
+                        if (is_rest_event(event)) {
+                            apply_rest(emphasize);
+                            session.draw(renderer.render(make_input(emphasize), session.size()));
+                            break;
+                        }
+                        if (const std::optional<Direction> direction = direction_for(event)) {
+                            const ObjectiveTransition transition = apply_move(*direction, emphasize);
+                            present_move_result(transition, emphasize);
+                        }
+                        // Recognized-but-unmapped events change nothing and draw
+                        // nothing: no movement, no redraw.
+                        break;
                 }
-                // Recognized-but-unmapped events (Home/End/Enter/unknown) change
-                // nothing and are intentionally ignored: no movement, no redraw.
                 break;
-        }
 
-        // One state update yields at most one draw; ignored keys draw nothing,
-        // and the loop otherwise blocks in read_event, so idle CPU is ~zero.
-        if (running && dirty) {
-            session.draw(renderer.render(make_input(emphasize), session.size()));
+            case Presentation::beacon_discovery:
+                switch (event.key) {
+                    case Key::end_of_input:
+                        hud_.set_message("End of input. Goodbye.");
+                        running = false;
+                        break;
+                    case Key::interrupt:
+                        hud_.set_message("Interrupted. Goodbye.");
+                        running = false;
+                        break;
+                    case Key::resize:
+                        session.draw(
+                            renderer.render_discovery(state_.objective().name, session.size()));
+                        break;
+                    case Key::enter:
+                        // Dismiss the discovery screen and restore the intact
+                        // gameplay frame without emitting an event (REQ-018).
+                        presentation_ = Presentation::gameplay;
+                        session.draw(renderer.render(make_input(false), session.size()));
+                        break;
+                    default:
+                        if (is_quit_event(event)) {
+                            hud_.set_message("Goodbye.");
+                            running = false;
+                            break;
+                        }
+                        if (const std::optional<Direction> direction = direction_for(event)) {
+                            // A movement key dismisses discovery and executes that
+                            // same movement exactly once (REQ-018 / RISK-003).
+                            const ObjectiveTransition transition = apply_move(*direction, emphasize);
+                            present_move_result(transition, emphasize);
+                            break;
+                        }
+                        // Rest and every other key leave the discovery screen active
+                        // and emit no event (REQ-018): no core update, no redraw.
+                        break;
+                }
+                break;
+
+            case Presentation::expedition_complete:
+                switch (event.key) {
+                    case Key::end_of_input:
+                    case Key::interrupt:
+                        // End of input or interrupt acknowledges completion and
+                        // exits 0 without a goodbye line (REQ-025 / REQ-028).
+                        running = false;
+                        break;
+                    case Key::resize:
+                        session.draw(
+                            renderer.render_completion(completion_summary_, session.size()));
+                        break;
+                    case Key::enter:
+                        running = false;  // Acknowledge and exit 0.
+                        break;
+                    default:
+                        if (is_quit_event(event)) {
+                            running = false;  // q or Escape acknowledges and exits 0.
+                            break;
+                        }
+                        // Every movement key, rest key, and other key leaves the
+                        // completion screen active, emits no event, and never calls
+                        // move or rest (REQ-025 / RISK-004): no state change, no draw.
+                        break;
+                }
+                break;
         }
     }
 
@@ -247,56 +336,150 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
                               /*emphasis=*/false};
     const Renderer renderer(config);
 
-    // Initial objective completion (single reachable walkable cell): render
-    // exactly one completed block and return without consuming any command lines.
-    if (state_.objective_completed()) {
-        hud_.set_message(describe_spawn_beacon(state_.objective().name));
-        output << renderer.render_plain(make_input(false));
+    // Draw the single resulting block after a movement command has been applied and
+    // choose the next presentation state from its objective transition. Shared by
+    // the gameplay and discovery branches so a discovery-dismissing movement key can
+    // transition straight to completion without an intermediate gameplay block.
+    const auto present_move_result = [&](ObjectiveTransition transition) {
+        if (transition == ObjectiveTransition::expedition_completed) {
+            enter_completion();
+            output << renderer.render_completion_plain(completion_summary_);
+        } else if (transition == ObjectiveTransition::beacon_discovered) {
+            presentation_ = Presentation::beacon_discovery;
+            output << renderer.render_discovery_plain(state_.objective().name);
+        } else {
+            presentation_ = Presentation::gameplay;
+            output << renderer.render_plain(make_input(false));
+        }
         output.flush();
-        return 0;
-    }
+    };
 
-    hud_.set_message(initial_message(settings_, /*interactive=*/false));
-    output << renderer.render_plain(make_input(false));
+    // Initial objective completion (single reachable walkable cell): start directly
+    // on the completion screen and wait for an explicit acknowledgement or end of
+    // input (REQ-027).
+    if (state_.objective_completed()) {
+        enter_completion();
+        output << renderer.render_completion_plain(completion_summary_);
+    } else {
+        hud_.set_message(initial_message(settings_, /*interactive=*/false));
+        presentation_ = Presentation::gameplay;
+        output << renderer.render_plain(make_input(false));
+    }
     output.flush();
 
     std::string line;
     while (std::getline(input, line)) {
         const std::string command = normalize_command(line);
+        const PlainCommand parsed = parse_plain_command(command);
         bool emphasize = false;
-        bool quit = false;
 
-        switch (parse_plain_command(command)) {
-            case PlainCommand::quit:
-                hud_.set_message("Goodbye.");
-                quit = true;
+        switch (presentation_) {
+            case Presentation::gameplay:
+                switch (parsed) {
+                    case PlainCommand::quit:
+                        hud_.set_message("Goodbye.");
+                        output << renderer.render_plain(make_input(false));
+                        output.flush();
+                        return 0;
+                    case PlainCommand::none:
+                        hud_.set_message("Position held. Enter a move or q to quit.");
+                        output << renderer.render_plain(make_input(false));
+                        output.flush();
+                        break;
+                    case PlainCommand::rest:
+                        apply_rest(emphasize);
+                        output << renderer.render_plain(make_input(false));
+                        output.flush();
+                        break;
+                    case PlainCommand::up:
+                        present_move_result(apply_move(Direction::up, emphasize));
+                        break;
+                    case PlainCommand::down:
+                        present_move_result(apply_move(Direction::down, emphasize));
+                        break;
+                    case PlainCommand::left:
+                        present_move_result(apply_move(Direction::left, emphasize));
+                        break;
+                    case PlainCommand::right:
+                        present_move_result(apply_move(Direction::right, emphasize));
+                        break;
+                    case PlainCommand::unknown:
+                        hud_.set_message("Unknown command '" + command +
+                                         "'. Try w/a/s/d, up/down/left/right, r to rest, or q.");
+                        output << renderer.render_plain(make_input(false));
+                        output.flush();
+                        break;
+                }
                 break;
-            case PlainCommand::none:
-                hud_.set_message("Position held. Enter a move or q to quit.");
-                break;
-            case PlainCommand::rest:  apply_rest(emphasize); break;
-            case PlainCommand::up:    apply_move(Direction::up, emphasize); break;
-            case PlainCommand::down:  apply_move(Direction::down, emphasize); break;
-            case PlainCommand::left:  apply_move(Direction::left, emphasize); break;
-            case PlainCommand::right: apply_move(Direction::right, emphasize); break;
-            case PlainCommand::unknown:
-                hud_.set_message("Unknown command '" + command +
-                                 "'. Try w/a/s/d, up/down/left/right, r to rest, or q.");
-                break;
-        }
 
-        output << renderer.render_plain(make_input(false));
-        output.flush();
-        if (quit) {
-            return 0;
-        }
-        // A completing move ends the run after its one final completed block;
-        // later command lines are left unconsumed.
-        if (state_.objective_completed()) {
-            return 0;
+            case Presentation::beacon_discovery:
+                switch (parsed) {
+                    case PlainCommand::quit:
+                        // Quit normally from the discovery screen (REQ-020).
+                        hud_.set_message("Goodbye.");
+                        presentation_ = Presentation::gameplay;
+                        output << renderer.render_plain(make_input(false));
+                        output.flush();
+                        return 0;
+                    case PlainCommand::none:
+                        // An empty line dismisses the discovery screen to gameplay
+                        // without emitting an event (REQ-020).
+                        presentation_ = Presentation::gameplay;
+                        output << renderer.render_plain(make_input(false));
+                        output.flush();
+                        break;
+                    case PlainCommand::up:
+                        present_move_result(apply_move(Direction::up, emphasize));
+                        break;
+                    case PlainCommand::down:
+                        present_move_result(apply_move(Direction::down, emphasize));
+                        break;
+                    case PlainCommand::left:
+                        present_move_result(apply_move(Direction::left, emphasize));
+                        break;
+                    case PlainCommand::right:
+                        present_move_result(apply_move(Direction::right, emphasize));
+                        break;
+                    case PlainCommand::rest:
+                    case PlainCommand::unknown:
+                        // Rest and unknown commands keep the discovery screen active
+                        // and print the reminder, emitting no event (REQ-020).
+                        output << discovery_reminder() << "\n";
+                        output.flush();
+                        break;
+                }
+                break;
+
+            case Presentation::expedition_complete:
+                switch (parsed) {
+                    case PlainCommand::none:
+                    case PlainCommand::quit:
+                        // An empty line, q, quit, or exit acknowledges completion and
+                        // exits 0 with no goodbye block (REQ-026 / REQ-028).
+                        return 0;
+                    case PlainCommand::rest:
+                    case PlainCommand::up:
+                    case PlainCommand::down:
+                    case PlainCommand::left:
+                    case PlainCommand::right:
+                    case PlainCommand::unknown:
+                        // Every other command prints the reminder and stays on the
+                        // completion screen without changing game or HUD counters
+                        // (REQ-026 / RISK-004): move and rest are never called here.
+                        output << completion_reminder() << "\n";
+                        output.flush();
+                        break;
+                }
+                break;
         }
     }
 
+    // End of input. A completed run treats it as a valid acknowledgement and exits
+    // 0 without a goodbye block (REQ-028 / ASSUMPTION-004); any other state keeps
+    // the existing plain end-of-input goodbye.
+    if (presentation_ == Presentation::expedition_complete) {
+        return 0;
+    }
     hud_.set_message("End of input. Goodbye.");
     output << renderer.render_plain(make_input(false));
     output.flush();

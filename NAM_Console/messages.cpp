@@ -112,4 +112,16 @@ std::string describe_spawn_beacon(const std::string& name) {
     return "Objective complete: " + name + " is at spawn.";
 }
 
+std::string discovery_reminder() {
+    return "Beacon discovered. Press Enter or use a movement command to continue.";
+}
+
+std::string completion_reminder() {
+    return "Run complete. Press Enter or q to exit.";
+}
+
+std::string restored_completion_message(const std::string& name) {
+    return "Expedition complete: " + name + ".";
+}
+
 }  // namespace nam::console

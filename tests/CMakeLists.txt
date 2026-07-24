@@ -130,12 +130,13 @@ if(TARGET nam_console)
         -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
 
     # A scripted expedition on a dedicated corridor map walks out to the beacon
-    # and back to spawn, so the real executable completes the objective and exits
-    # 0 on its own — no quit command — with the exact completion wording and no
+    # and back to spawn, so the real executable opens the beacon-discovery screen,
+    # then the expedition-completion screen, and exits 0 on the end-of-input
+    # acknowledgement — no quit command — with the exact completion banner and no
     # ANSI when redirected. The run is also deterministic across identical runs.
     nam_add_cli_test(cli_run_beacon_complete
         "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_beacon_stdin}
-        -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=Objective complete: returned to spawn after reaching"
+        -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=EXPEDITION COMPLETE"
         -DFORBID_ESC=1)
     nam_add_cli_test(cli_run_beacon_deterministic
         "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_beacon_stdin}
