@@ -27,18 +27,23 @@ public:
     // The stamina a new expedition starts with and can never exceed in this
     // release. Kept here as a core constant so movement affordability, replay,
     // SDL, and tests share one authoritative maximum.
-    static constexpr std::uint32_t maximum_stamina = 12;
-
-    // The stamina restored by a single rest command, capped so the total can
-    // never exceed maximum_stamina. Kept here as a core constant so the recovery
-    // amount, replay, SDL, and tests share one authoritative value.
-    static constexpr std::uint32_t rest_recovery = 4;
+    static constexpr std::uint32_t maximum_stamina = 20;
 
     // The actor's current stamina and the fixed maximum. A move charges the
-    // destination terrain's cost only when it succeeds; there is no recovery in
-    // this step.
+    // destination terrain's cost only when it succeeds; stamina is recovered only
+    // by resting, which spends a provision and restores the current terrain's
+    // rest_recovery_of amount capped at maximum_stamina.
     [[nodiscard]] std::uint32_t stamina() const noexcept { return stamina_; }
     [[nodiscard]] std::uint32_t max_stamina() const noexcept { return maximum_stamina; }
+
+    // The finite, core-owned provisions this expedition holds. A run starts with
+    // objective().minimum_required_provisions + 1 (one spare); a successful
+    // provision-funded rest consumes exactly one. starting_provisions() is the
+    // immutable initial stock so frontends can show "current/starting".
+    [[nodiscard]] std::uint32_t provisions() const noexcept { return provisions_; }
+    [[nodiscard]] std::uint32_t starting_provisions() const noexcept {
+        return starting_provisions_;
+    }
 
     // The exploration/sight radius revealed around the actor is selected from
     // the actor's current terrain via visibility_radius_of, so terrain, replay,
@@ -84,13 +89,22 @@ public:
     // direction and the full MoveOutcome.
     [[nodiscard]] GameEvent move(Direction direction);
 
-    // Rest in place to recover stamina and emit exactly one ordered event whose
-    // payload is a RestedEvent. Rest restores min(rest_recovery, remaining
-    // capacity) stamina, so it never exceeds maximum_stamina. It never moves the
-    // actor, changes the map, refreshes visibility, or counts as a movement
-    // attempt. A rest at full stamina recovers zero but still emits one event and
-    // consumes one sequence number.
+    // Rest in place and emit exactly one ordered event whose payload is a
+    // RestedEvent. When stamina is below the cap and at least one provision
+    // remains, rest consumes one provision and recovers
+    // rest_recovery_of(current terrain) capped at maximum_stamina; when stamina is
+    // already full it is a heroic no-op that spends nothing; when stamina is below
+    // full but no provision remains it changes no resource state. Rest never moves
+    // the actor, changes the map, refreshes visibility, or counts as a movement
+    // attempt, and always consumes exactly one sequence number.
     [[nodiscard]] GameEvent rest();
+
+    // True when the expedition is stranded: the objective is not completed,
+    // provisions are exhausted, and no in-bounds adjacent cardinal move is
+    // walkable and affordable with the current stamina. A stranded state ends the
+    // run in a rescue. Completion always takes precedence, so a completed
+    // objective is never stranded.
+    [[nodiscard]] bool stranded() const;
 
     // Render the map with the actor drawn as `actor_glyph`. The glyph is a
     // frontend choice; the core imposes no presentation of its own.
@@ -105,5 +119,9 @@ private:
     Coordinates actor_position_;
     VisibilityMap visibility_;
     std::uint32_t stamina_ = maximum_stamina;
+    // Starting provisions are the objective's minimum required plus one spare,
+    // computed in the constructor once the objective is built.
+    std::uint32_t starting_provisions_ = 0;
+    std::uint32_t provisions_ = 0;
     std::uint64_t next_event_sequence_ = 0;
 };

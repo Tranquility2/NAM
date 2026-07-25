@@ -91,14 +91,15 @@ TEST_CASE("boundary and impassable-terrain wording carries no stamina cost") {
     CHECK(describe_move(wall) == "Blocked by wall.");
 }
 
-TEST_CASE("rest messages state the recovered amount or that stamina is full") {
-    // A positive recovery reports the exact amount.
-    CHECK(describe_rest(RestedEvent{0, 4, 4}) == "Rested and recovered 4 stamina.");
-    CHECK(describe_rest(RestedEvent{10, 2, 12}) == "Rested and recovered 2 stamina.");
-    CHECK(describe_rest(RestedEvent{11, 1, 12}) == "Rested and recovered 1 stamina.");
-
-    // A rest at full stamina recovers zero and reports the full-stamina message.
-    CHECK(describe_rest(RestedEvent{12, 0, 12}) == "Stamina is already full.");
+TEST_CASE("rest messages match the recovered full and no-provisions wording") {
+    CHECK(describe_rest(RestedEvent{RestResult::recovered, Terrain::fields, 10, 12, 2, 3, 2}) ==
+          "Made camp on fields and recovered 2 stamina. Provisions left: 2.");
+    CHECK(describe_rest(
+              RestedEvent{RestResult::already_full, Terrain::open, 20, 20, 0, 2, 2}) ==
+          "A heroic rest is attempted. Your stamina remains heroically full.");
+    CHECK(describe_rest(
+              RestedEvent{RestResult::no_provisions, Terrain::mountain, 7, 7, 0, 0, 0}) ==
+          "No provisions left to make camp. Stamina holds at 7.");
 }
 
 TEST_CASE("map errors describe the source and position when present") {
@@ -163,6 +164,8 @@ TEST_CASE("objective-screen reminders and restored completion wording are exact"
     CHECK(completion_reminder() == "Run complete. Press Enter or q to exit.");
     CHECK(restored_completion_message("Glass River Beacon") ==
           "Expedition complete: Glass River Beacon.");
+    CHECK(restored_rescue_message("Glass River Beacon") ==
+          "Rescued: the Glass River Beacon expedition ran out of provisions and ended early.");
     // The restored completion line carries neither the pre-completion goodbye
     // wording nor any coordinate.
     CHECK(restored_completion_message("Glass River Beacon").find("Goodbye") == std::string::npos);

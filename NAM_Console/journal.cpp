@@ -30,10 +30,18 @@ namespace {
 }
 
 [[nodiscard]] std::string rest_prose(const RestEntry& entry) {
-    if (entry.stamina_recovered == 0) {
-        return "Rested, but stamina was already full.";
+    return "Made camp on " + terrain_name(entry.terrain) + " and recovered " +
+           std::to_string(entry.stamina_recovered) + " stamina (" +
+           std::to_string(entry.provisions_after) + " provisions left).";
+}
+
+[[nodiscard]] std::string rescue_prose(const RescueEntry& entry) {
+    if (entry.beacon_discovered) {
+        return "Ran out of provisions after reaching " + entry.beacon_name +
+               "; signaled for an early rescue.";
     }
-    return "Rested and recovered " + std::to_string(entry.stamina_recovered) + " stamina.";
+    return "Ran out of provisions before reaching " + entry.beacon_name +
+           "; signaled for an early rescue.";
 }
 
 // A fallback-safe visitor: one operator() per entry kind, each returning fixed
@@ -51,6 +59,7 @@ struct EntryFormatter {
     std::string operator()(const InitialCompletionEntry& entry) const {
         return "Found " + entry.beacon_name + " at spawn; the expedition was already complete.";
     }
+    std::string operator()(const RescueEntry& entry) const { return rescue_prose(entry); }
 };
 
 }  // namespace
@@ -109,13 +118,26 @@ void Journal::record_event(const GameEvent& event, const std::string& beacon_nam
     }
 
     if (const auto* rested = std::get_if<RestedEvent>(&event.data)) {
-        entries_.push_back(JournalEntry{RestEntry{event.sequence, rested->stamina_before,
-                                                  rested->stamina_recovered,
-                                                  rested->stamina_after}});
-        // Rest is its own command family and always breaks travel grouping.
+        // Only a provision-funded rest that recovered stamina produces an entry; a
+        // heroic full-stamina rest and a no-provisions rest are no-ops here
+        // (REQ-110 / REQ-112). Rest always breaks travel grouping.
+        if (rested->result == RestResult::recovered) {
+            entries_.push_back(JournalEntry{RestEntry{event.sequence, rested->terrain,
+                                                      rested->stamina_before,
+                                                      rested->stamina_recovered,
+                                                      rested->stamina_after,
+                                                      rested->provisions_after}});
+        }
         travel_open_ = false;
         return;
     }
+}
+
+void Journal::record_rescue(const std::string& beacon_name, bool beacon_discovered) {
+    // The sequence field is informational; the rescue is appended after the
+    // triggering command's own entry. Keep grouping closed after a terminal entry.
+    entries_.push_back(JournalEntry{RescueEntry{0, beacon_name, beacon_discovered}});
+    travel_open_ = false;
 }
 
 void Journal::record_initial_completion(const std::string& beacon_name) {

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <iostream>
 #include <utility>
 #include <variant>
@@ -62,6 +63,11 @@ enum class PlainCommand { none, quit, rest, journal, up, down, left, right, unkn
     if (settings.seed_text) {
         message += " Tiny World seed: ";
         message += format_seed_for_display(*settings.seed_text);
+    } else if (settings.numeric_seed) {
+        // A numeric seed has no original text form, so present its exact decimal
+        // identity. std::to_string is ASCII-only and locale-independent.
+        message += " Tiny World seed number: ";
+        message += std::to_string(*settings.numeric_seed);
     }
     return message;
 }
@@ -101,7 +107,9 @@ bool is_journal_event(const KeyEvent& event) noexcept {
 }
 
 ConsoleApp::ConsoleApp(GameState state, Settings settings)
-    : state_(std::move(state)), settings_(std::move(settings)) {}
+    : state_(std::move(state)),
+      settings_(std::move(settings)),
+      route_history_(state_.map().spawn()) {}
 
 RenderInput ConsoleApp::make_input(bool emphasize) const {
     RenderInput input;
@@ -113,6 +121,8 @@ RenderInput ConsoleApp::make_input(bool emphasize) const {
     input.attempt_count = hud_.attempt_count();
     input.stamina = state_.stamina();
     input.max_stamina = state_.max_stamina();
+    input.provisions = state_.provisions();
+    input.starting_provisions = state_.starting_provisions();
     input.message = hud_.message();
     input.recent.assign(hud_.recent().begin(), hud_.recent().end());
     input.emphasize_actor = emphasize;
@@ -122,11 +132,12 @@ RenderInput ConsoleApp::make_input(bool emphasize) const {
     return input;
 }
 
-ObjectiveTransition ConsoleApp::apply_move(Direction direction, bool& emphasize) {
+ConsoleApp::AppliedCommand ConsoleApp::apply_move(Direction direction, bool& emphasize) {
     const GameEvent event = state_.move(direction);
     const MoveAttemptedEvent& payload = std::get<MoveAttemptedEvent>(event.data);
     hud_.record_event(event);
     journal_.record_event(event, state_.objective().name);
+    route_history_.record_event(event);
     emphasize = payload.outcome.result == MoveResult::moved;
     // Replace the ordinary move wording only for the typed objective transitions;
     // every other successful or blocked move keeps its normal message.
@@ -140,33 +151,50 @@ ObjectiveTransition ConsoleApp::apply_move(Direction direction, bool& emphasize)
         case ObjectiveTransition::none:
             break;
     }
-    return payload.objective_update.transition;
+    return AppliedCommand{payload.objective_update.transition, event.rescue};
 }
 
-void ConsoleApp::apply_rest(bool& emphasize) {
+RescueTransition ConsoleApp::apply_rest(bool& emphasize) {
     const GameEvent event = state_.rest();
     hud_.record_event(event);
     journal_.record_event(event, state_.objective().name);
+    route_history_.record_event(event);
     // Rest never moves the actor, so it never earns move emphasis.
     emphasize = false;
-}
-
-CompletionSummary ConsoleApp::make_completion_summary() const {
-    // Built only after the HUD has recorded the completing event, so the counts and
-    // final stamina include that move (REQ-024 / RISK-005).
-    CompletionSummary summary;
-    summary.beacon_name = state_.objective().name;
-    summary.move_count = hud_.move_count();
-    summary.attempt_count = hud_.attempt_count();
-    summary.stamina = state_.stamina();
-    summary.max_stamina = state_.max_stamina();
-    return summary;
+    return event.rescue;
 }
 
 void ConsoleApp::enter_completion() {
     presentation_ = Presentation::expedition_complete;
-    completion_summary_ = make_completion_summary();
+    final_report_active_ = true;
+    // Build the report only after the completing event has updated the HUD,
+    // journal, route history, objective state, visibility, stamina, and provisions.
+    report_.emplace(build_expedition_report(
+        ExpeditionResult::completed, state_.objective(), state_.map(), state_.visibility(),
+        journal_, route_history_, world_identity_from(settings_),
+        static_cast<std::uint64_t>(hud_.move_count()),
+        static_cast<std::uint64_t>(hud_.attempt_count()), state_.stamina(), state_.max_stamina(),
+        state_.starting_provisions(), state_.provisions()));
+    report_viewport_ = ReportViewport{};  // Open at (0, 0) (REQ-150).
     restored_message_ = restored_completion_message(state_.objective().name);
+}
+
+void ConsoleApp::enter_rescue() {
+    presentation_ = Presentation::expedition_rescue;
+    final_report_active_ = true;
+    // Record the structured rescue journal entry after the triggering command's own
+    // entry, then build the rescued report so it includes the rescue entry.
+    const bool beacon_discovered =
+        state_.objective().status != ObjectiveStatus::seeking_beacon;
+    journal_.record_rescue(state_.objective().name, beacon_discovered);
+    report_.emplace(build_expedition_report(
+        ExpeditionResult::rescued, state_.objective(), state_.map(), state_.visibility(), journal_,
+        route_history_, world_identity_from(settings_),
+        static_cast<std::uint64_t>(hud_.move_count()),
+        static_cast<std::uint64_t>(hud_.attempt_count()), state_.stamina(), state_.max_stamina(),
+        state_.starting_provisions(), state_.provisions()));
+    report_viewport_ = ReportViewport{};
+    restored_message_ = restored_rescue_message(state_.objective().name);
 }
 
 void ConsoleApp::open_journal(int capacity) {
@@ -221,20 +249,51 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
     config.emphasis = settings_.animation && config.use_ansi;
     const Renderer renderer(config);
 
+    // Reclamp the report viewport for the current size and draw the report. Used by
+    // completion entry, scrolling, and resize so the visible window never leaves
+    // range (GUD-004).
+    const auto draw_report = [&] {
+        report_viewport_ = renderer.clamp_report_viewport(*report_, report_viewport_,
+                                                          session.size());
+        session.draw(renderer.render_report(*report_, report_viewport_, session.size()));
+    };
+
+    // Apply a viewport delta and redraw the clamped report.
+    const auto scroll_report = [&](int vertical_delta, int horizontal_delta) {
+        report_viewport_.vertical += vertical_delta;
+        report_viewport_.horizontal += horizontal_delta;
+        draw_report();
+    };
+
     // Draw the single resulting frame after a movement command has been applied and
-    // choose the next presentation state from its objective transition. Used by both
-    // the gameplay and the discovery branches so a discovery-dismissing movement key
-    // can transition straight to completion without an intermediate gameplay frame
-    // (REQ-019).
-    const auto present_move_result = [&](ObjectiveTransition transition, bool emphasize) {
-        if (transition == ObjectiveTransition::expedition_completed) {
+    // choose the next presentation state from its transitions. Used by both the
+    // gameplay and the discovery branches so a discovery-dismissing movement key
+    // can transition straight to an ending without an intermediate gameplay frame.
+    // Completion takes precedence over rescue, which takes precedence over the
+    // discovery acknowledgement (REQ-120).
+    const auto present_move_result = [&](const AppliedCommand& applied, bool emphasize) {
+        if (applied.objective_transition == ObjectiveTransition::expedition_completed) {
             enter_completion();
-            session.draw(renderer.render_completion(completion_summary_, session.size()));
-        } else if (transition == ObjectiveTransition::beacon_discovered) {
+            draw_report();
+        } else if (applied.rescue == RescueTransition::stranded) {
+            enter_rescue();
+            session.draw(renderer.render_rescue(state_.objective().name, session.size()));
+        } else if (applied.objective_transition == ObjectiveTransition::beacon_discovered) {
             presentation_ = Presentation::beacon_discovery;
             session.draw(renderer.render_discovery(state_.objective().name, session.size()));
         } else {
             presentation_ = Presentation::gameplay;
+            session.draw(renderer.render(make_input(emphasize), session.size()));
+        }
+    };
+
+    // Apply a rest command and draw its result, entering the rescue screen when the
+    // rest left the actor stranded (REQ-120 / REQ-131).
+    const auto present_rest_result = [&](RescueTransition rescue, bool emphasize) {
+        if (rescue == RescueTransition::stranded) {
+            enter_rescue();
+            session.draw(renderer.render_rescue(state_.objective().name, session.size()));
+        } else {
             session.draw(renderer.render(make_input(emphasize), session.size()));
         }
     };
@@ -251,7 +310,10 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
                 session.draw(renderer.render_discovery(state_.objective().name, session.size()));
                 break;
             case Presentation::expedition_complete:
-                session.draw(renderer.render_completion(completion_summary_, session.size()));
+                draw_report();
+                break;
+            case Presentation::expedition_rescue:
+                session.draw(renderer.render_rescue(state_.objective().name, session.size()));
                 break;
             case Presentation::journal:
                 break;  // The journal is never its own underlying screen.
@@ -272,11 +334,11 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
     };
 
     // Initial objective completion (single reachable walkable cell): start directly
-    // on the completion screen and wait for an explicit acknowledgement (REQ-027).
+    // on the final report and wait for an explicit acknowledgement (REQ-002).
     if (state_.objective_completed()) {
         journal_.record_initial_completion(state_.objective().name);
         enter_completion();
-        session.draw(renderer.render_completion(completion_summary_, session.size()));
+        draw_report();
     } else {
         hud_.set_message(initial_message(settings_, /*interactive=*/true));
         presentation_ = Presentation::gameplay;
@@ -313,13 +375,13 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
                             break;
                         }
                         if (is_rest_event(event)) {
-                            apply_rest(emphasize);
-                            session.draw(renderer.render(make_input(emphasize), session.size()));
+                            const RescueTransition rescue = apply_rest(emphasize);
+                            present_rest_result(rescue, emphasize);
                             break;
                         }
                         if (const std::optional<Direction> direction = direction_for(event)) {
-                            const ObjectiveTransition transition = apply_move(*direction, emphasize);
-                            present_move_result(transition, emphasize);
+                            const AppliedCommand applied = apply_move(*direction, emphasize);
+                            present_move_result(applied, emphasize);
                         }
                         // Recognized-but-unmapped events change nothing and draw
                         // nothing: no movement, no redraw.
@@ -362,8 +424,8 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
                         if (const std::optional<Direction> direction = direction_for(event)) {
                             // A movement key dismisses discovery and executes that
                             // same movement exactly once (REQ-018 / RISK-003).
-                            const ObjectiveTransition transition = apply_move(*direction, emphasize);
-                            present_move_result(transition, emphasize);
+                            const AppliedCommand applied = apply_move(*direction, emphasize);
+                            present_move_result(applied, emphasize);
                             break;
                         }
                         // Rest and every other key leave the discovery screen active
@@ -376,31 +438,83 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
                 switch (event.key) {
                     case Key::end_of_input:
                     case Key::interrupt:
-                        // End of input or interrupt acknowledges completion and
-                        // exits 0 without a goodbye line (REQ-025 / REQ-028).
+                        // End of input or interrupt acknowledges the report and exits
+                        // 0 without a goodbye line (REQ-007).
                         running = false;
                         break;
                     case Key::resize:
-                        session.draw(
-                            renderer.render_completion(completion_summary_, session.size()));
+                        // Reclamp both offsets for the new size and redraw the same
+                        // report without changing game/journal/score/route state
+                        // (REQ-008).
+                        draw_report();
+                        break;
+                    case Key::up:
+                        scroll_report(-1, 0);  // One logical line up (REQ-004).
+                        break;
+                    case Key::down:
+                        scroll_report(1, 0);  // One logical line down (REQ-004).
+                        break;
+                    case Key::page_up:
+                        scroll_report(-renderer.report_page_capacity(session.size()), 0);  // REQ-005.
+                        break;
+                    case Key::page_down:
+                        scroll_report(renderer.report_page_capacity(session.size()), 0);  // REQ-005.
+                        break;
+                    case Key::left:
+                        scroll_report(0, -1);  // One column left (REQ-006).
+                        break;
+                    case Key::right:
+                        scroll_report(0, 1);  // One column right (REQ-006).
                         break;
                     case Key::enter:
-                        running = false;  // Acknowledge and exit 0.
+                        running = false;  // Acknowledge and exit 0 (REQ-007).
                         break;
                     default:
+                        if (is_quit_event(event)) {
+                            running = false;  // q or Escape acknowledges and exits 0 (REQ-007).
+                            break;
+                        }
+                        // Every movement/rest semantic and every other key leaves the
+                        // report open, emits no core event, and never calls move or
+                        // rest (REQ-008 / RISK-004): no state change, no draw.
+                        break;
+                }
+                break;
+
+            case Presentation::expedition_rescue:
+                switch (event.key) {
+                    case Key::end_of_input:
+                    case Key::interrupt:
+                        // End of input or interrupt acknowledges the rescue and exits
+                        // 0; final_message keeps the rescued restored message
+                        // (REQ-131).
+                        running = false;
+                        break;
+                    case Key::resize:
+                        session.draw(renderer.render_rescue(state_.objective().name,
+                                                            session.size()));
+                        break;
+                    case Key::enter:
+                        // Enter continues from the rescue acknowledgement to the
+                        // scrollable failed-expedition report (REQ-131).
+                        presentation_ = Presentation::expedition_complete;
+                        draw_report();
+                        break;
+                    default:
+                        if (is_quit_event(event)) {
+                            // q or Escape may quit directly from the rescue screen and
+                            // still leaves the rescued restored message (REQ-131).
+                            running = false;
+                            break;
+                        }
                         if (is_journal_event(event)) {
-                            // Opening the journal never acknowledges completion; the
-                            // completion screen is restored when it closes (REQ-022).
+                            // Opening the journal never dismisses the rescue screen; it
+                            // is restored intact when the journal closes (REQ-131).
                             open_journal_screen();
                             break;
                         }
-                        if (is_quit_event(event)) {
-                            running = false;  // q or Escape acknowledges and exits 0.
-                            break;
-                        }
-                        // Every movement key, rest key, and other key leaves the
-                        // completion screen active, emits no event, and never calls
-                        // move or rest (REQ-025 / RISK-004): no state change, no draw.
+                        // Every other key leaves the rescue screen active and emits no
+                        // event: no core update, no redraw.
                         break;
                 }
                 break;
@@ -481,14 +595,26 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
     const Renderer renderer(config);
 
     // Draw the single resulting block after a movement command has been applied and
-    // choose the next presentation state from its objective transition. Shared by
-    // the gameplay and discovery branches so a discovery-dismissing movement key can
-    // transition straight to completion without an intermediate gameplay block.
-    const auto present_move_result = [&](ObjectiveTransition transition) {
-        if (transition == ObjectiveTransition::expedition_completed) {
+    // choose the next presentation state from its transitions. Returns true when the
+    // move ended the run (completion or rescue): the caller then returns immediately
+    // so plain mode writes the full report exactly once and never reads later
+    // commands (REQ-151 / REQ-132). Completion takes precedence over rescue, which
+    // takes precedence over the discovery acknowledgement (REQ-120).
+    const auto present_move_result = [&](const AppliedCommand& applied) -> bool {
+        if (applied.objective_transition == ObjectiveTransition::expedition_completed) {
             enter_completion();
-            output << renderer.render_completion_plain(completion_summary_);
-        } else if (transition == ObjectiveTransition::beacon_discovered) {
+            output << renderer.render_report_plain(*report_);
+            output.flush();
+            return true;
+        }
+        if (applied.rescue == RescueTransition::stranded) {
+            enter_rescue();
+            output << renderer.render_rescue_plain(state_.objective().name);
+            output << renderer.render_report_plain(*report_);
+            output.flush();
+            return true;
+        }
+        if (applied.objective_transition == ObjectiveTransition::beacon_discovered) {
             presentation_ = Presentation::beacon_discovery;
             output << renderer.render_discovery_plain(state_.objective().name);
         } else {
@@ -496,20 +622,39 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
             output << renderer.render_plain(make_input(false));
         }
         output.flush();
+        return false;
     };
 
-    // Initial objective completion (single reachable walkable cell): start directly
-    // on the completion screen and wait for an explicit acknowledgement or end of
-    // input (REQ-027).
+    // Apply a rest command in plain mode: when it strands the actor, print the
+    // rescue block and the failed report once (REQ-132); otherwise redraw. Returns
+    // true when the run ended.
+    const auto present_rest_result = [&](RescueTransition rescue) -> bool {
+        if (rescue == RescueTransition::stranded) {
+            enter_rescue();
+            output << renderer.render_rescue_plain(state_.objective().name);
+            output << renderer.render_report_plain(*report_);
+            output.flush();
+            return true;
+        }
+        output << renderer.render_plain(make_input(false));
+        output.flush();
+        return false;
+    };
+
+    // Initial objective completion (single reachable walkable cell): write the
+    // complete report once, flush, and return 0 immediately without reading stdin
+    // (REQ-002 / REQ-009).
     if (state_.objective_completed()) {
         journal_.record_initial_completion(state_.objective().name);
         enter_completion();
-        output << renderer.render_completion_plain(completion_summary_);
-    } else {
-        hud_.set_message(initial_message(settings_, /*interactive=*/false));
-        presentation_ = Presentation::gameplay;
-        output << renderer.render_plain(make_input(false));
+        output << renderer.render_report_plain(*report_);
+        output.flush();
+        return 0;
     }
+
+    hud_.set_message(initial_message(settings_, /*interactive=*/false));
+    presentation_ = Presentation::gameplay;
+    output << renderer.render_plain(make_input(false));
     output.flush();
 
     std::string line;
@@ -520,8 +665,7 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
 
         // A journal command prints the complete journal block once and immediately
         // resumes in the same presentation state: it never dismisses discovery,
-        // acknowledges completion, emits an event, or prints an extra frame
-        // (REQ-027 / REQ-028).
+        // emits an event, or prints an extra frame.
         if (parsed == PlainCommand::journal) {
             output << renderer.render_journal_plain(journal_);
             output.flush();
@@ -544,21 +688,19 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
                         output.flush();
                         break;
                     case PlainCommand::rest:
-                        apply_rest(emphasize);
-                        output << renderer.render_plain(make_input(false));
-                        output.flush();
+                        if (present_rest_result(apply_rest(emphasize))) return 0;
                         break;
                     case PlainCommand::up:
-                        present_move_result(apply_move(Direction::up, emphasize));
+                        if (present_move_result(apply_move(Direction::up, emphasize))) return 0;
                         break;
                     case PlainCommand::down:
-                        present_move_result(apply_move(Direction::down, emphasize));
+                        if (present_move_result(apply_move(Direction::down, emphasize))) return 0;
                         break;
                     case PlainCommand::left:
-                        present_move_result(apply_move(Direction::left, emphasize));
+                        if (present_move_result(apply_move(Direction::left, emphasize))) return 0;
                         break;
                     case PlainCommand::right:
-                        present_move_result(apply_move(Direction::right, emphasize));
+                        if (present_move_result(apply_move(Direction::right, emphasize))) return 0;
                         break;
                     case PlainCommand::unknown:
                         hud_.set_message(
@@ -589,16 +731,16 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
                         output.flush();
                         break;
                     case PlainCommand::up:
-                        present_move_result(apply_move(Direction::up, emphasize));
+                        if (present_move_result(apply_move(Direction::up, emphasize))) return 0;
                         break;
                     case PlainCommand::down:
-                        present_move_result(apply_move(Direction::down, emphasize));
+                        if (present_move_result(apply_move(Direction::down, emphasize))) return 0;
                         break;
                     case PlainCommand::left:
-                        present_move_result(apply_move(Direction::left, emphasize));
+                        if (present_move_result(apply_move(Direction::left, emphasize))) return 0;
                         break;
                     case PlainCommand::right:
-                        present_move_result(apply_move(Direction::right, emphasize));
+                        if (present_move_result(apply_move(Direction::right, emphasize))) return 0;
                         break;
                     case PlainCommand::rest:
                     case PlainCommand::unknown:
@@ -611,40 +753,19 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
                 break;
 
             case Presentation::expedition_complete:
-                switch (parsed) {
-                    case PlainCommand::journal:
-                        break;  // Handled before the switch; unreachable here.
-                    case PlainCommand::none:
-                    case PlainCommand::quit:
-                        // An empty line, q, quit, or exit acknowledges completion and
-                        // exits 0 with no goodbye block (REQ-026 / REQ-028).
-                        return 0;
-                    case PlainCommand::rest:
-                    case PlainCommand::up:
-                    case PlainCommand::down:
-                    case PlainCommand::left:
-                    case PlainCommand::right:
-                    case PlainCommand::unknown:
-                        // Every other command prints the reminder and stays on the
-                        // completion screen without changing game or HUD counters
-                        // (REQ-026 / RISK-004): move and rest are never called here.
-                        output << completion_reminder() << "\n";
-                        output.flush();
-                        break;
-                }
-                break;
+            case Presentation::expedition_rescue:
+                // Unreachable: completion and rescue return 0 immediately above. The
+                // defensive return keeps the switch total and guarantees no
+                // post-ending command processing (REQ-132 / REQ-151).
+                return 0;
 
             case Presentation::journal:
                 break;  // Plain mode never enters the journal presentation state.
         }
     }
 
-    // End of input. A completed run treats it as a valid acknowledgement and exits
-    // 0 without a goodbye block (REQ-028 / ASSUMPTION-004); any other state keeps
-    // the existing plain end-of-input goodbye.
-    if (presentation_ == Presentation::expedition_complete) {
-        return 0;
-    }
+    // End of input in an unfinished run keeps the existing plain goodbye. A
+    // completed run has already returned above, so it never reaches here.
     hud_.set_message("End of input. Goodbye.");
     output << renderer.render_plain(make_input(false));
     output.flush();

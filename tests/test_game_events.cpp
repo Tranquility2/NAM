@@ -42,10 +42,10 @@ Map open_field() {
 }
 
 // A one-row mountain corridor. From full stamina the four-cost mountains reduce
-// stamina 12 -> 8 -> 4 -> 0 over three moves, so the fourth step is a typed
-// stamina block that still emits one event.
+// stamina 20 -> 16 -> 12 -> 8 -> 4 -> 0 over five moves, so the sixth step is a
+// typed stamina block that still emits one event.
 Map mountain_corridor() {
-    return make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.@@@@\n");
+    return make_map("NAM-MAP 1\nwidth 7\nheight 1\nspawn 0 0\n---\n.@@@@@@\n");
 }
 
 }  // namespace
@@ -56,9 +56,10 @@ TEST_CASE("the first emitted event has sequence zero") {
     GameState state(open_field());
     const GameEvent first = state.move(Direction::right);
     CHECK(first.sequence == 0);
+    CHECK(first.rescue == RescueTransition::none);
 }
 
-TEST_CASE("sequences are contiguous across success, terrain, and boundary blocks") {
+TEST_CASE("sequences are contiguous across success terrain and boundary blocks") {
     GameState state(mixed_map());
 
     const GameEvent moved = state.move(Direction::right);   // (0,0) -> (1,0): open
@@ -95,7 +96,7 @@ TEST_CASE("an event preserves the requested direction") {
     }
 }
 
-TEST_CASE("an event's outcome equals the pure peek for the same command") {
+TEST_CASE("an event outcome equals the pure peek for the same command") {
     GameState state(mixed_map());
     for (const Direction direction : {Direction::right, Direction::down}) {
         const MoveOutcome peeked = state.peek(direction);
@@ -111,7 +112,7 @@ TEST_CASE("an event's outcome equals the pure peek for the same command") {
     }
 }
 
-TEST_CASE("an event preserves the destination cost and before/after stamina") {
+TEST_CASE("an event preserves the destination cost and before after stamina") {
     GameState state(mountain_corridor());
     const MoveOutcome peeked = state.peek(Direction::right);
     const GameEvent event = state.move(Direction::right);
@@ -119,8 +120,8 @@ TEST_CASE("an event preserves the destination cost and before/after stamina") {
     CHECK(emitted.result == MoveResult::moved);
     CHECK(emitted.terrain == Terrain::mountain);
     CHECK(emitted.stamina_cost == 4);
-    CHECK(emitted.stamina_before == 12);
-    CHECK(emitted.stamina_after == 8);
+    CHECK(emitted.stamina_before == 20);
+    CHECK(emitted.stamina_after == 16);
     // The emitted outcome still equals the immediately preceding pure peek.
     CHECK(emitted.stamina_cost == peeked.stamina_cost);
     CHECK(emitted.stamina_before == peeked.stamina_before);
@@ -129,22 +130,26 @@ TEST_CASE("an event preserves the destination cost and before/after stamina") {
 
 TEST_CASE("an insufficient-stamina attempt consumes exactly one sequence number") {
     GameState state(mountain_corridor());
-    // Three affordable mountain steps drain stamina to zero over sequences 0..2.
+    // Five affordable mountain steps drain stamina to zero over sequences 0..4.
     const GameEvent s0 = state.move(Direction::right);
     const GameEvent s1 = state.move(Direction::right);
     const GameEvent s2 = state.move(Direction::right);
+    const GameEvent s3 = state.move(Direction::right);
+    const GameEvent s4 = state.move(Direction::right);
     CHECK(s0.sequence == 0);
     CHECK(s1.sequence == 1);
     CHECK(s2.sequence == 2);
-    CHECK(payload_of(s2).outcome.result == MoveResult::moved);
+    CHECK(s3.sequence == 3);
+    CHECK(s4.sequence == 4);
+    CHECK(payload_of(s4).outcome.result == MoveResult::moved);
     CHECK(state.stamina() == 0);
 
     const Coordinates before = state.actor_position();
     const MoveOutcome peeked = state.peek(Direction::right);
 
-    // The unaffordable fourth step still emits exactly one contiguous event.
+    // The unaffordable sixth step still emits exactly one contiguous event.
     const GameEvent blocked = state.move(Direction::right);
-    CHECK(blocked.sequence == 3);
+    CHECK(blocked.sequence == 5);
     const MoveOutcome& outcome = payload_of(blocked).outcome;
     CHECK(outcome.result == MoveResult::blocked_by_stamina);
     CHECK(outcome.terrain == Terrain::mountain);
@@ -157,7 +162,7 @@ TEST_CASE("an insufficient-stamina attempt consumes exactly one sequence number"
 
     // The next command continues the contiguous sequence with no gap.
     const GameEvent next = state.move(Direction::left);
-    CHECK(next.sequence == 4);
+    CHECK(next.sequence == 6);
 }
 
 TEST_CASE("a successful event is committed before it is observed") {
@@ -195,11 +200,11 @@ TEST_CASE("peek emits no event and does not consume a sequence number") {
     CHECK(second.sequence == 1);
 }
 
-TEST_CASE("a movement, a rest, and a movement consume contiguous sequence numbers") {
+TEST_CASE("a movement a rest and a movement consume contiguous sequence numbers") {
     GameState state(mountain_corridor());
-    const GameEvent moved = state.move(Direction::right);        // mountain, 12->8.
-    const GameEvent rested = state.rest();                       // 8->12.
-    const GameEvent moved_again = state.move(Direction::right);  // mountain, 12->8.
+    const GameEvent moved = state.move(Direction::right);        // mountain, 20->16.
+    const GameEvent rested = state.rest();                       // mountain, 16->18.
+    const GameEvent moved_again = state.move(Direction::right);  // mountain, 18->14.
 
     CHECK(moved.sequence == 0);
     CHECK(rested.sequence == 1);
@@ -210,37 +215,98 @@ TEST_CASE("a movement, a rest, and a movement consume contiguous sequence number
     CHECK(std::holds_alternative<MoveAttemptedEvent>(moved_again.data));
 
     CHECK(payload_of(moved).outcome.result == MoveResult::moved);
-    CHECK(payload_of(moved).outcome.stamina_after == 8);
+    CHECK(payload_of(moved).outcome.stamina_after == 16);
 
     const RestedEvent& rest_payload = rested_of(rested);
-    CHECK(rest_payload.stamina_before == 8);
-    CHECK(rest_payload.stamina_recovered == 4);
-    CHECK(rest_payload.stamina_after == 12);
+    CHECK(rest_payload.result == RestResult::recovered);
+    CHECK(rest_payload.terrain == Terrain::mountain);
+    CHECK(rest_payload.stamina_before == 16);
+    CHECK(rest_payload.stamina_recovered == 2);
+    CHECK(rest_payload.stamina_after == 18);
+    CHECK(rest_payload.provisions_before == rest_payload.provisions_after + 1u);
 
     CHECK(payload_of(moved_again).outcome.result == MoveResult::moved);
-    CHECK(payload_of(moved_again).outcome.stamina_before == 12);
-    CHECK(payload_of(moved_again).outcome.stamina_after == 8);
+    CHECK(payload_of(moved_again).outcome.stamina_before == 18);
+    CHECK(payload_of(moved_again).outcome.stamina_after == 14);
 }
 
 TEST_CASE("a rest at full stamina still consumes exactly one sequence number") {
     GameState state(open_field());
+    const std::uint32_t provisions_before = state.provisions();
     const GameEvent rested = state.rest();
     CHECK(rested.sequence == 0);
     const RestedEvent& payload = rested_of(rested);
-    CHECK(payload.stamina_before == 12);
+    CHECK(payload.result == RestResult::already_full);
+    CHECK(payload.stamina_before == 20);
     CHECK(payload.stamina_recovered == 0);
-    CHECK(payload.stamina_after == 12);
+    CHECK(payload.stamina_after == 20);
+    CHECK(payload.provisions_before == provisions_before);
+    CHECK(payload.provisions_after == provisions_before);
 
     // The next command continues the contiguous sequence with no gap.
     const GameEvent next = state.move(Direction::right);
     CHECK(next.sequence == 1);
 }
 
+TEST_CASE("a stranding command sets rescue while a completion command does not") {
+    {
+        // Consume the spare provision, then move until no adjacent move is
+        // affordable while the objective is still incomplete.
+        GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.@.\n"));
+
+        const GameEvent e0 = state.move(Direction::right);  // 20->16
+        const GameEvent e1 = state.rest();                  // 16->18, spend last provision
+        REQUIRE(rested_of(e1).result == RestResult::recovered);
+        REQUIRE(state.provisions() == 0u);
+
+        const GameEvent e2 = state.move(Direction::left);   // 18->17
+        const GameEvent e3 = state.move(Direction::right);  // 17->13
+        const GameEvent e4 = state.move(Direction::left);   // 13->12
+        const GameEvent e5 = state.move(Direction::right);  // 12->8
+        const GameEvent e6 = state.move(Direction::left);   // 8->7
+        const GameEvent e7 = state.move(Direction::right);  // 7->3
+        const GameEvent e8 = state.move(Direction::left);   // 3->2 and stranded
+
+        CHECK(e0.sequence == 0u);
+        CHECK(e1.sequence == 1u);
+        CHECK(e2.sequence == 2u);
+        CHECK(e3.sequence == 3u);
+        CHECK(e4.sequence == 4u);
+        CHECK(e5.sequence == 5u);
+        CHECK(e6.sequence == 6u);
+        CHECK(e7.sequence == 7u);
+        CHECK(e8.sequence == 8u);
+        CHECK(e7.rescue == RescueTransition::none);
+        CHECK(e8.rescue == RescueTransition::stranded);
+        CHECK(payload_of(e8).outcome.result == MoveResult::moved);
+        CHECK_FALSE(state.objective_completed());
+        CHECK(state.stranded());
+    }
+
+    {
+        // Completion takes precedence and never reports rescue.
+        GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n"));
+        (void)state.move(Direction::right);
+        (void)state.move(Direction::right);
+        (void)state.move(Direction::right);  // discover beacon at (3,0)
+        (void)state.move(Direction::left);
+        (void)state.move(Direction::left);
+        const GameEvent complete = state.move(Direction::left);
+
+        CHECK(complete.sequence == 5u);
+        CHECK(payload_of(complete).objective_update.transition ==
+              ObjectiveTransition::expedition_completed);
+        CHECK(complete.rescue == RescueTransition::none);
+        CHECK(state.objective_completed());
+        CHECK_FALSE(state.stranded());
+    }
+}
+
 TEST_CASE("two-field movement-event aggregate construction keeps a default objective update") {
     // REQ-015: adding the nested ObjectiveUpdate must not break existing
     // two-field aggregate initialization of a movement event. The third member is
     // value-initialized: equal seeking before/after and no transition.
-    const MoveOutcome outcome{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 1, 12, 11};
+    const MoveOutcome outcome{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 1, 20, 19};
     const MoveAttemptedEvent event{Direction::right, outcome};
     CHECK(event.objective_update.before == ObjectiveStatus::seeking_beacon);
     CHECK(event.objective_update.after == ObjectiveStatus::seeking_beacon);

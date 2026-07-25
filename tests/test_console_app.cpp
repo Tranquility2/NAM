@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -43,14 +44,12 @@ GameState make_big_state() {
         "NAM-MAP 1\nwidth 9\nheight 3\nspawn 1 1\n---\n=========\n......@..\n=========\n"));
 }
 
-// A one-lane mountain corridor for stamina integration. From the left spawn the
-// four-cost mountains drain 12 -> 8 -> 4 -> 0 over three steps; a fourth step is
-// unaffordable. A distinctive water cell sits at x=8, outside radius 4 from the
-// last successfully occupied mountain at x=3, so it must never appear unless fog
-// wrongly refreshes on the block.
+// A one-lane mountain corridor for stamina integration. With the 20-stamina cap,
+// five mountain steps drain to zero and the sixth mountain is unaffordable. A
+// distant water glyph at x=10 stays hidden at that blocking point.
 GameState make_cost_state() {
     return GameState(make_map(
-        "NAM-MAP 1\nwidth 9\nheight 3\nspawn 0 1\n---\n=========\n.@@@@...~\n=========\n"));
+        "NAM-MAP 1\nwidth 11\nheight 3\nspawn 0 1\n---\n===========\n.@@@@@@...~\n===========\n"));
 }
 
 // A corridor with an open spawn at x=1, a hill at x=2, and a distinctive water
@@ -62,13 +61,13 @@ GameState make_hill_state() {
         "NAM-MAP 1\nwidth 9\nheight 3\nspawn 1 1\n---\n=========\n..^..~...\n=========\n"));
 }
 
-// A mountain corridor whose distinctive water at x=8 is reachable only from the
-// fourth mountain at x=4 (radius 4 -> x=8). Three steps drain 12 -> 8 -> 4 -> 0,
-// so the fourth mountain is unaffordable until a rest restores exactly enough
-// stamina to enter it and finally reveal the water.
+// A long corridor where four mountains then four open tiles drain stamina to zero
+// on open ground; the next mountain is blocked until one open-ground rest recovers
+// enough stamina. A distant water glyph at x=13 becomes visible only after that
+// mountain is entered.
 GameState make_mountain_reach_state() {
     return GameState(make_map(
-        "NAM-MAP 1\nwidth 11\nheight 3\nspawn 0 1\n---\n===========\n.@@@@...~..\n===========\n"));
+        "NAM-MAP 1\nwidth 14\nheight 3\nspawn 0 1\n---\n==============\n.@@@@....@...~\n==============\n"));
 }
 
 std::size_t count_char(const std::string& text, char needle) {
@@ -155,6 +154,61 @@ std::string adjacent_beacon_name() {
     return make_adjacent_state().objective().name;
 }
 
+GameState make_rescue_state() {
+    return GameState(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n"));
+}
+
+std::string rescue_beacon_name() {
+    return make_rescue_state().objective().name;
+}
+
+std::string stranded_plain_commands() {
+    GameState probe = make_rescue_state();
+    std::string commands;
+    for (std::uint32_t i = 0; i < probe.starting_provisions(); ++i) {
+        commands += "d\na\nr\n";
+    }
+    for (std::uint32_t i = 0; i < GameState::maximum_stamina; ++i) {
+        commands += (i % 2 == 0) ? "d\n" : "a\n";
+    }
+    commands += "d\n";  // blocked at zero stamina with no provisions -> stranded.
+    return commands;
+}
+
+std::vector<KeyEvent> stranded_interactive_events() {
+    GameState probe = make_rescue_state();
+    std::vector<KeyEvent> events;
+    for (std::uint32_t i = 0; i < probe.starting_provisions(); ++i) {
+        events.push_back(KeyEvent::of_character('d'));
+        events.push_back(KeyEvent::of_character('a'));
+        events.push_back(KeyEvent::of_character('r'));
+    }
+    for (std::uint32_t i = 0; i < GameState::maximum_stamina; ++i) {
+        events.push_back(KeyEvent::of_character((i % 2 == 0) ? 'd' : 'a'));
+    }
+    events.push_back(KeyEvent::of_character('d'));
+    return events;
+}
+
+bool frame_contains(const Frame& frame, const std::string& needle) {
+    for (const std::string& row : frame) {
+        if (row.find(needle) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::size_t frame_count_with(const std::vector<Frame>& frames, const std::string& needle) {
+    std::size_t count = 0;
+    for (const Frame& frame : frames) {
+        if (frame_contains(frame, needle)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 // A scripted, TTY-free InteractiveSession: it replays a fixed list of key events,
 // counts draws and reads, and yields end_of_input once the script is exhausted so
 // the loop can never block. This proves the final-frame draw count and that no
@@ -172,10 +226,11 @@ public:
         }
         return KeyEvent::of(Key::end_of_input);
     }
-    void draw(const Frame&) override { ++draws; }
+    void draw(const Frame& frame) override { ++draws; frames.push_back(frame); }
 
     int draws = 0;
     int reads = 0;
+    std::vector<Frame> frames;
 
 private:
     std::vector<KeyEvent> events_;
@@ -388,88 +443,154 @@ TEST_CASE("entering a hill reveals a far glyph that persists as memory after lea
 }
 
 TEST_CASE("an unaffordable mountain keeps a far glyph hidden until a rest lets the actor enter") {
-    // TASK-016 / TEST-017: the water at x=8 lies at radius 4 from the fourth
-    // mountain. Draining to zero blocks that mountain, so the water stays hidden;
-    // only resting enough to afford and enter the mountain finally reveals it.
     std::string blocked;
-    const int code_blocked = run_plain_state(make_mountain_reach_state(), "d\nd\nd\nd\nq\n", blocked);
+    const int code_blocked = run_plain_state(make_mountain_reach_state(),
+                                             R"(d
+d
+d
+d
+d
+d
+d
+d
+d
+q
+)", blocked);
     CHECK(code_blocked == 0);
     CHECK(blocked.find("Not enough stamina for mountain: need 4, have 0.") != std::string::npos);
-    CHECK(blocked.find('~') == std::string::npos);  // the blocked mountain reveals nothing.
+    CHECK(blocked.find('~') == std::string::npos);
 
     std::string reached;
-    const int code_reached =
-        run_plain_state(make_mountain_reach_state(), "d\nd\nd\nr\nd\nq\n", reached);
+    const int code_reached = run_plain_state(make_mountain_reach_state(),
+                                             R"(d
+d
+d
+d
+d
+d
+d
+d
+r
+d
+q
+)", reached);
     CHECK(code_reached == 0);
-    CHECK(reached.find("Rested and recovered 4 stamina.") != std::string::npos);
+    CHECK(reached.find("Made camp on open ground and recovered 4 stamina. Provisions left:") !=
+          std::string::npos);
     CHECK(reached.find("Moved onto mountain for 4 stamina.") != std::string::npos);
-    CHECK(reached.find('~') != std::string::npos);  // entering the mountain reveals it.
-    CHECK(reached.find('\x1b') == std::string::npos);  // plain stays ANSI-free.
+    CHECK(reached.find('~') != std::string::npos);
+    CHECK(reached.find('\x1b') == std::string::npos);
 }
 
-TEST_CASE("a scripted high-cost route shows costs, drains stamina, and blocks deterministically") {
-    // Three affordable mountain steps drain stamina to zero; the fourth is an
-    // unaffordable, typed block that does not move the actor.
+TEST_CASE("a scripted high-cost route shows costs drains stamina and blocks deterministically") {
     std::string output;
-    const int code = run_plain_state(make_cost_state(), "d\nd\nd\nd\nq\n", output);
+    const int code = run_plain_state(make_cost_state(),
+                                     R"(d
+d
+d
+d
+d
+d
+q
+)", output);
     CHECK(code == 0);
 
-    // Exact successful-cost wording and the deterministic HUD stamina countdown.
     CHECK(output.find("Moved onto mountain for 4 stamina.") != std::string::npos);
-    CHECK(output.find("Stamina: 8/12") != std::string::npos);
-    CHECK(output.find("Stamina: 4/12") != std::string::npos);
-    CHECK(output.find("Stamina: 0/12") != std::string::npos);
-
-    // The unaffordable fourth step is blocked with the exact insufficient wording.
+    CHECK(output.find("Stamina: 16/20") != std::string::npos);
+    CHECK(output.find("Stamina: 12/20") != std::string::npos);
+    CHECK(output.find("Stamina: 8/20") != std::string::npos);
+    CHECK(output.find("Stamina: 4/20") != std::string::npos);
+    CHECK(output.find("Stamina: 0/20") != std::string::npos);
     CHECK(output.find("Not enough stamina for mountain: need 4, have 0.") != std::string::npos);
-
-    // Fog stays tied to the actor's real position: the block never advances it,
-    // so the distant water cell is never revealed and no '~' leaks into output.
     CHECK(output.find('~') == std::string::npos);
-    CHECK(output.find('\x1b') == std::string::npos);  // plain stays ANSI-free.
+    CHECK(output.find('\x1b') == std::string::npos);
 
-    // The whole scripted session is byte-identical across repeated runs.
     std::string second;
-    const int code_again = run_plain_state(make_cost_state(), "d\nd\nd\nd\nq\n", second);
+    const int code_again = run_plain_state(make_cost_state(),
+                                           R"(d
+d
+d
+d
+d
+d
+q
+)", second);
     CHECK(code_again == code);
     CHECK(second == output);
 }
 
 TEST_CASE("plain mode recognises both r and rest as the rest command") {
     std::string spelled;
-    const int a = run_plain_state(make_rest_state(), "rest\nq\n", spelled);
+    const int a = run_plain_state(make_rest_state(), R"(rest
+q
+)", spelled);
     CHECK(a == 0);
-    CHECK(spelled.find("Stamina is already full.") != std::string::npos);
+    CHECK(spelled.find("A heroic rest is attempted. Your stamina remains heroically full.") !=
+          std::string::npos);
     CHECK(spelled.find("Unknown command") == std::string::npos);
 
     std::string letter;
-    const int b = run_plain_state(make_rest_state(), "r\nq\n", letter);
+    const int b = run_plain_state(make_rest_state(), R"(r
+q
+)", letter);
     CHECK(b == 0);
-    CHECK(letter.find("Stamina is already full.") != std::string::npos);
+    CHECK(letter.find("A heroic rest is attempted. Your stamina remains heroically full.") !=
+          std::string::npos);
     CHECK(letter.find("Unknown command") == std::string::npos);
 }
 
 TEST_CASE("resting from zero lets the actor complete the next water move") {
-    // Drain to zero on the mountains, then a water step is blocked; rest recovers
-    // four, which is exactly enough to enter the water and leave one stamina.
+    const auto make_zero_water_state = [] {
+        return GameState(make_map(R"(NAM-MAP 1
+width 10
+height 3
+spawn 0 1
+---
+==========
+.@@@@....~
+==========
+)"));
+    };
+
     std::string blocked_first;
-    const int code_blocked =
-        run_plain_state(make_rest_state(), "d\nd\nd\nd\nq\n", blocked_first);
+    const int code_blocked = run_plain_state(make_zero_water_state(),
+                                             R"(d
+d
+d
+d
+d
+d
+d
+d
+d
+q
+)", blocked_first);
     CHECK(code_blocked == 0);
-    CHECK(blocked_first.find("Stamina: 0/12") != std::string::npos);
+    CHECK(blocked_first.find("Stamina: 0/20") != std::string::npos);
     CHECK(blocked_first.find("Not enough stamina for water: need 3, have 0.") !=
           std::string::npos);
 
     std::string recovered;
-    const int code = run_plain_state(make_rest_state(), "d\nd\nd\nr\nd\nq\n", recovered);
+    const int code = run_plain_state(make_zero_water_state(),
+                                     R"(d
+d
+d
+d
+d
+d
+d
+d
+r
+d
+q
+)", recovered);
     CHECK(code == 0);
-    CHECK(recovered.find("Rested and recovered 4 stamina.") != std::string::npos);
-    CHECK(recovered.find("Moved onto water for 3 stamina.") != std::string::npos);
-    CHECK(recovered.find("Stamina: 1/12") != std::string::npos);
-    CHECK(recovered.find('\x1b') == std::string::npos);  // plain stays ANSI-free.
+    CHECK(recovered.find("Stamina: 1/20") != std::string::npos);
+    CHECK(recovered.find('\x1b') == std::string::npos);
 }
 
 TEST_CASE("one rest command produces exactly one additional plain frame") {
+
     // Each plain command emits one frame; every frame carries exactly one "Pos "
     // status line, so counting them counts frames. Adding one rest command adds
     // exactly one frame relative to an otherwise identical session.
@@ -592,74 +713,93 @@ TEST_CASE("plain discovery prints the reminder for rest and unknown commands") {
     CHECK(count_substr(tail, "Pos ") == 1);  // only the quit frame, none for reminders.
 }
 
-TEST_CASE("plain completion shows the exact summary including the completing move") {
-    // TASK-020 / REQ-023 / REQ-024 / TEST-013: walking out and back completes the
-    // expedition and prints the completion block whose counts and final stamina
-    // include the completing move (six open-ground steps drain 12 -> 6).
+TEST_CASE("plain completion prints the full report including the completing move") {
+    // REQ-009 / REQ-011 / TEST-006: walking out and back completes the expedition
+    // and prints the final report whose counts and final stamina include the
+    // completing move (six open-ground steps drain 12 -> 6). Optimal round trip is
+    // six, so the score is the maximum.
     const std::string name = corridor_beacon_name();
     std::string output;
     const int code = run_plain_state(make_corridor_state(), "d\nd\nd\na\na\na\n", output);
     CHECK(code == 0);
-    CHECK(output.find("EXPEDITION COMPLETE\n"
-                      "Beacon: " + name +
-                      "\nMoves: 6"
-                      "\nAttempts: 6"
-                      "\nFinal stamina: 6/12"
-                      "\nPress Enter or q to exit.\n") != std::string::npos);
+    CHECK(output.find("EXPEDITION REPORT") != std::string::npos);
+    CHECK(output.find("The " + name + " expedition is complete.") != std::string::npos);
+    CHECK(output.find("Score: 1000 / 1000") != std::string::npos);
+    CHECK(output.find("Moves: 6") != std::string::npos);
+    CHECK(output.find("Move attempts: 6") != std::string::npos);
+    CHECK(output.find("Blocked moves: 0") != std::string::npos);
+    CHECK(output.find("Provisions used: 0") != std::string::npos);
+    CHECK(output.find("Final stamina: 14/20") != std::string::npos);
+    CHECK(output.find("Optimal round-trip cost: 6") != std::string::npos);
+    CHECK(output.find("ROUTE MAP") != std::string::npos);
+    CHECK(output.find("EXPEDITION JOURNAL") != std::string::npos);
     CHECK(output.find('\x1b') == std::string::npos);
 }
 
-TEST_CASE("plain completion prints the reminder and never mutates counters") {
-    // TASK-020 / REQ-026 / RISK-004: any non-acknowledgement command on the
-    // completion screen prints the reminder and leaves the game and HUD unchanged.
+TEST_CASE("plain completion returns immediately and leaves trailing commands unread") {
+    // REQ-009 / RISK-003: the completing move writes the report exactly once and
+    // returns 0 without reading or processing any later command, so no post-
+    // completion move ever runs.
     std::string output;
     const int code = run_plain_state(make_corridor_state(), "d\nd\nd\na\na\na\nd\nr\nq\n", output);
     CHECK(code == 0);
-    CHECK(count_substr(output, "Run complete. Press Enter or q to exit.") == 2);
-    // The completing summary is the only one printed; no later block shows a higher
-    // move count, proving movement and rest never ran after completion.
-    CHECK(count_substr(output, "Moves: 6") == 1);
-    CHECK(output.find("Moves: 7") == std::string::npos);
+    CHECK(count_substr(output, "EXPEDITION REPORT") == 1);  // exactly one report.
+    CHECK(count_substr(output, "Score:") == 1);
+    CHECK(output.find("Moves: 7") == std::string::npos);   // no post-completion move ran.
+    CHECK(output.find("Goodbye") == std::string::npos);    // no goodbye after completion.
 }
 
-TEST_CASE("plain completion exits on end of input, q, or an empty line without a goodbye") {
-    // TASK-020 / REQ-026 / REQ-028: acknowledgement exits 0 and never prints a
-    // goodbye block after completion.
+TEST_CASE("plain completion exits without a goodbye on end of input") {
+    // REQ-009: the completing move exits 0 and never prints a goodbye block, whether
+    // or not trailing commands follow (they are unread).
     const std::string route = "d\nd\nd\na\na\na\n";
 
     std::string eof_output;
-    const int eof_code = run_plain_state(make_corridor_state(), route, eof_output);
-    CHECK(eof_code == 0);
+    CHECK(run_plain_state(make_corridor_state(), route, eof_output) == 0);
     CHECK(eof_output.find("Goodbye") == std::string::npos);
     CHECK(eof_output.find("End of input") == std::string::npos);
 
     std::string quit_output;
-    const int quit_code = run_plain_state(make_corridor_state(), route + "q\n", quit_output);
-    CHECK(quit_code == 0);
+    CHECK(run_plain_state(make_corridor_state(), route + "q\n", quit_output) == 0);
     CHECK(quit_output.find("Goodbye") == std::string::npos);
-
-    std::string empty_output;
-    const int empty_code = run_plain_state(make_corridor_state(), route + "\n", empty_output);
-    CHECK(empty_code == 0);
-    CHECK(empty_output.find("Goodbye") == std::string::npos);
+    CHECK(eof_output == quit_output);  // the trailing q is unread, so output is identical.
 }
 
-TEST_CASE("plain single-cell map waits on the completion screen for acknowledgement") {
-    // TASK-020 / TEST-017 / REQ-027: a single reachable cell starts on the
-    // completion screen, prints the reminder for other commands, and exits on quit
-    // without a goodbye.
+TEST_CASE("plain mode rescue prints rescue block then rescued report and exits zero") {
+    std::string output;
+    const int code = run_plain_state(make_rescue_state(), stranded_plain_commands(), output);
+    CHECK(code == 0);
+
+    const std::size_t rescue = output.find("RESCUE REQUESTED\n");
+    const std::size_t report = output.find("EXPEDITION REPORT");
+    REQUIRE(rescue != std::string::npos);
+    REQUIRE(report != std::string::npos);
+    CHECK(rescue < report);
+    CHECK(output.find("Result: rescued after running out of provisions.") != std::string::npos);
+    CHECK(output.find("/ 750") != std::string::npos);
+    CHECK(output.find("Goodbye") == std::string::npos);
+}
+
+TEST_CASE("manual quit before any ending prints no report") {
+    std::string output;
+    CHECK(run_plain_state(make_rescue_state(), "q\n", output) == 0);
+    CHECK(output.find("EXPEDITION REPORT") == std::string::npos);
+}
+
+TEST_CASE("plain single-cell map prints the report once and exits immediately") {
+    // REQ-002 / REQ-009 / TEST-006: a single reachable cell starts completed, so
+    // plain mode writes the full report once and returns 0 immediately without
+    // reading stdin. The report scores the maximum with zero moves.
     const std::string name = single_cell_beacon_name();
     std::string output;
     const int code = run_plain_state(make_single_cell_state(), "d\nq\n", output);
     CHECK(code == 0);
-    CHECK(output.find("EXPEDITION COMPLETE\n"
-                      "Beacon: " + name +
-                      "\nMoves: 0"
-                      "\nAttempts: 0"
-                      "\nFinal stamina: 12/12"
-                      "\nPress Enter or q to exit.\n") != std::string::npos);
-    CHECK(output.find("Run complete. Press Enter or q to exit.") != std::string::npos);  // the 'd'.
-    CHECK(output.find("Goodbye") == std::string::npos);  // acknowledgement exits quietly.
+    CHECK(count_substr(output, "EXPEDITION REPORT") == 1);
+    CHECK(output.find("The " + name + " expedition is complete.") != std::string::npos);
+    CHECK(output.find("Score: 1000 / 1000") != std::string::npos);
+    CHECK(output.find("Moves: 0") != std::string::npos);
+    CHECK(output.find("Final stamina: 20/20") != std::string::npos);
+    CHECK(output.find("Goodbye") == std::string::npos);  // immediate quiet exit.
 }
 
 TEST_CASE("a fake interactive session pauses on discovery then completes on acknowledgement") {
@@ -774,6 +914,104 @@ TEST_CASE("a fake interactive session waits on the completion screen for a singl
     CHECK(app.final_message() == "Expedition complete: " + name + ".");
 }
 
+TEST_CASE("interactive rescue enters report on Enter and preserves rescued final message") {
+    const std::string name = rescue_beacon_name();
+    std::vector<KeyEvent> script = stranded_interactive_events();
+    script.push_back(KeyEvent::of(Key::enter));  // rescue -> report
+    script.push_back(KeyEvent::of(Key::enter));  // acknowledge report
+
+    FakeSession session(std::move(script));
+    ConsoleApp app(make_rescue_state(), Settings{});
+    const int code = app.run_interactive(session);
+
+    CHECK(code == 0);
+    CHECK(app.final_message() ==
+          "Rescued: the " + name + " expedition ran out of provisions and ended early.");
+    CHECK(frame_count_with(session.frames, "RESCUE REQUESTED") >= 1);
+    CHECK(frame_count_with(session.frames, "EXPEDITION REPORT") >= 1);
+}
+
+TEST_CASE("interactive journal opened from rescue restores the rescue screen") {
+    const std::string name = rescue_beacon_name();
+    std::vector<KeyEvent> script = stranded_interactive_events();
+    script.push_back(KeyEvent::of_character('j'));
+    script.push_back(KeyEvent::of(Key::escape));
+    script.push_back(KeyEvent::of_character('q'));
+
+    FakeSession session(std::move(script));
+    ConsoleApp app(make_rescue_state(), Settings{});
+    const int code = app.run_interactive(session);
+
+    CHECK(code == 0);
+    CHECK(app.final_message() ==
+          "Rescued: the " + name + " expedition ran out of provisions and ended early.");
+    CHECK(frame_count_with(session.frames, "EXPEDITION JOURNAL") >= 1);
+    CHECK(frame_count_with(session.frames, "RESCUE REQUESTED") >= 2);
+}
+
+TEST_CASE("the interactive report scrolls on arrow and page keys and redraws each time") {
+    // REQ-004 / REQ-005 / REQ-006 / REQ-033: on the final report every scroll key
+    // redraws exactly one frame and emits no core event; only an acknowledgement
+    // exits. The completing move draws the report at (0, 0).
+    const std::string name = adjacent_beacon_name();
+    std::vector<KeyEvent> script{
+        KeyEvent::of_character('d'), KeyEvent::of_character('a'), KeyEvent::of(Key::up),
+        KeyEvent::of(Key::down),     KeyEvent::of(Key::page_up),  KeyEvent::of(Key::page_down),
+        KeyEvent::of(Key::left),     KeyEvent::of(Key::right),    KeyEvent::of(Key::enter)};
+    FakeSession session(std::move(script));
+
+    ConsoleApp app(make_adjacent_state(), Settings{});
+    const int code = app.run_interactive(session);
+
+    CHECK(code == 0);
+    CHECK(session.reads == 9);
+    // initial + discovery + completion report + six scroll redraws.
+    CHECK(session.draws == 9);
+    CHECK(app.final_message() == "Expedition complete: " + name + ".");
+}
+
+TEST_CASE("the interactive report acknowledges with q and redraws on resize") {
+    // REQ-007 / REQ-008: a resize on the report reclamps and redraws it; q
+    // acknowledges and exits 0 with the preserved final message.
+    const std::string name = adjacent_beacon_name();
+    std::vector<KeyEvent> script{KeyEvent::of_character('d'), KeyEvent::of_character('a'),
+                                 KeyEvent::of(Key::resize), KeyEvent::of_character('q')};
+    FakeSession session(std::move(script));
+
+    ConsoleApp app(make_adjacent_state(), Settings{});
+    const int code = app.run_interactive(session);
+
+    CHECK(code == 0);
+    CHECK(session.reads == 4);
+    CHECK(session.draws == 4);  // initial + discovery + completion + resize redraw.
+    CHECK(app.final_message() == "Expedition complete: " + name + ".");
+}
+
+TEST_CASE("the plain final report is deterministic across identical runs") {
+    // REQ-024 / TEST-008: the same completed expedition produces byte-identical
+    // report output on repeated runs.
+    std::string first;
+    std::string second;
+    CHECK(run_plain_state(make_corridor_state(), "d\nd\nd\na\na\na\n", first) == 0);
+    CHECK(run_plain_state(make_corridor_state(), "d\nd\nd\na\na\na\n", second) == 0);
+    CHECK(first == second);
+}
+
+TEST_CASE("the plain final report escapes a hostile seed identity safely") {
+    // SEC-001 / SEC-002 / REQ-025: a control-byte seed reaches the report only
+    // through byte escaping, so no ESC byte ever appears in the output.
+    Settings settings;
+    settings.seed_text = std::string("evil\x1b[31m");
+    settings.numeric_seed = 12345;
+    std::string output;
+    const int code = run_plain_state(make_single_cell_state(), "", output, settings);
+    CHECK(code == 0);
+    CHECK(output.find("EXPEDITION REPORT") != std::string::npos);
+    CHECK(output.find('\x1b') == std::string::npos);      // no raw ESC leaks.
+    CHECK(output.find("\\x1B") != std::string::npos);     // the ESC is shown escaped.
+    CHECK(output.find("Replay: nam_console --seed-number 12345") != std::string::npos);
+}
+
 TEST_CASE("the journal opens over gameplay and dismisses back with j") {
     // TASK-016 / REQ-021 / REQ-022: j opens the journal over gameplay, j dismisses it
     // back to the gameplay frame, and a later quit keeps the ordinary goodbye.
@@ -843,42 +1081,6 @@ TEST_CASE("the journal opens over discovery and returns to the discovery screen"
     CHECK(app.final_message() == "Goodbye.");
 }
 
-TEST_CASE("quitting the journal opened over completion preserves the completion message") {
-    // TASK-016 / REQ-026 / REQ-038: q on a journal opened over completion restores the
-    // completion presentation first, so the expedition-complete final message survives.
-    const std::string name = adjacent_beacon_name();
-    std::vector<KeyEvent> script{KeyEvent::of_character('d'), KeyEvent::of_character('a'),
-                                 KeyEvent::of_character('j'), KeyEvent::of_character('q')};
-    FakeSession session(std::move(script));
-
-    ConsoleApp app(make_adjacent_state(), Settings{});
-    const int code = app.run_interactive(session);
-
-    CHECK(code == 0);
-    CHECK(session.reads == 4);
-    CHECK(session.draws == 4);  // initial + discovery + completion + journal.
-    CHECK(app.final_message() == "Expedition complete: " + name + ".");
-}
-
-TEST_CASE("dismissing the journal over completion returns to completion without acknowledging") {
-    // TASK-016 / REQ-022: Enter on a journal opened over completion returns to the
-    // completion screen; a later Enter acknowledges and exits with the final message.
-    const std::string name = adjacent_beacon_name();
-    std::vector<KeyEvent> script{KeyEvent::of_character('d'), KeyEvent::of_character('a'),
-                                 KeyEvent::of_character('j'), KeyEvent::of(Key::enter),
-                                 KeyEvent::of(Key::enter)};
-    FakeSession session(std::move(script));
-
-    ConsoleApp app(make_adjacent_state(), Settings{});
-    const int code = app.run_interactive(session);
-
-    CHECK(code == 0);
-    CHECK(session.reads == 5);
-    // initial + discovery + completion + journal + completion restored.
-    CHECK(session.draws == 5);
-    CHECK(app.final_message() == "Expedition complete: " + name + ".");
-}
-
 TEST_CASE("end of input on a journal over gameplay uses the goodbye wording") {
     // TASK-016 / REQ-026: EOF while the journal is open over gameplay restores the
     // previous state and keeps the ordinary end-of-input goodbye.
@@ -892,23 +1094,6 @@ TEST_CASE("end of input on a journal over gameplay uses the goodbye wording") {
     CHECK(session.reads == 2);  // the journal open plus the end-of-input read.
     CHECK(session.draws == 2);  // initial gameplay + journal.
     CHECK(app.final_message() == "End of input. Goodbye.");
-}
-
-TEST_CASE("end of input on a journal over completion preserves the completion message") {
-    // TASK-016 / REQ-026 / REQ-038: EOF on a journal opened over completion restores
-    // completion first, so the final message stays the expedition-complete text.
-    const std::string name = adjacent_beacon_name();
-    std::vector<KeyEvent> script{KeyEvent::of_character('d'), KeyEvent::of_character('a'),
-                                 KeyEvent::of_character('j')};
-    FakeSession session(std::move(script));
-
-    ConsoleApp app(make_adjacent_state(), Settings{});
-    const int code = app.run_interactive(session);
-
-    CHECK(code == 0);
-    CHECK(session.reads == 4);  // discovery, completion, journal open, EOF read.
-    CHECK(session.draws == 4);
-    CHECK(app.final_message() == "Expedition complete: " + name + ".");
 }
 
 TEST_CASE("the journal redraws on resize while open") {

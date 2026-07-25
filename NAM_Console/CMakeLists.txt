@@ -16,6 +16,8 @@ set(nam_console_lib_sources
     console_app.h
     app_state.cpp
     app_state.h
+    expedition_report.cpp
+    expedition_report.h
     input.h
     input_decoder.cpp
     input_decoder.h

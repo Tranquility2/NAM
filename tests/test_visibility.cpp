@@ -469,8 +469,8 @@ TEST_CASE("failed moves apply no terrain radius on hill or mountain terrain") {
         CHECK(snapshot(state.visibility()) == before);
     }
 
-    // Insufficient stamina: draining onto three mountains leaves zero stamina, so
-    // a fourth mountain step is unaffordable. The far cell that its radius-4
+    // Insufficient stamina: draining onto five mountains leaves zero stamina, so
+    // a sixth mountain step is unaffordable. The far cell that its radius-4
     // square would reveal must remain hidden.
     {
         std::vector<Terrain> cells(11 * 3, Terrain::open);
@@ -480,31 +480,34 @@ TEST_CASE("failed moves apply no terrain radius on hill or mountain terrain") {
             cells[static_cast<std::size_t>(2) * 11 + static_cast<std::size_t>(x)] =
                 Terrain::wall_horizontal;
         }
-        // Middle row: open spawn at x=0, mountains at x=1..4, a distinctive water
-        // cell at x=8 (reachable only from the fourth mountain at x=4, radius 4).
-        for (int x = 1; x <= 4; ++x) {
+        // Middle row: open spawn at x=0, mountains at x=1..6, a distinctive water
+        // cell at x=10 (reachable only from the blocked sixth mountain at x=6,
+        // radius 4).
+        for (int x = 1; x <= 6; ++x) {
             cells[static_cast<std::size_t>(1) * 11 + static_cast<std::size_t>(x)] =
                 Terrain::mountain;
         }
-        cells[static_cast<std::size_t>(1) * 11 + 8] = Terrain::water;
+        cells[static_cast<std::size_t>(1) * 11 + 10] = Terrain::water;
         GameState state(Map(11, 3, std::move(cells), Coordinates{0, 1}));
 
-        CHECK(state.move(Direction::right).sequence == 0);  // 12 -> 8, onto (1,1)
-        (void)state.move(Direction::right);                 // 8 -> 4,  onto (2,1)
-        (void)state.move(Direction::right);                 // 4 -> 0,  onto (3,1)
-        CHECK(state.actor_position() == Coordinates{3, 1});
+        CHECK(state.move(Direction::right).sequence == 0);  // 20 -> 16, onto (1,1)
+        (void)state.move(Direction::right);                 // 16 -> 12, onto (2,1)
+        (void)state.move(Direction::right);                 // 12 -> 8,  onto (3,1)
+        (void)state.move(Direction::right);                 // 8 -> 4,   onto (4,1)
+        (void)state.move(Direction::right);                 // 4 -> 0,   onto (5,1)
+        CHECK(state.actor_position() == Coordinates{5, 1});
         CHECK(state.stamina() == 0);
-        // The water at x=8 is outside radius 4 of the occupied mountain at x=3.
-        CHECK(state.visibility().at(Coordinates{8, 1}) == CellVisibility::unexplored);
+        // The water at x=10 is outside radius 4 of the occupied mountain at x=5.
+        CHECK(state.visibility().at(Coordinates{10, 1}) == CellVisibility::unexplored);
 
         const std::vector<CellVisibility> before = snapshot(state.visibility());
         const GameEvent blocked = state.move(Direction::right);  // need 4, have 0
         CHECK(std::get<MoveAttemptedEvent>(blocked.data).outcome.result ==
               MoveResult::blocked_by_stamina);
-        CHECK(state.actor_position() == Coordinates{3, 1});
+        CHECK(state.actor_position() == Coordinates{5, 1});
         CHECK(snapshot(state.visibility()) == before);
         // The distant water stays hidden until the actor can afford the mountain.
-        CHECK(state.visibility().at(Coordinates{8, 1}) == CellVisibility::unexplored);
+        CHECK(state.visibility().at(Coordinates{10, 1}) == CellVisibility::unexplored);
     }
 }
 

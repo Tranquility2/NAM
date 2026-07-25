@@ -31,13 +31,16 @@ struct TravelEntry {
     std::uint64_t stamina_spent = 0;
 };
 
-// A single rest command (REQ-009). A rest at full stamina still produces an entry
-// with `stamina_recovered == 0` and `stamina_before == stamina_after`.
+// A single provision-funded rest command (REQ-111). Only a rest that actually
+// recovered stamina (below full with a provision to spend) produces an entry; a
+// heroic full-stamina rest and a no-provisions rest produce no journal entry.
 struct RestEntry {
     std::uint64_t sequence = 0;
+    Terrain terrain{};
     std::uint32_t stamina_before = 0;
     std::uint32_t stamina_recovered = 0;
     std::uint32_t stamina_after = 0;
+    std::uint32_t provisions_after = 0;
 };
 
 // The move that first entered the beacon cell (REQ-010).
@@ -58,10 +61,21 @@ struct InitialCompletionEntry {
     std::string beacon_name;
 };
 
+// The command after which the expedition became stranded and the explorer was
+// rescued (REQ-122). It is appended after the triggering command's own entry and
+// never pretends a failed or full rest succeeded. `beacon_discovered` records
+// whether the beacon had been reached before the rescue.
+struct RescueEntry {
+    std::uint64_t sequence = 0;
+    std::string beacon_name;
+    bool beacon_discovered = false;
+};
+
 // The payload of one journal entry. A variant so distinct entry kinds keep their
 // own typed fields and prose is rendered through one total visitor (GUD-002).
 using JournalEntryData =
-    std::variant<TravelEntry, RestEntry, DiscoveryEntry, CompletionEntry, InitialCompletionEntry>;
+    std::variant<TravelEntry, RestEntry, DiscoveryEntry, CompletionEntry, InitialCompletionEntry,
+                 RescueEntry>;
 
 // One journal entry: a structured payload with no rendered text of its own.
 struct JournalEntry {
@@ -87,6 +101,11 @@ public:
     // Record the explicit initial-completion entry for a game that started
     // already completed at spawn (REQ-012). Breaks any travel grouping.
     void record_initial_completion(const std::string& beacon_name);
+
+    // Record the structured rescue entry after the command that stranded the
+    // expedition (REQ-122). `beacon_discovered` records whether the beacon had
+    // been reached before the rescue. Breaks any travel grouping.
+    void record_rescue(const std::string& beacon_name, bool beacon_discovered);
 
     [[nodiscard]] const std::vector<JournalEntry>& entries() const noexcept { return entries_; }
     [[nodiscard]] bool empty() const noexcept { return entries_.empty(); }

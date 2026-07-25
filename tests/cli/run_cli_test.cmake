@@ -55,11 +55,16 @@ if(DEFINED EXPECT_CODE AND NOT code STREQUAL EXPECT_CODE)
 endif()
 
 if(DEFINED EXPECT_CONTAINS)
-    string(FIND "${output}" "${EXPECT_CONTAINS}" _pos)
-    if(_pos EQUAL -1)
-        message(FATAL_ERROR
-            "output does not contain '${EXPECT_CONTAINS}'\n--- output ---\n${output}")
-    endif()
+    # EXPECT_CONTAINS may carry several required substrings, '|'-separated, so the
+    # completed-run report path can assert its banners in one invocation.
+    string(REPLACE "|" ";" _expect_list "${EXPECT_CONTAINS}")
+    foreach(_needle IN LISTS _expect_list)
+        string(FIND "${output}" "${_needle}" _pos)
+        if(_pos EQUAL -1)
+            message(FATAL_ERROR
+                "output does not contain '${_needle}'\n--- output ---\n${output}")
+        endif()
+    endforeach()
 endif()
 
 if(FORBID_ESC)

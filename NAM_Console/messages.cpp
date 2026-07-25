@@ -53,10 +53,18 @@ std::string describe_move(const MoveOutcome& outcome) {
 }
 
 std::string describe_rest(const RestedEvent& rested) {
-    if (rested.stamina_recovered == 0) {
-        return "Stamina is already full.";
+    switch (rested.result) {
+        case RestResult::recovered:
+            return "Made camp on " + terrain_name(rested.terrain) + " and recovered " +
+                   std::to_string(rested.stamina_recovered) + " stamina. Provisions left: " +
+                   std::to_string(rested.provisions_after) + ".";
+        case RestResult::already_full:
+            return "A heroic rest is attempted. Your stamina remains heroically full.";
+        case RestResult::no_provisions:
+            return "No provisions left to make camp. Stamina holds at " +
+                   std::to_string(rested.stamina_after) + ".";
     }
-    return "Rested and recovered " + std::to_string(rested.stamina_recovered) + " stamina.";
+    return "A heroic rest is attempted. Your stamina remains heroically full.";
 }
 
 std::string describe_map_error(const MapLoadError& error) {
@@ -122,6 +130,10 @@ std::string completion_reminder() {
 
 std::string restored_completion_message(const std::string& name) {
     return "Expedition complete: " + name + ".";
+}
+
+std::string restored_rescue_message(const std::string& name) {
+    return "Rescued: the " + name + " expedition ran out of provisions and ended early.";
 }
 
 }  // namespace nam::console

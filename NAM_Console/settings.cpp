@@ -1,5 +1,6 @@
 #include "settings.h"
 
+#include <charconv>
 #include <cstdlib>
 
 #include "nam/version.h"
@@ -38,6 +39,33 @@ constexpr const char* kProgramName = "nam_console";
     return result;
 }
 
+// Parse a --seed-number token strictly as a decimal uint64: digits only, no sign,
+// no surrounding whitespace, no `0x`, and no trailing bytes. The entire token must
+// be consumed and the value must fit in uint64. Returns std::nullopt on any
+// violation so the caller can raise a usage error with a stable message.
+[[nodiscard]] std::optional<std::uint64_t> parse_numeric_seed(std::string_view token) {
+    if (token.empty()) {
+        return std::nullopt;
+    }
+    // std::from_chars accepts neither a leading sign nor whitespace and never
+    // interprets a base prefix, so a stray '+', '-', ' ', or "0x" already fails.
+    // Reject any non-digit explicitly first so "12 " or "1_2" cannot slip through
+    // a partial parse.
+    for (const char byte : token) {
+        if (byte < '0' || byte > '9') {
+            return std::nullopt;
+        }
+    }
+    std::uint64_t value = 0;
+    const char* const begin = token.data();
+    const char* const end = begin + token.size();
+    const std::from_chars_result parsed = std::from_chars(begin, end, value);
+    if (parsed.ec != std::errc() || parsed.ptr != end) {
+        return std::nullopt;  // Overflow or an unconsumed suffix.
+    }
+    return value;
+}
+
 }  // namespace
 
 Environment Environment::from_process() {
@@ -62,6 +90,8 @@ CliResult parse_cli(const std::vector<std::string>& args, const Environment& env
     std::optional<std::string> positional_map;
     std::optional<std::string> option_map;
     std::optional<std::string> seed_value;
+    std::optional<std::uint64_t> numeric_seed_value;
+    bool numeric_seed_given = false;
 
     for (std::size_t index = 0; index < args.size(); ++index) {
         const std::string& arg = args[index];
@@ -120,6 +150,32 @@ CliResult parse_cli(const std::vector<std::string>& args, const Environment& env
                                    std::to_string(max_seed_text_bytes) + " bytes");
             }
             seed_value = std::move(value);
+        } else if (arg == "--seed-number") {
+            if (index + 1 >= args.size()) {
+                return usage_error("--seed-number requires a numeric argument");
+            }
+            if (numeric_seed_given) {
+                return usage_error("--seed-number was given more than once");
+            }
+            const std::optional<std::uint64_t> parsed = parse_numeric_seed(args[++index]);
+            if (!parsed) {
+                return usage_error(
+                    "--seed-number must be a decimal integer in [0, 18446744073709551615]");
+            }
+            numeric_seed_value = parsed;
+            numeric_seed_given = true;
+        } else if (arg.rfind("--seed-number=", 0) == 0) {
+            if (numeric_seed_given) {
+                return usage_error("--seed-number was given more than once");
+            }
+            const std::optional<std::uint64_t> parsed =
+                parse_numeric_seed(arg.substr(std::string("--seed-number=").size()));
+            if (!parsed) {
+                return usage_error(
+                    "--seed-number must be a decimal integer in [0, 18446744073709551615]");
+            }
+            numeric_seed_value = parsed;
+            numeric_seed_given = true;
         } else if (!arg.empty() && arg.front() == '-' && arg != "-") {
             return usage_error("unknown option '" + arg + "'");
         } else {
@@ -138,6 +194,14 @@ CliResult parse_cli(const std::vector<std::string>& args, const Environment& env
     if (seed_value && (positional_map || option_map)) {
         return usage_error("provide either a map or --seed, not both");
     }
+    // A numeric seed is a second procedural-world source. It is mutually exclusive
+    // with a text seed and with any map input so the world identity is unambiguous.
+    if (numeric_seed_given && seed_value) {
+        return usage_error("provide either --seed or --seed-number, not both");
+    }
+    if (numeric_seed_given && (positional_map || option_map)) {
+        return usage_error("provide either a map or --seed-number, not both");
+    }
     if (option_map) {
         settings.map_path = std::move(option_map);
     } else if (positional_map) {
@@ -145,6 +209,9 @@ CliResult parse_cli(const std::vector<std::string>& args, const Environment& env
     }
     if (seed_value) {
         settings.seed_text = std::move(seed_value);
+    }
+    if (numeric_seed_given) {
+        settings.numeric_seed = numeric_seed_value;
     }
 
     // Colour is on unless the CLI or environment turns it off. An explicit
@@ -212,6 +279,9 @@ std::string usage_text() {
     text += "  --map <path>      Load the map at <path> (alternative to the positional form).\n";
     text += "  --seed <text>     Generate the deterministic Tiny World from <text> (hashed;\n";
     text += "                    max 128 bytes; cannot be combined with a map).\n";
+    text += "  --seed-number <n> Generate the deterministic Tiny World from a decimal uint64\n";
+    text += "                    seed (0..18446744073709551615; cannot be combined with a map\n";
+    text += "                    or --seed).\n";
     text += "  --debug           Show internal diagnostics in the HUD.\n";
     text += "  --plain           Force line-oriented mode (no raw terminal or ANSI).\n";
     text += "  --no-color        Disable colour output.\n";

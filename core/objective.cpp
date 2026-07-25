@@ -1,9 +1,14 @@
 #include "objective.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
+#include <limits>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "terrain.h"
@@ -75,6 +80,174 @@ constexpr std::array<Coordinates, 4> kCardinalOffsets{
     return distance;
 }
 
+// The deterministic cheapest stamina cost of a walkable cardinal path from
+// `source` to `target`, where entering a cell costs stamina_cost_of(that cell).
+// This is a Dijkstra shortest-path search: only the scalar minimum total cost is
+// returned, so equal-cost path tie ordering can never affect the result. The
+// source cell is free (it is already occupied); every step adds the destination
+// terrain's entry cost. Returns 0 when source == target and the unreachable
+// sentinel (uint64 max) when no walkable path exists.
+[[nodiscard]] std::uint64_t minimum_travel_cost(const Map& map, Coordinates source,
+                                                Coordinates target) {
+    constexpr std::uint64_t unreachable = std::numeric_limits<std::uint64_t>::max();
+    const int width = static_cast<int>(map.width());
+    const int height = static_cast<int>(map.height());
+
+    const auto flat_index = [width](Coordinates position) {
+        return static_cast<std::size_t>(position.y) * static_cast<std::size_t>(width) +
+               static_cast<std::size_t>(position.x);
+    };
+
+    std::vector<std::uint64_t> best(static_cast<std::size_t>(width) *
+                                        static_cast<std::size_t>(height),
+                                    unreachable);
+    std::vector<bool> settled(best.size(), false);
+    best[flat_index(source)] = 0;
+
+    // A plain array scan for the next unsettled minimum keeps the search free of
+    // <queue>/<functional> and any comparator ordering: the settled cost of each
+    // cell is a pure function of the terrain, independent of scan order.
+    for (std::size_t processed = 0; processed < best.size(); ++processed) {
+        std::size_t current = best.size();
+        std::uint64_t current_cost = unreachable;
+        for (std::size_t i = 0; i < best.size(); ++i) {
+            if (!settled[i] && best[i] < current_cost) {
+                current_cost = best[i];
+                current = i;
+            }
+        }
+        if (current == best.size()) {
+            break;  // Every remaining cell is unreachable.
+        }
+        settled[current] = true;
+
+        const Coordinates here{static_cast<int>(current % static_cast<std::size_t>(width)),
+                               static_cast<int>(current / static_cast<std::size_t>(width))};
+        for (const Coordinates offset : kCardinalOffsets) {
+            const Coordinates neighbour = here + offset;
+            if (!map.contains(neighbour)) {
+                continue;
+            }
+            const std::optional<std::uint32_t> step = stamina_cost_of(map.terrain_at(neighbour));
+            if (!step.has_value()) {
+                continue;  // Impassable terrain is not a graph edge.
+            }
+            const std::size_t neighbour_index = flat_index(neighbour);
+            if (settled[neighbour_index]) {
+                continue;
+            }
+            const std::uint64_t candidate = current_cost + static_cast<std::uint64_t>(*step);
+            if (candidate < best[neighbour_index]) {
+                best[neighbour_index] = candidate;
+            }
+        }
+    }
+
+    return best[flat_index(target)];
+}
+
+// The deterministic minimum number of provisions that make the round trip from
+// spawn to the beacon and back feasible. It is a 0-1 shortest-path search (a
+// deque-based BFS) over states (position, stamina 0..max, phase) where a move
+// edge costs 0 provisions and needs stamina_cost_of(destination) stamina, and a
+// rest edge costs 1 provision and recovers rest_recovery_of(current terrain)
+// capped at `max_stamina` while stamina is below the cap. Phase advances from
+// seeking to returning on the move that first lands on the beacon; the goal is a
+// returning-phase state at spawn. Move order and the array-backed relaxation make
+// the scalar result independent of tie ordering. Returns 0 when the beacon
+// coincides with spawn.
+[[nodiscard]] std::uint64_t minimum_required_provisions(const Map& map, Coordinates spawn,
+                                                       Coordinates beacon,
+                                                       std::uint32_t max_stamina) {
+    if (beacon == spawn) {
+        return 0;
+    }
+    constexpr std::uint64_t unreachable = std::numeric_limits<std::uint64_t>::max();
+    const int width = static_cast<int>(map.width());
+    const int levels = static_cast<int>(max_stamina) + 1;  // stamina values 0..max
+    const auto state_index = [width, levels](Coordinates position, int stamina, int phase) {
+        const std::size_t cell = static_cast<std::size_t>(position.y) *
+                                     static_cast<std::size_t>(width) +
+                                 static_cast<std::size_t>(position.x);
+        return ((cell * static_cast<std::size_t>(levels) + static_cast<std::size_t>(stamina)) * 2) +
+               static_cast<std::size_t>(phase);
+    };
+
+    const std::size_t state_count = static_cast<std::size_t>(width) *
+                                    static_cast<std::size_t>(map.height()) *
+                                    static_cast<std::size_t>(levels) * 2;
+    std::vector<std::uint64_t> dist(state_count, unreachable);
+
+    // Each queue entry pairs a state with the distance it was queued at, so a
+    // stale duplicate (queued before a cheaper relaxation) is skipped on pop. The
+    // 0-1 weights keep the deque ordered by nondecreasing distance, so the first
+    // popped goal state carries the minimum provisions.
+    std::deque<std::pair<std::uint64_t, std::size_t>> queue;
+    const std::size_t start = state_index(spawn, static_cast<int>(max_stamina), 0);
+    dist[start] = 0;
+    queue.emplace_back(0, start);
+
+    while (!queue.empty()) {
+        const std::uint64_t d = queue.front().first;
+        const std::size_t s = queue.front().second;
+        queue.pop_front();
+        if (d != dist[s]) {
+            continue;  // Superseded by a cheaper relaxation.
+        }
+
+        // Decode the packed state.
+        const int phase = static_cast<int>(s % 2);
+        std::size_t rest = s / 2;
+        const int stamina = static_cast<int>(rest % static_cast<std::size_t>(levels));
+        rest /= static_cast<std::size_t>(levels);
+        const Coordinates here{static_cast<int>(rest % static_cast<std::size_t>(width)),
+                               static_cast<int>(rest / static_cast<std::size_t>(width))};
+
+        // A returning-phase state at spawn is the completed round trip.
+        if (phase == 1 && here == spawn) {
+            return d;
+        }
+
+        // Rest edge (one provision) when stamina is below the cap and the terrain
+        // can be rested on.
+        if (stamina < static_cast<int>(max_stamina)) {
+            const std::optional<std::uint32_t> recovery = rest_recovery_of(map.terrain_at(here));
+            if (recovery.has_value()) {
+                const int recovered =
+                    std::min(static_cast<int>(max_stamina), stamina + static_cast<int>(*recovery));
+                const std::size_t next = state_index(here, recovered, phase);
+                if (d + 1 < dist[next]) {
+                    dist[next] = d + 1;
+                    queue.emplace_back(d + 1, next);
+                }
+            }
+        }
+
+        // Move edges (no provision) to affordable walkable cardinal neighbours.
+        for (const Coordinates offset : kCardinalOffsets) {
+            const Coordinates neighbour = here + offset;
+            if (!map.contains(neighbour)) {
+                continue;
+            }
+            const std::optional<std::uint32_t> step = stamina_cost_of(map.terrain_at(neighbour));
+            if (!step.has_value() || stamina < static_cast<int>(*step)) {
+                continue;  // Impassable or unaffordable with the current stamina.
+            }
+            const int next_stamina = stamina - static_cast<int>(*step);
+            const int next_phase = (phase == 0 && neighbour == beacon) ? 1 : phase;
+            const std::size_t next = state_index(neighbour, next_stamina, next_phase);
+            if (d < dist[next]) {
+                dist[next] = d;
+                queue.emplace_front(d, next);
+            }
+        }
+    }
+
+    // A reachable beacon always yields a finite result; the fallback keeps a run
+    // from ever being blocked if the goal is somehow unreachable.
+    return 0;
+}
+
 // The canonical fingerprint hashed to select the beacon among distant scenic
 // candidates: the exact map text followed by the spawn coordinate. It contains
 // only canonical map terrain glyphs and decimal spawn coordinates, never a map
@@ -121,7 +294,7 @@ constexpr std::array<Coordinates, 4> kCardinalOffsets{
 
 }  // namespace
 
-BeaconObjective create_beacon_objective(const Map& map) {
+BeaconObjective create_beacon_objective(const Map& map, std::uint32_t max_stamina) {
     const std::vector<int> distance = compute_distances(map);
     const Coordinates spawn = map.spawn();
     const int width = static_cast<int>(map.width());
@@ -195,6 +368,34 @@ BeaconObjective create_beacon_objective(const Map& map) {
     objective.name = generate_beacon_name(map, spawn, beacon);
     objective.status =
         (beacon == spawn) ? ObjectiveStatus::completed : ObjectiveStatus::seeking_beacon;
+    // The cheapest round trip is computed only after the beacon coordinate is
+    // fixed, so it can never influence beacon selection or naming (RISK-001). Both
+    // legs use stamina_cost_of as the sole terrain-entry cost, and the two
+    // directions are summed independently because entry costs are asymmetric. A
+    // beacon at spawn has a zero-cost round trip.
+    if (beacon == spawn) {
+        objective.minimum_round_trip_stamina_cost = 0;
+    } else {
+        const std::uint64_t outbound = minimum_travel_cost(map, spawn, beacon);
+        const std::uint64_t inbound = minimum_travel_cost(map, beacon, spawn);
+        constexpr std::uint64_t unreachable = std::numeric_limits<std::uint64_t>::max();
+        objective.minimum_round_trip_stamina_cost =
+            (outbound == unreachable || inbound == unreachable) ? 0 : outbound + inbound;
+    }
+
+    // The minimum provisions and the reachable-cell denominator are pure objective
+    // properties computed only after the beacon is fixed, so neither can influence
+    // selection or naming (RISK-100). total_reachable_walkable_cells counts every
+    // BFS-reachable walkable cell including spawn.
+    objective.minimum_required_provisions =
+        minimum_required_provisions(map, spawn, beacon, max_stamina);
+    std::uint64_t reachable = 0;
+    for (const int cell_distance : distance) {
+        if (cell_distance >= 0) {
+            ++reachable;
+        }
+    }
+    objective.total_reachable_walkable_cells = reachable;
     return objective;
 }
 

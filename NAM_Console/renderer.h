@@ -7,6 +7,7 @@
 
 #include "app_state.h"
 #include "coordinates.h"
+#include "expedition_report.h"
 #include "frame.h"
 #include "journal.h"
 #include "map.h"
@@ -33,6 +34,8 @@ struct RenderInput {
     std::size_t attempt_count = 0;
     std::uint32_t stamina = 0;
     std::uint32_t max_stamina = 0;
+    std::uint32_t provisions = 0;           // Current provisions remaining.
+    std::uint32_t starting_provisions = 0;  // Provisions the expedition began with.
     std::string message;
     std::vector<RecentMove> recent;
     bool emphasize_actor = false;  // One-frame emphasis after a successful move.
@@ -62,17 +65,15 @@ inline constexpr char actor_glyph = 'O';
 // or mutates the underlying Terrain.
 inline constexpr char beacon_glyph = '*';
 
-// A frontend-only summary of a completed expedition, shown on the completion
-// screen. It carries the generated beacon name and the HUD/game counters as they
-// stood immediately after the completing move: the successful move count, the
-// total attempt count, and the final current/maximum stamina. It holds no core
-// type and never exposes seed text, map paths, or objective coordinates.
-struct CompletionSummary {
-    std::string beacon_name;
-    std::size_t move_count = 0;
-    std::size_t attempt_count = 0;
-    std::uint32_t stamina = 0;
-    std::uint32_t max_stamina = 0;
+// A frontend-only viewport into the final expedition report: the index of the
+// topmost visible body line and the leftmost visible column. Both offsets are
+// clamped by the renderer so scrolling can never leave the report content
+// (GUD-004). The vertical offset counts logical report body lines (the sticky
+// `EXPEDITION REPORT` title is not scrolled); the horizontal offset counts bytes,
+// which for the ASCII report equal visible columns.
+struct ReportViewport {
+    int vertical = 0;
+    int horizontal = 0;
 };
 
 // Composes frames from world state. Pure with respect to its inputs: the same
@@ -106,14 +107,48 @@ public:
     // exact discovery lines, one per line, with a single trailing newline.
     [[nodiscard]] std::string render_discovery_plain(const std::string& beacon_name) const;
 
-    // Build the interactive expedition-completion screen, bounded exactly like
-    // render_discovery, from a frontend-only completion summary.
-    [[nodiscard]] Frame render_completion(const CompletionSummary& summary,
-                                          TerminalSize size) const;
+    // Build the interactive rescue-acknowledgement screen for the given size. Like
+    // the discovery screen it is a centred, ANSI-free panel of fixed humorous
+    // lines announcing that provisions ran out and the explorer signaled for an
+    // embarrassingly early pickup, shown before the final report (REQ-131).
+    [[nodiscard]] Frame render_rescue(const std::string& beacon_name, TerminalSize size) const;
 
-    // Render the expedition-completion screen as an ANSI-free plain-text block: the
-    // exact completion lines, one per line, with a single trailing newline.
-    [[nodiscard]] std::string render_completion_plain(const CompletionSummary& summary) const;
+    // Render the rescue-acknowledgement screen as an ANSI-free plain-text block:
+    // the exact rescue lines, one per line, with a single trailing newline. Used
+    // by plain mode before the failed-expedition report (REQ-132).
+    [[nodiscard]] std::string render_rescue_plain(const std::string& beacon_name) const;
+
+    // Build the interactive expedition-completion report for the given size. The
+    // frame has exactly `size.rows` rows and keeps every row within `size.columns`.
+    // A fixed title row (the `EXPEDITION REPORT` banner) and a fixed control row
+    // bracket a scrollable body; the body is sliced vertically by
+    // `viewport.vertical` logical lines and horizontally by `viewport.horizontal`
+    // bytes so every byte of a wide route-map row is reachable. Offsets are clamped
+    // to range before slicing, an unknown size uses the 80x24 fallback, and a size
+    // below the absolute minimum reuses the shared window-too-small panel. The
+    // frame carries no ANSI escape bytes.
+    [[nodiscard]] Frame render_report(const ExpeditionReport& report, ReportViewport viewport,
+                                      TerminalSize size) const;
+
+    // Render the complete expedition report as an ANSI-free plain-text block: every
+    // logical report line in order, each terminated by a single LF, with exactly
+    // one trailing LF and no terminal-dependent content (REQ-010).
+    [[nodiscard]] std::string render_report_plain(const ExpeditionReport& report) const;
+
+    // Clamp a requested report viewport into the valid range for the given size:
+    // the vertical offset into [0, body lines minus one page] and the horizontal
+    // offset into [0, longest body line minus visible columns]. This is the single
+    // source of truth both ConsoleApp and rendering use so application updates and
+    // frame composition can never disagree (GUD-004 / RISK-002). An unknown size
+    // resolves to the 80x24 fallback.
+    [[nodiscard]] ReportViewport clamp_report_viewport(const ExpeditionReport& report,
+                                                       ReportViewport requested,
+                                                       TerminalSize size) const;
+
+    // The number of report body lines one interactive report page shows for the
+    // given size, at least one. ConsoleApp uses this to scroll by a full page. An
+    // unknown size resolves to the 80x24 fallback.
+    [[nodiscard]] int report_page_capacity(TerminalSize size) const;
 
     // The number of journal entry rows one interactive journal page shows for the
     // given terminal size (GUD-004). ConsoleApp uses this single source of truth

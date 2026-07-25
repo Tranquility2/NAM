@@ -58,6 +58,26 @@ enum class Terrain : unsigned char {
     return std::nullopt;
 }
 
+// The stamina a single rest recovers while standing on this terrain. This is the
+// single source of truth for rest recovery, mirroring how stamina_cost_of owns
+// movement cost: sheltered, forageable terrain recovers more (fields 6, open 4),
+// exposed terrain recovers less (hill 3, mountain 2, water 1). Both wall variants
+// are unoccupiable, so they carry std::nullopt to document that an actor can never
+// rest on a wall. Recovery is always capped at GameState::maximum_stamina by the
+// caller; this function only owns the per-terrain amount.
+[[nodiscard]] constexpr std::optional<std::uint32_t> rest_recovery_of(Terrain terrain) noexcept {
+    switch (terrain) {
+        case Terrain::fields:          return 6;
+        case Terrain::open:            return 4;
+        case Terrain::hill:            return 3;
+        case Terrain::mountain:        return 2;
+        case Terrain::water:           return 1;
+        case Terrain::wall_horizontal: return std::nullopt;
+        case Terrain::wall_vertical:   return std::nullopt;
+    }
+    return std::nullopt;
+}
+
 // Whether an actor may occupy a cell of this terrain. Defined in terms of
 // stamina_cost_of so walkability and movement cost can never drift apart.
 [[nodiscard]] constexpr bool is_walkable(Terrain terrain) noexcept {

@@ -31,8 +31,9 @@ namespace nam::console {
 [[nodiscard]] std::string describe_move(const MoveOutcome& outcome);
 
 // A sentence describing a rest command for the HUD's latest-event line. A rest
-// that recovered one or more stamina reports the exact amount; a rest at full
-// stamina reports that stamina is already full.
+// that recovered stamina reports the terrain amount and remaining provisions; a
+// heroic rest at full stamina reports the exact fixed heroic line; a rest with no
+// provisions left reports that no provisions remain.
 [[nodiscard]] std::string describe_rest(const RestedEvent& rested);
 
 // A user-facing explanation of why a map failed to load, including the source
@@ -73,5 +74,11 @@ namespace nam::console {
 // completion is being acknowledged this replaces every goodbye/EOF/interrupt
 // line so the acknowledgement can never overwrite it.
 [[nodiscard]] std::string restored_completion_message(const std::string& name);
+
+// The single line printed once on the restored normal screen after an
+// interactive run that ended in a rescue, naming the abandoned expedition. While
+// the rescue is being acknowledged this replaces every goodbye/EOF/interrupt line
+// so the acknowledgement can never overwrite it.
+[[nodiscard]] std::string restored_rescue_message(const std::string& name);
 
 }  // namespace nam::console

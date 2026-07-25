@@ -86,9 +86,9 @@ TEST_CASE("walkability is derived from the stamina cost table") {
 
 TEST_CASE("a new game starts at full stamina and never charges the spawn") {
     GameState state(spawn_then('.'));
-    CHECK(state.stamina() == 12u);
-    CHECK(state.max_stamina() == 12u);
-    CHECK(GameState::maximum_stamina == 12u);
+    CHECK(state.stamina() == 20u);
+    CHECK(state.max_stamina() == 20u);
+    CHECK(GameState::maximum_stamina == 20u);
     // Spawn terrain (open) is never charged: full stamina remains before any move.
     CHECK(state.actor_terrain() == Terrain::open);
 }
@@ -113,20 +113,26 @@ TEST_CASE("successful movement onto each terrain spends its exact cost") {
         CHECK(outcome.result == MoveResult::moved);
         CHECK(outcome.terrain == c.terrain);
         CHECK(outcome.stamina_cost == c.cost);
-        CHECK(outcome.stamina_before == 12u);
-        CHECK(outcome.stamina_after == 12u - c.cost);
+        CHECK(outcome.stamina_before == 20u);
+        CHECK(outcome.stamina_after == 20u - c.cost);
         CHECK(outcome.to == Coordinates{1, 0});
         CHECK(state.actor_position() == Coordinates{1, 0});
-        CHECK(state.stamina() == 12u - c.cost);
+        CHECK(state.stamina() == 20u - c.cost);
     }
 }
 
 TEST_CASE("a mixed path can leave two stamina and then block a four-cost mountain") {
-    GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.~@~@\n"));
+    GameState state(make_map("NAM-MAP 1\nwidth 8\nheight 1\nspawn 0 0\n---\n.~@~@.~@\n"));
 
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // water, 12->9
-    CHECK(state.stamina() == 9u);
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // mountain, 9->5
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // water, 20->17
+    CHECK(state.stamina() == 17u);
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // mountain, 17->13
+    CHECK(state.stamina() == 13u);
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // water, 13->10
+    CHECK(state.stamina() == 10u);
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // mountain, 10->6
+    CHECK(state.stamina() == 6u);
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // open, 6->5
     CHECK(state.stamina() == 5u);
     CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // water, 5->2
     CHECK(state.stamina() == 2u);
@@ -152,8 +158,10 @@ TEST_CASE("a mixed path can leave two stamina and then block a four-cost mountai
 }
 
 TEST_CASE("an exact-cost path reaches zero and then blocks without underflow") {
-    GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.@@@.\n"));
+    GameState state(make_map("NAM-MAP 1\nwidth 7\nheight 1\nspawn 0 0\n---\n.@@@@@.\n"));
 
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 20->16
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 16->12
     CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 12->8
     CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 8->4
     const MoveOutcome last = outcome_of(state.move(Direction::right));            // 4->0
@@ -168,28 +176,28 @@ TEST_CASE("an exact-cost path reaches zero and then blocks without underflow") {
     CHECK(blocked.stamina_before == 0u);
     CHECK(blocked.stamina_after == 0u);
     CHECK(state.stamina() == 0u);
-    CHECK(state.actor_position() == Coordinates{3, 0});
+    CHECK(state.actor_position() == Coordinates{5, 0});
 }
 
 TEST_CASE("boundary and wall blocks cost zero at non-full stamina") {
     GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.x=\n"));
 
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // fields, 12->10
-    CHECK(state.stamina() == 10u);
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // fields, 20->18
+    CHECK(state.stamina() == 18u);
 
     const MoveOutcome wall = outcome_of(state.move(Direction::right));  // wall
     CHECK(wall.result == MoveResult::blocked_by_terrain);
     CHECK(wall.stamina_cost == 0u);
-    CHECK(wall.stamina_before == 10u);
-    CHECK(wall.stamina_after == 10u);
+    CHECK(wall.stamina_before == 18u);
+    CHECK(wall.stamina_after == 18u);
 
     const MoveOutcome edge = outcome_of(state.move(Direction::up));  // off the top edge
     CHECK(edge.result == MoveResult::blocked_by_boundary);
     CHECK(edge.stamina_cost == 0u);
-    CHECK(edge.stamina_before == 10u);
-    CHECK(edge.stamina_after == 10u);
+    CHECK(edge.stamina_before == 18u);
+    CHECK(edge.stamina_after == 18u);
 
-    CHECK(state.stamina() == 10u);
+    CHECK(state.stamina() == 18u);
     CHECK(state.actor_position() == Coordinates{1, 0});
 }
 
@@ -205,12 +213,12 @@ TEST_CASE("repeated peek predicts stamina without mutating any state") {
     CHECK(first.stamina_before == second.stamina_before);
     CHECK(first.stamina_after == second.stamina_after);
     CHECK(first.stamina_cost == 3u);
-    CHECK(first.stamina_before == 12u);
-    CHECK(first.stamina_after == 9u);
+    CHECK(first.stamina_before == 20u);
+    CHECK(first.stamina_after == 17u);
 
     // No peek mutated actor, stamina, or visibility.
     CHECK(state.actor_position() == Coordinates{0, 0});
-    CHECK(state.stamina() == 12u);
+    CHECK(state.stamina() == 20u);
     CHECK(visibility_signature(state) == before_fog);
 
     // The first emitted event still starts the sequence at zero.
@@ -218,99 +226,159 @@ TEST_CASE("repeated peek predicts stamina without mutating any state") {
     CHECK(event.sequence == 0);
 }
 
-TEST_CASE("resting from zero restores exactly four stamina and emits one event") {
-    GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.@@@.\n"));
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 12->8
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 8->4
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 4->0
-    CHECK(state.stamina() == 0u);
-
-    const GameEvent event = state.rest();
-    const RestedEvent rested = rested_of(event);
-    CHECK(rested.stamina_before == 0u);
-    CHECK(rested.stamina_recovered == 4u);
-    CHECK(rested.stamina_after == 4u);
-    CHECK(state.stamina() == 4u);
-    // The fourth command consumes sequence 3, contiguous with the three moves.
-    CHECK(event.sequence == 3u);
-}
-
-TEST_CASE("resting from ten restores only two and caps at twelve") {
-    GameState ten(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.x.\n"));
-    CHECK(outcome_of(ten.move(Direction::right)).result == MoveResult::moved);  // fields: 12->10
-    CHECK(ten.stamina() == 10u);
-
-    const RestedEvent rested = rested_of(ten.rest());
-    CHECK(rested.stamina_before == 10u);
-    CHECK(rested.stamina_recovered == 2u);
-    CHECK(rested.stamina_after == 12u);
-    CHECK(ten.stamina() == 12u);
-    CHECK(ten.stamina() <= GameState::maximum_stamina);
-}
-
-TEST_CASE("resting at full stamina recovers zero but still emits one event") {
+TEST_CASE("resting at full stamina is a heroic no-op and still emits one event") {
     GameState state(spawn_then('.'));
-    CHECK(state.stamina() == 12u);
+    const std::uint32_t provisions_before = state.provisions();
+    CHECK(state.stamina() == 20u);
 
     const GameEvent event = state.rest();
     const RestedEvent rested = rested_of(event);
-    CHECK(rested.stamina_before == 12u);
+    CHECK(rested.result == RestResult::already_full);
+    CHECK(rested.terrain == Terrain::open);
+    CHECK(rested.stamina_before == 20u);
     CHECK(rested.stamina_recovered == 0u);
-    CHECK(rested.stamina_after == 12u);
-    CHECK(state.stamina() == 12u);
-    // The rest is the first command, so it starts the sequence at zero.
+    CHECK(rested.stamina_after == 20u);
+    CHECK(rested.provisions_before == provisions_before);
+    CHECK(rested.provisions_after == provisions_before);
+    CHECK(state.stamina() == 20u);
+    CHECK(state.provisions() == provisions_before);
     CHECK(event.sequence == 0u);
 }
 
-TEST_CASE("resting from nine, ten, and eleven only tops up to the maximum") {
+TEST_CASE("resting below full on mountain recovers two and spends one provision") {
+    GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.@.\n"));
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 20->16
+    REQUIRE(state.actor_terrain() == Terrain::mountain);
+    const std::uint32_t provisions_before = state.provisions();
+
+    const GameEvent event = state.rest();
+    const RestedEvent rested = rested_of(event);
+    CHECK(rested.result == RestResult::recovered);
+    CHECK(rested.terrain == Terrain::mountain);
+    CHECK(rested.stamina_before == 16u);
+    CHECK(rested.stamina_recovered == 2u);
+    CHECK(rested.stamina_after == 18u);
+    CHECK(rested.provisions_before == provisions_before);
+    CHECK(rested.provisions_after + 1u == provisions_before);
+    CHECK(state.stamina() == 18u);
+    CHECK(state.provisions() == provisions_before - 1u);
+    CHECK(event.sequence == 1u);
+}
+
+TEST_CASE("resting on fields is terrain based and capped at twenty") {
+    GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.x.\n"));
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 20->18
+    REQUIRE(state.actor_terrain() == Terrain::fields);
+    const std::uint32_t provisions_before = state.provisions();
+
+    const RestedEvent rested = rested_of(state.rest());
+    CHECK(rested.result == RestResult::recovered);
+    CHECK(rested.terrain == Terrain::fields);
+    CHECK(rested.stamina_before == 18u);
+    CHECK(rested.stamina_recovered == 2u);  // fields recover 6, but cap is 20.
+    CHECK(rested.stamina_after == 20u);
+    CHECK(rested.provisions_before == provisions_before);
+    CHECK(rested.provisions_after + 1u == provisions_before);
+    CHECK(state.stamina() == 20u);
+    CHECK(state.stamina() <= GameState::maximum_stamina);
+}
+
+TEST_CASE("resting from seventeen eighteen and nineteen only tops up to the maximum") {
     struct Case {
         std::uint32_t before;
         std::uint32_t recovered;
     };
-    const Case cases[] = {{9u, 3u}, {10u, 2u}, {11u, 1u}};
+    const Case cases[] = {{17u, 3u}, {18u, 2u}, {19u, 1u}};
     for (const Case& c : cases) {
-        // Build a fresh state and drain to the target starting stamina using
-        // repeated open moves on a long corridor (each open step costs 1).
-        GameState state(make_map("NAM-MAP 1\nwidth 6\nheight 1\nspawn 0 0\n---\n......\n"));
-        while (state.stamina() > c.before) {
+        GameState state(
+            make_map("NAM-MAP 1\nwidth 25\nheight 1\nspawn 0 0\n---\n.........................\n"));
+        const std::uint32_t moves_needed = GameState::maximum_stamina - c.before;
+        for (std::uint32_t i = 0; i < moves_needed; ++i) {
             CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);
         }
         REQUIRE(state.stamina() == c.before);
         const RestedEvent rested = rested_of(state.rest());
+        CHECK(rested.result == RestResult::recovered);
         CHECK(rested.stamina_before == c.before);
         CHECK(rested.stamina_recovered == c.recovered);
-        CHECK(rested.stamina_after == 12u);
-        CHECK(state.stamina() == 12u);
+        CHECK(rested.stamina_after == 20u);
+        CHECK(state.stamina() == 20u);
     }
 }
 
-TEST_CASE("resting from zero allows the next water move and leaves one stamina") {
-    // Spawn beside water: from full a right move onto water costs 3. First drain
-    // to zero on a mountain corridor, rest to 4, then a water step (cost 3) leaves
-    // exactly 1.
-    GameState state(make_map("NAM-MAP 1\nwidth 6\nheight 1\nspawn 0 0\n---\n.@@@~.\n"));
+TEST_CASE("resting below full with zero provisions is a no-op") {
+    GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.@.\n"));
+    REQUIRE(state.provisions() >= 1u);
+
+    std::uint32_t safety = 0;
+    while (state.provisions() > 0u) {
+        const Direction direction =
+            state.actor_position().x == 0 ? Direction::right : Direction::left;
+        const GameEvent moved = state.move(direction);
+        REQUIRE(outcome_of(moved).result == MoveResult::moved);
+        REQUIRE(state.stamina() < GameState::maximum_stamina);
+
+        const std::uint32_t provisions_before = state.provisions();
+        const RestedEvent rested = rested_of(state.rest());
+        CHECK(rested.result == RestResult::recovered);
+        CHECK(rested.provisions_before == provisions_before);
+        CHECK(rested.provisions_after + 1u == provisions_before);
+
+        ++safety;
+        REQUIRE(safety < 100u);
+    }
+
+    const Direction direction = state.actor_position().x == 0 ? Direction::right : Direction::left;
+    const GameEvent moved = state.move(direction);
+    REQUIRE(outcome_of(moved).result == MoveResult::moved);
+    const std::uint32_t stamina_before = state.stamina();
+    REQUIRE(stamina_before < GameState::maximum_stamina);
+
+    const GameEvent event = state.rest();
+    const RestedEvent rested = rested_of(event);
+    CHECK(rested.result == RestResult::no_provisions);
+    CHECK(rested.stamina_before == stamina_before);
+    CHECK(rested.stamina_recovered == 0u);
+    CHECK(rested.stamina_after == stamina_before);
+    CHECK(rested.provisions_before == 0u);
+    CHECK(rested.provisions_after == 0u);
+    CHECK(state.stamina() == stamina_before);
+    CHECK(state.provisions() == 0u);
+}
+
+TEST_CASE("resting on fields from zero enables the next water move") {
+    // Drain to zero on fields (2-cost terrain), then recover 6 on fields and take
+    // a water move that was previously unaffordable.
+    GameState state(make_map("NAM-MAP 1\nwidth 8\nheight 1\nspawn 0 0\n---\n.@@@@xx~\n"));
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 20->16
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 16->12
     CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 12->8
     CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 8->4
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 4->0
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 4->2
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 2->0
+    CHECK(state.actor_terrain() == Terrain::fields);
     CHECK(state.stamina() == 0u);
 
-    // At zero, the next water step is unaffordable.
     CHECK(state.peek(Direction::right).result == MoveResult::blocked_by_stamina);
 
+    const std::uint32_t provisions_before = state.provisions();
     const RestedEvent rested = rested_of(state.rest());
-    CHECK(rested.stamina_after == 4u);
+    CHECK(rested.result == RestResult::recovered);
+    CHECK(rested.terrain == Terrain::fields);
+    CHECK(rested.stamina_after == 6u);
+    CHECK(rested.provisions_before == provisions_before);
+    CHECK(rested.provisions_after + 1u == provisions_before);
 
     const MoveOutcome water = outcome_of(state.move(Direction::right));  // water, cost 3.
     CHECK(water.result == MoveResult::moved);
     CHECK(water.terrain == Terrain::water);
     CHECK(water.stamina_cost == 3u);
-    CHECK(state.stamina() == 1u);
+    CHECK(state.stamina() == 3u);
 }
 
-TEST_CASE("resting preserves actor position, map serialization, and visibility") {
-    GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.@@@.\n"));
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 12->8
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 8->4
+TEST_CASE("resting preserves actor position map serialization and visibility") {
+    GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.@.\n"));
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 20->16
 
     const Coordinates before_pos = state.actor_position();
     const std::string before_render = state.render();

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include "coordinates.h"
@@ -43,6 +44,27 @@ struct BeaconObjective {
     Coordinates beacon{};
     std::string name;
     ObjectiveStatus status = ObjectiveStatus::seeking_beacon;
+    // The deterministic cheapest round-trip stamina cost for this expedition: the
+    // minimum terrain-entry stamina cost of a walkable cardinal path from spawn to
+    // the beacon plus the minimum terrain-entry stamina cost of a walkable
+    // cardinal path from the beacon back to spawn. Edge weights are
+    // stamina_cost_of(destination), the single terrain-cost/walkability source, so
+    // this scalar is a pure objective property every frontend can reuse to score a
+    // run. It is 0 when the beacon coincides with spawn (a single-cell map).
+    std::uint64_t minimum_round_trip_stamina_cost = 0;
+    // The deterministic minimum number of provisions that make this expedition
+    // feasible: a finite state search over (position, stamina 0..maximum, phase)
+    // that minimizes provisions consumed to travel from spawn to the beacon and
+    // back, where a move needs stamina_cost_of(destination) stamina and a rest
+    // spends one provision to recover rest_recovery_of(current terrain) capped at
+    // the stamina maximum. It is 0 when the beacon coincides with spawn. Frontends
+    // start a run with this baseline plus one spare provision.
+    std::uint64_t minimum_required_provisions = 0;
+    // The number of walkable cells reachable from spawn over cardinal walkable
+    // steps, including spawn itself. A pure map/objective property used as the
+    // denominator of the rescued exploration score, so every frontend agrees on
+    // the exploration fraction.
+    std::uint64_t total_reachable_walkable_cells = 0;
 };
 
 // The before/after status and typed transition around one movement command,
@@ -66,7 +88,12 @@ struct ObjectiveUpdate {
 // deterministic name is then generated and the initial status is set. When spawn
 // is the only reachable walkable cell the beacon is placed at spawn and the
 // objective starts completed.
-[[nodiscard]] BeaconObjective create_beacon_objective(const Map& map);
+//
+// `max_stamina` is the stamina cap used by the deterministic minimum-provision
+// search; callers pass GameState::maximum_stamina so the objective and the game
+// share one cap. The default matches the current baseline for renderer-only and
+// objective-only fixtures that do not construct a GameState.
+[[nodiscard]] BeaconObjective create_beacon_objective(const Map& map, std::uint32_t max_stamina = 20);
 
 // Advance the objective for a committed actor position and return the exact
 // transition it caused. Only a successful move that first enters the beacon cell

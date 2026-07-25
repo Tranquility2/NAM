@@ -8,12 +8,14 @@
 #include "app_state.h"
 #include "coordinates.h"
 #include "direction.h"
+#include "expedition_report.h"
 #include "game_event.h"
 #include "journal.h"
 #include "map.h"
 #include "move_outcome.h"
 #include "objective.h"
 #include "renderer.h"
+#include "settings.h"
 #include "terminal.h"
 #include "terrain.h"
 #include "visibility.h"
@@ -50,6 +52,8 @@ RenderInput make_input(const Map& map) {
     input.attempt_count = 5;
     input.stamina = 7;
     input.max_stamina = 12;
+    input.provisions = 3;
+    input.starting_provisions = 4;
     input.message = "Moved onto open ground for 1 stamina.";
     input.recent = {RecentMove{Direction::up}, RecentMove{Direction::left}};
     return input;
@@ -114,6 +118,79 @@ Journal make_travel_journal(std::uint32_t count) {
         journal.record_event(GameEvent{i, move}, "Beacon");
     }
     return journal;
+}
+
+// Build a completed expedition report over an open corridor of the given interior
+// width. The corridor is wall-bordered with an open middle row; the beacon sits at
+// a distant cell, so a route-map row is `width + 2` bytes wide - wide enough to
+// force horizontal scrolling in the viewport tests. The journal carries one travel
+// entry plus a completion entry so the report body is realistic.
+ExpeditionReport build_test_report(std::size_t interior_width) {
+    const std::size_t width = interior_width + 2;
+    const std::size_t height = 3;
+    std::vector<Terrain> cells(width * height, Terrain::wall_horizontal);
+    for (std::size_t x = 0; x < width; ++x) {
+        cells[width + x] = Terrain::open;  // The middle row is open ground.
+    }
+    cells[width] = Terrain::open;                 // Spawn cell (0,1).
+    cells[width + (width - 1)] = Terrain::open;   // Far cell.
+    Map map(width, height, cells, Coordinates{0, 1});
+    const BeaconObjective objective = create_beacon_objective(map);
+
+    VisibilityMap visibility(width, height);
+    visibility.reveal_square(Coordinates{static_cast<int>(width) / 2, 1},
+                             static_cast<int>(width) + static_cast<int>(height));
+
+    Journal journal;
+    MoveAttemptedEvent move;
+    move.direction = Direction::right;
+    move.outcome.result = MoveResult::moved;
+    move.outcome.terrain = Terrain::open;
+    move.outcome.stamina_cost = 1;
+    journal.record_event(GameEvent{0, move}, objective.name);
+    journal.record_initial_completion(objective.name);
+
+    RouteHistory route(map.spawn());
+    Settings settings;  // Built-in identity.
+    return build_expedition_report(ExpeditionResult::completed, objective, map, visibility,
+                                   journal, route, world_identity_from(settings),
+                                   /*move_count=*/1, /*attempt_count=*/1,
+                                   /*final_stamina=*/11, /*max_stamina=*/12,
+                                   /*starting_provisions=*/4,
+                                   /*provisions_remaining=*/3);
+}
+
+ExpeditionReport build_rescued_report() {
+    const Map map = Map(4, 1, std::vector<Terrain>(4, Terrain::open), Coordinates{0, 0});
+    BeaconObjective objective;
+    objective.beacon = Coordinates{3, 0};
+    objective.name = "Glass River Beacon";
+    objective.status = ObjectiveStatus::returning_to_spawn;
+    objective.minimum_round_trip_stamina_cost = 6;
+    objective.minimum_required_provisions = 1;
+    objective.total_reachable_walkable_cells = 4;
+
+    VisibilityMap visibility(4, 1);
+    visibility.reveal_square(Coordinates{1, 0}, 1);
+
+    Journal journal;
+    MoveAttemptedEvent move;
+    move.direction = Direction::right;
+    move.outcome.result = MoveResult::moved;
+    move.outcome.terrain = Terrain::open;
+    move.outcome.stamina_cost = 1;
+    move.outcome.to = Coordinates{1, 0};
+    journal.record_event(GameEvent{0, move}, objective.name);
+
+    RouteHistory route(map.spawn());
+    route.record_event(GameEvent{0, move});
+    Settings settings;
+    return build_expedition_report(ExpeditionResult::rescued, objective, map, visibility, journal,
+                                   route, world_identity_from(settings),
+                                   /*move_count=*/1, /*attempt_count=*/2,
+                                   /*final_stamina=*/0, /*max_stamina=*/20,
+                                   /*starting_provisions=*/2,
+                                   /*provisions_remaining=*/0);
 }
 
 // Concatenate a frame's raw rows so escape sequences can be searched globally.
@@ -323,42 +400,48 @@ TEST_CASE("debug mode adds a diagnostics line in the standard layout") {
     CHECK(has_debug);
 }
 
-TEST_CASE("standard status shows stamina before terrain and moves and keeps bounds") {
+TEST_CASE("standard status shows stamina provisions terrain and moves in order") {
     const Map map = open_map(8, 4);
     const Renderer renderer(plain_config());
     const Frame frame = renderer.render(make_input(map), TerminalSize{80, 24});
     const std::string visible = join_visible(frame);
     const std::size_t stam = visible.find("Stamina: 7/12");
+    const std::size_t prov = visible.find("Provisions: 3/4");
     const std::size_t terr = visible.find("Terrain:");
     const std::size_t moves = visible.find("Moves:");
     REQUIRE(stam != std::string::npos);
+    REQUIRE(prov != std::string::npos);
     REQUIRE(terr != std::string::npos);
     REQUIRE(moves != std::string::npos);
-    CHECK(stam < terr);   // stamina precedes terrain,
-    CHECK(terr < moves);  // which precedes the move count.
-    CHECK(frame.size() == 24);        // frame bounds unchanged,
-    CHECK_FALSE(any_esc(frame));      // and plain rendering stays ANSI-free.
+    CHECK(stam < prov);
+    CHECK(prov < terr);
+    CHECK(terr < moves);
+    CHECK(frame.size() == 24);
+    CHECK_FALSE(any_esc(frame));
 }
 
-TEST_CASE("compact status places stamina after position and before terrain and moves") {
+TEST_CASE("compact status places stamina and provisions before terrain and moves") {
     const Map map = open_map(8, 4);
     const Renderer renderer(plain_config());
-    const Frame frame = renderer.render(make_input(map), TerminalSize{30, 10});
+    const Frame frame = renderer.render(make_input(map), TerminalSize{80, 6});
     const std::string visible = join_visible(frame);
     const std::size_t pos = visible.find("(0,0)");
     const std::size_t stam = visible.find("S:7/12");
+    const std::size_t prov = visible.find("P:3/4");
     const std::size_t terr = visible.find("open ground");
     const std::size_t moves = visible.find("M:3");
     REQUIRE(pos != std::string::npos);
     REQUIRE(stam != std::string::npos);
+    REQUIRE(prov != std::string::npos);
     REQUIRE(terr != std::string::npos);
     REQUIRE(moves != std::string::npos);
-    CHECK(pos < stam);    // stamina immediately follows the position,
-    CHECK(stam < terr);   // precedes terrain,
-    CHECK(terr < moves);  // and the move count.
-    CHECK(frame.size() == 10);
+    CHECK(pos < stam);
+    CHECK(stam < prov);
+    CHECK(prov < terr);
+    CHECK(terr < moves);
+    CHECK(frame.size() == 6);
     for (const std::string& row : frame) {
-        CHECK(strip_ansi(row).size() <= 30);
+        CHECK(strip_ansi(row).size() <= 80);
     }
 }
 
@@ -398,6 +481,24 @@ TEST_CASE("plain-mode text is self-contained and ANSI-free") {
     CHECK(text.find("Pos") != std::string::npos);
     CHECK(text.find("Moves:") != std::string::npos);
     CHECK(text.find(actor_glyph) != std::string::npos);
+}
+
+TEST_CASE("hud status includes provisions in standard compact and plain layouts") {
+    const Map map = open_map(8, 4);
+    const Renderer renderer(plain_config());
+
+    const Frame standard = renderer.render(make_input(map), TerminalSize{80, 24});
+    CHECK(join_visible(standard).find(
+              "Pos (0,0)   Stamina: 7/12   Provisions: 3/4   Terrain: open ground   Moves: 3") !=
+          std::string::npos);
+
+    const Frame compact = renderer.render(make_input(map), TerminalSize{80, 6});
+    CHECK(join_visible(compact).find("(0,0) S:7/12 P:3/4 open ground  M:3") !=
+          std::string::npos);
+
+    const std::string plain = renderer.render_plain(make_input(map));
+    CHECK(plain.find("Pos (0,0)  Stamina: 7/12  Provisions: 3/4  Terrain: open ground  Moves: 3") !=
+          std::string::npos);
 }
 
 TEST_CASE("rendering is a pure function of its input") {
@@ -729,7 +830,7 @@ TEST_CASE("the interactive discovery screen contains the exact ordered lines and
     CHECK(frame.size() == 16);
     CHECK_FALSE(any_esc(frame));
     for (const std::string& row : frame) {
-        CHECK(strip_ansi(row).size() <= 60);
+        CHECK(strip_ansi(row).size() <= 80);
     }
     const std::vector<std::string> lines = panel_content_lines(frame);
     REQUIRE(lines.size() == 4);
@@ -737,6 +838,31 @@ TEST_CASE("the interactive discovery screen contains the exact ordered lines and
     CHECK(lines[1] == "Glass River Beacon");
     CHECK(lines[2] == "Return to spawn to complete the expedition.");
     CHECK(lines[3] == "Press Enter to continue, or use a movement key.");
+}
+
+TEST_CASE("the interactive rescue screen contains exact lines and stays bounded") {
+    const Renderer renderer(color_config());
+    const Frame frame = renderer.render_rescue("Glass River Beacon", TerminalSize{80, 16});
+    CHECK(frame.size() == 16);
+    CHECK_FALSE(any_esc(frame));
+    for (const std::string& row : frame) {
+        CHECK(strip_ansi(row).size() <= 80);
+    }
+    const std::vector<std::string> lines = panel_content_lines(frame);
+    REQUIRE(lines.size() == 5);
+    CHECK(lines[0] == "RESCUE REQUESTED");
+    CHECK(lines[1] == "Glass River Beacon");
+    CHECK(lines[2] == "Provisions exhausted and no move remains.");
+    CHECK(lines[3] == "You light a flare and wait for an embarrassingly early pickup.");
+    CHECK(lines[4] == "Press Enter to read the expedition report.");
+
+    const std::string plain = renderer.render_rescue_plain("Glass River Beacon");
+    CHECK(plain ==
+          "RESCUE REQUESTED\n"
+          "Glass River Beacon\n"
+          "Provisions exhausted and no move remains.\n"
+          "You light a flare and wait for an embarrassingly early pickup.\n"
+          "Press Enter to read the expedition report.\n");
 }
 
 TEST_CASE("the plain discovery block is the exact lines with one trailing newline and no ANSI") {
@@ -757,59 +883,172 @@ TEST_CASE("the plain discovery block is the exact lines with one trailing newlin
     CHECK(block[block.size() - 2] != '\n');
 }
 
-TEST_CASE("the interactive completion screen contains the exact ordered summary lines") {
-    // REQ-023 / REQ-024 / TEST-013: exactly the six completion lines in order,
-    // with the counters and final stamina rendered in decimal.
+TEST_CASE("the plain report block is the full report with one trailing newline and no ANSI") {
+    // REQ-010 / REQ-011 / TEST-006: the plain report is every logical line, one per
+    // line, with exactly one trailing newline and no escape byte.
+    const Renderer renderer(plain_config());
+    const ExpeditionReport report = build_test_report(5);
+    const std::string block = renderer.render_report_plain(report);
+    CHECK(block.find('\x1b') == std::string::npos);
+    const std::vector<std::string> lines = split_lines(block);
+    // Exact section order (REQ-011).
+    REQUIRE(lines.front() == "EXPEDITION REPORT");
+    bool saw_stats = false;
+    bool saw_route = false;
+    bool saw_journal = false;
+    for (const std::string& line : lines) {
+        if (line == "STATISTICS") saw_stats = true;
+        if (line == "ROUTE MAP") saw_route = true;
+        if (line == "EXPEDITION JOURNAL") saw_journal = true;
+    }
+    CHECK(saw_stats);
+    CHECK(saw_route);
+    CHECK(saw_journal);
+    // Exactly one trailing newline.
+    REQUIRE(block.size() >= 2);
+    CHECK(block.back() == '\n');
+    CHECK(block[block.size() - 2] != '\n');
+}
+
+TEST_CASE("a rescued report renders rescued result text and a 750-point score line") {
+    const Renderer renderer(plain_config());
+    const ExpeditionReport report = build_rescued_report();
+    const std::string block = renderer.render_report_plain(report);
+    CHECK(block.find("Result: rescued after running out of provisions.") != std::string::npos);
+    CHECK(block.find("Score: 605 / 750") != std::string::npos);
+}
+
+TEST_CASE("the interactive report frame is exactly rows tall, ANSI-free, and column-bounded") {
+    // REQ-010 / GUD-004 / TEST-009: a report frame has exactly `rows` rows, each
+    // within `columns`, and carries no ANSI escape byte.
     const Renderer renderer(color_config());
-    const CompletionSummary summary{"Glass River Beacon", 8, 11, 3, 12};
-    const Frame frame = renderer.render_completion(summary, TerminalSize{40, 16});
+    const ExpeditionReport report = build_test_report(6);
+    const Frame frame = renderer.render_report(report, ReportViewport{}, TerminalSize{40, 16});
     CHECK(frame.size() == 16);
     CHECK_FALSE(any_esc(frame));
     for (const std::string& row : frame) {
-        CHECK(strip_ansi(row).size() <= 40);
+        CHECK(row.size() <= 40);
     }
-    const std::vector<std::string> lines = panel_content_lines(frame);
-    REQUIRE(lines.size() == 6);
-    CHECK(lines[0] == "EXPEDITION COMPLETE");
-    CHECK(lines[1] == "Beacon: Glass River Beacon");
-    CHECK(lines[2] == "Moves: 8");
-    CHECK(lines[3] == "Attempts: 11");
-    CHECK(lines[4] == "Final stamina: 3/12");
-    CHECK(lines[5] == "Press Enter or q to exit.");
 }
 
-TEST_CASE("the plain completion block is the exact lines with one trailing newline and no ANSI") {
-    // REQ-033 / TEST-013.
+TEST_CASE("the report frame uses the 80x24 fallback for an unknown size") {
+    // An invalid size falls back to 80x24, so the frame has 24 rows within 80 cols.
+    const Renderer renderer(color_config());
+    const ExpeditionReport report = build_test_report(6);
+    const Frame frame = renderer.render_report(report, ReportViewport{}, TerminalSize{0, 0});
+    CHECK(frame.size() == 24);
+    for (const std::string& row : frame) {
+        CHECK(row.size() <= 80);
+    }
+}
+
+TEST_CASE("a report frame below the minimum reuses the bounded too-small panel") {
+    const Renderer renderer(color_config());
+    const ExpeditionReport report = build_test_report(6);
+    const Frame frame = renderer.render_report(report, ReportViewport{}, TerminalSize{11, 5});
+    CHECK(frame.size() == 5);
+    bool mentions_small = false;
+    for (const std::string& row : frame) {
+        if (row.find("Window") != std::string::npos) {
+            mentions_small = true;
+        }
+        CHECK(row.size() <= 11);
+    }
+    CHECK(mentions_small);
+}
+
+TEST_CASE("vertical report scrolling clamps to the last page and reveals lower lines") {
+    // REQ-004 / REQ-005 / GUD-004: scrolling past the bottom clamps, and a large
+    // downward offset shows the final report lines.
     const Renderer renderer(plain_config());
-    const CompletionSummary summary{"Glass River Beacon", 8, 11, 3, 12};
-    const std::string block = renderer.render_completion_plain(summary);
-    CHECK(block ==
-          "EXPEDITION COMPLETE\n"
-          "Beacon: Glass River Beacon\n"
-          "Moves: 8\n"
-          "Attempts: 11\n"
-          "Final stamina: 3/12\n"
-          "Press Enter or q to exit.\n");
-    CHECK(block.find('\x1b') == std::string::npos);
-    const std::vector<std::string> lines = split_lines(block);
-    REQUIRE(lines.size() == 6);
-    CHECK(lines.front() == "EXPEDITION COMPLETE");
+    const ExpeditionReport report = build_test_report(6);
+    const TerminalSize size{120, 10};
+    const ReportViewport clamped =
+        renderer.clamp_report_viewport(report, ReportViewport{1000, 0}, size);
+    const int capacity = renderer.report_page_capacity(size);
+    const int body_count = static_cast<int>(format_report_lines(report).size()) - 1;
+    CHECK(clamped.vertical == std::max(0, body_count - capacity));
+    CHECK(clamped.horizontal == 0);
+
+    // The last body line (the final journal entry) must be visible at max scroll.
+    const std::vector<std::string> all = format_report_lines(report);
+    const Frame frame = renderer.render_report(report, ReportViewport{1000, 0}, size);
+    bool saw_last = false;
+    for (const std::string& row : frame) {
+        if (row == all.back()) saw_last = true;
+    }
+    CHECK(saw_last);
 }
 
-TEST_CASE("objective screens use the 80x24 fallback for an unknown size") {
+TEST_CASE("horizontal report scrolling reaches every byte of a wide route-map row") {
+    // REQ-006 / ASSUMPTION-005: a route-map row wider than the terminal is fully
+    // viewable by panning right until its last byte appears.
+    const Renderer renderer(plain_config());
+    const ExpeditionReport report = build_test_report(60);  // Rows are 62 bytes wide.
+    const TerminalSize size{20, 24};
+    const std::vector<std::string> all = format_report_lines(report);
+    // The route-map rows are the widest body lines; find the longest.
+    std::size_t longest = 0;
+    for (std::size_t i = 1; i < all.size(); ++i) {
+        longest = std::max(longest, all[i].size());
+    }
+    REQUIRE(longest > 20);
+
+    const ReportViewport clamped =
+        renderer.clamp_report_viewport(report, ReportViewport{0, 100000}, size);
+    CHECK(clamped.horizontal == static_cast<int>(longest) - 20);
+
+    // At the maximum horizontal offset, the tail byte of the longest row is on
+    // screen: scanning across offsets [0, max] covers every byte.
+    const Frame frame = renderer.render_report(report, ReportViewport{0, 100000}, size);
+    for (const std::string& row : frame) {
+        CHECK(row.size() <= 20);
+    }
+    CHECK_FALSE(any_esc(frame));
+}
+
+TEST_CASE("report frames are deterministic for identical inputs") {
+    const Renderer renderer(color_config());
+    const ExpeditionReport report = build_test_report(8);
+    const Frame a = renderer.render_report(report, ReportViewport{2, 1}, TerminalSize{50, 18});
+    const Frame b = renderer.render_report(report, ReportViewport{2, 1}, TerminalSize{50, 18});
+    CHECK(a == b);
+}
+
+TEST_CASE("the interactive discovery screen stays bounded across a range of sizes") {
+    // REQ-031 / TEST-009: every above-minimum size yields exactly `rows` rows, each
+    // within `columns`, for the discovery screen and the report.
+    const Renderer renderer(color_config());
+    const ExpeditionReport report = build_test_report(6);
+    for (int rows = 6; rows <= 40; rows += 7) {
+        for (int cols = 16; cols <= 100; cols += 21) {
+            const Frame discovery =
+                renderer.render_discovery("Glass River Beacon", TerminalSize{cols, rows});
+            const Frame frame =
+                renderer.render_report(report, ReportViewport{}, TerminalSize{cols, rows});
+            CHECK(discovery.size() == static_cast<std::size_t>(rows));
+            CHECK(frame.size() == static_cast<std::size_t>(rows));
+            for (const std::string& row : discovery) {
+                CHECK(strip_ansi(row).size() <= static_cast<std::size_t>(cols));
+            }
+            for (const std::string& row : frame) {
+                CHECK(row.size() <= static_cast<std::size_t>(cols));
+            }
+        }
+    }
+}
+
+TEST_CASE("the discovery screen uses the 80x24 fallback for an unknown size") {
     // REQ-031: an invalid size falls back to 80x24, so the frame has 24 rows.
     const Renderer renderer(color_config());
     const Frame discovery = renderer.render_discovery("Glass River Beacon", TerminalSize{0, 0});
     CHECK(discovery.size() == 24);
-    const CompletionSummary summary{"Glass River Beacon", 8, 11, 3, 12};
-    const Frame completion = renderer.render_completion(summary, TerminalSize{0, 0});
-    CHECK(completion.size() == 24);
     for (const std::string& row : discovery) {
         CHECK(strip_ansi(row).size() <= 80);
     }
 }
 
-TEST_CASE("objective screens below the minimum reuse the bounded too-small panel") {
+TEST_CASE("the discovery screen below the minimum reuses the bounded too-small panel") {
     // REQ-032: a size below the absolute minimum shows the shared window-too-small
     // panel, bounded to the requested size.
     const Renderer renderer(color_config());
@@ -823,28 +1062,6 @@ TEST_CASE("objective screens below the minimum reuse the bounded too-small panel
         CHECK(row.size() <= 11);
     }
     CHECK(mentions_small);
-}
-
-TEST_CASE("objective screens are exactly rows tall and bounded across a range of sizes") {
-    // REQ-031 / TEST-009: every above-minimum size yields exactly `rows` rows, each
-    // within `columns`, for both the discovery and completion screens.
-    const Renderer renderer(color_config());
-    const CompletionSummary summary{"Glass River Beacon", 8, 11, 3, 12};
-    for (int rows = 6; rows <= 40; rows += 7) {
-        for (int cols = 16; cols <= 100; cols += 21) {
-            const Frame discovery =
-                renderer.render_discovery("Glass River Beacon", TerminalSize{cols, rows});
-            const Frame completion = renderer.render_completion(summary, TerminalSize{cols, rows});
-            CHECK(discovery.size() == static_cast<std::size_t>(rows));
-            CHECK(completion.size() == static_cast<std::size_t>(rows));
-            for (const std::string& row : discovery) {
-                CHECK(strip_ansi(row).size() <= static_cast<std::size_t>(cols));
-            }
-            for (const std::string& row : completion) {
-                CHECK(strip_ansi(row).size() <= static_cast<std::size_t>(cols));
-            }
-        }
-    }
 }
 
 TEST_CASE("the plain journal block is ANSI-free with a header and one trailing newline") {

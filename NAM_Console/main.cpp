@@ -39,26 +39,41 @@ int main(int argc, char** argv) {
 
     // Load and validate the map up front. This needs no terminal, so map errors
     // are reported cleanly whether or not stdout is a TTY.
+    Settings settings = cli.settings;
     std::optional<Map> map;
-    if (cli.settings.map_path) {
-        MapLoadResult result = load_map_file(*cli.settings.map_path);
+    if (settings.map_path) {
+        MapLoadResult result = load_map_file(*settings.map_path);
         if (const MapLoadError* error = std::get_if<MapLoadError>(&result)) {
             std::cerr << "nam_console: " << describe_map_error(*error) << "\n";
             return 1;
         }
         map.emplace(std::get<Map>(std::move(result)));
-    } else if (cli.settings.seed_text) {
-        // A seed selects the procedural Tiny World. Hash the exact seed bytes,
-        // then generate. A generation failure mirrors the map/data error contract
-        // (concise diagnostic on stderr, exit 1). The seed is displayed only
-        // through the escaping helper so raw control bytes never reach the
-        // terminal.
-        const std::uint64_t numeric_seed = hash_seed_text(*cli.settings.seed_text);
+    } else if (settings.seed_text) {
+        // A text seed selects the procedural Tiny World. Hash the exact seed bytes
+        // once, store the resulting numeric identity so both seed forms share one
+        // replay identity, then generate. A generation failure mirrors the
+        // map/data error contract (concise diagnostic on stderr, exit 1). The seed
+        // is displayed only through the escaping helper so raw control bytes never
+        // reach the terminal.
+        const std::uint64_t numeric_seed = hash_seed_text(*settings.seed_text);
+        settings.numeric_seed = numeric_seed;
         WorldGenerationResult result = generate_tiny_world(numeric_seed);
         if (const WorldGenerationError* error = std::get_if<WorldGenerationError>(&result)) {
             std::cerr << "nam_console: could not generate a world for seed "
-                      << format_seed_for_display(*cli.settings.seed_text) << ": "
+                      << format_seed_for_display(*settings.seed_text) << ": "
                       << to_string(error->code) << "\n";
+            return 1;
+        }
+        map.emplace(std::move(std::get<GeneratedWorld>(result).map));
+    } else if (settings.numeric_seed) {
+        // A numeric seed selects the procedural Tiny World directly from the exact
+        // decimal identity, so the same value reproduces the same world, objective,
+        // report identity, and score on every platform.
+        const std::uint64_t numeric_seed = *settings.numeric_seed;
+        WorldGenerationResult result = generate_tiny_world(numeric_seed);
+        if (const WorldGenerationError* error = std::get_if<WorldGenerationError>(&result)) {
+            std::cerr << "nam_console: could not generate a world for seed number "
+                      << numeric_seed << ": " << to_string(error->code) << "\n";
             return 1;
         }
         map.emplace(std::move(std::get<GeneratedWorld>(result).map));
@@ -72,5 +87,5 @@ int main(int argc, char** argv) {
     }
 
     GameState state(std::move(*map));
-    return run(std::move(state), cli.settings, environment);
+    return run(std::move(state), settings, environment);
 }

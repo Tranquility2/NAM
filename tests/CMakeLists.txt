@@ -66,14 +66,16 @@ nam_add_unit_test(nam_parser_tests
 nam_add_unit_test(nam_game_tests
     SOURCES test_movement.cpp test_rendering.cpp test_determinism.cpp
             test_pcg32.cpp test_game_events.cpp test_world_generation.cpp
-            test_visibility.cpp test_stamina.cpp test_objective.cpp)
+            test_visibility.cpp test_stamina.cpp test_objective.cpp
+            test_expedition_score.cpp)
 
 nam_add_unit_test(nam_input_tests
     SOURCES test_input_decoder.cpp)
 
 nam_add_unit_test(nam_console_tests
     SOURCES test_settings.cpp test_renderer.cpp test_messages.cpp
-            test_app_state.cpp test_console_app.cpp test_journal.cpp)
+            test_app_state.cpp test_console_app.cpp test_journal.cpp
+            test_expedition_report.cpp)
 
 # --- CLI integration tests --------------------------------------------------
 #
@@ -85,6 +87,7 @@ if(TARGET nam_console)
     set(_quit_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_quit.txt)
     set(_moves_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_moves.txt)
     set(_beacon_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_beacon.txt)
+    set(_rescue_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_rescue.txt)
 
     # add a CLI test: name plus driver options forwarded as -D definitions.
     function(nam_add_cli_test name)
@@ -130,16 +133,30 @@ if(TARGET nam_console)
         -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
 
     # A scripted expedition on a dedicated corridor map walks out to the beacon
-    # and back to spawn, so the real executable opens the beacon-discovery screen,
-    # then the expedition-completion screen, and exits 0 on the end-of-input
-    # acknowledgement — no quit command — with the exact completion banner and no
-    # ANSI when redirected. The run is also deterministic across identical runs.
+    # and back to spawn, so the real executable completes the objective and prints
+    # the final expedition report, then exits 0 on the end-of-input acknowledgement
+    # with the report banners present and no ANSI when redirected. The run is also
+    # deterministic across identical runs.
     nam_add_cli_test(cli_run_beacon_complete
         "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_beacon_stdin}
-        -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=EXPEDITION COMPLETE"
+        -DEXPECT_CODE=0
+        "-DEXPECT_CONTAINS=EXPEDITION REPORT|ROUTE MAP|EXPEDITION JOURNAL|Score:|Move attempts:|Blocked moves:|Provisions starting:"
         -DFORBID_ESC=1)
     nam_add_cli_test(cli_run_beacon_deterministic
         "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_beacon_stdin}
+        -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
+
+    # A scripted run on the same corridor drains the single spare provision and then
+    # the stamina, stranding the explorer: the real executable prints the rescue
+    # block and the failed (rescued) expedition report once, exits 0, stays ANSI-free
+    # when redirected, and is deterministic across identical runs.
+    nam_add_cli_test(cli_run_beacon_rescue
+        "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_rescue_stdin}
+        -DEXPECT_CODE=0
+        "-DEXPECT_CONTAINS=RESCUE REQUESTED|Result: rescued|Blocked moves:|Provisions used:"
+        -DFORBID_ESC=1)
+    nam_add_cli_test(cli_run_beacon_rescue_deterministic
+        "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_rescue_stdin}
         -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
 
     # --- seeded Tiny World integration -------------------------------------
@@ -162,4 +179,42 @@ if(TARGET nam_console)
     string(REPEAT "a" 129 _overlong_seed)
     nam_add_cli_test(cli_seed_overlong
         "-DARGS=--seed=${_overlong_seed}" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=128 bytes")
+
+    # --- numeric seed replay integration -----------------------------------
+    #
+    # The numeric-seed forms exercise the strict decimal parse and the direct
+    # generation path: boundary values are accepted, the world is deterministic,
+    # and every malformed/overflow/repeat/conflict case exits 2.
+    nam_add_cli_test(cli_seed_number_min
+        "-DARGS=--seed-number=0|--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
+        "-DEXPECT_CONTAINS=Tiny World seed number: 0" -DFORBID_ESC=1)
+    nam_add_cli_test(cli_seed_number_max
+        "-DARGS=--seed-number|18446744073709551615|--plain" -DINPUT_FILE=${_quit_stdin}
+        -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=Tiny World seed number: 18446744073709551615"
+        -DFORBID_ESC=1)
+    nam_add_cli_test(cli_seed_number_deterministic
+        "-DARGS=--seed-number=42|--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
+        -DEXPECT_DETERMINISTIC=1)
+    # The decimal hash of "glass-river" reproduces the same Tiny World as
+    # --seed glass-river (verified by the settings unit tests); here it must at
+    # least generate and report its numeric identity.
+    nam_add_cli_test(cli_seed_number_equivalent
+        "-DARGS=--seed-number=1099592901251399996|--plain" -DINPUT_FILE=${_quit_stdin}
+        -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=Tiny World seed number: 1099592901251399996"
+        -DFORBID_ESC=1)
+    nam_add_cli_test(cli_seed_number_malformed
+        "-DARGS=--seed-number=12x" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=decimal integer")
+    nam_add_cli_test(cli_seed_number_negative
+        "-DARGS=--seed-number|-5" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=decimal integer")
+    nam_add_cli_test(cli_seed_number_overflow
+        "-DARGS=--seed-number=18446744073709551616" -DEXPECT_CODE=2
+        "-DEXPECT_CONTAINS=decimal integer")
+    nam_add_cli_test(cli_seed_number_repeat
+        "-DARGS=--seed-number=1|--seed-number=2" -DEXPECT_CODE=2
+        "-DEXPECT_CONTAINS=more than once")
+    nam_add_cli_test(cli_seed_number_conflict_seed
+        "-DARGS=--seed-number=1|--seed=a" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=not both")
+    nam_add_cli_test(cli_seed_number_conflict_map
+        "-DARGS=--seed-number=1|--map|${NAM_FIXTURES_DIR}/valid-lf.map" -DEXPECT_CODE=2
+        "-DEXPECT_CONTAINS=not both")
 endif()

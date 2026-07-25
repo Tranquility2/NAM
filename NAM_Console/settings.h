@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -32,6 +33,12 @@ struct Environment {
 struct Settings {
     std::optional<std::string> map_path;   // std::nullopt selects the built-in map.
     std::optional<std::string> seed_text;  // std::nullopt means no procedural world.
+    // The resolved numeric Tiny World seed, when the world is procedurally
+    // generated. A text seed stores its deterministic hash here so both seed forms
+    // share one numeric replay identity; a --seed-number value stores the parsed
+    // integer directly. std::nullopt means the world is not procedurally generated
+    // (a built-in or file map). Set by main once the world source is known.
+    std::optional<std::uint64_t> numeric_seed;
     bool debug = false;                    // --debug: show internal diagnostics.
     bool plain = false;                    // --plain: force line-oriented mode.
     bool use_color = true;                 // Colour permitted (CLI + environment).
@@ -60,7 +67,7 @@ struct CliResult {
 //
 // Grammar:
 //   nam_console [map]
-//     --map <path>   --seed <text>   --debug   --plain
+//     --map <path>   --seed <text>   --seed-number <uint64>   --debug   --plain
 //     --no-color     --no-animation
 //     --help         --version
 //
@@ -68,8 +75,11 @@ struct CliResult {
 // --map are rejected as usage errors (exit code 2). A --seed value selects the
 // generated Tiny World (its text is hashed deterministically); it may be empty
 // but must be at most 128 bytes, may not be repeated, and may not be combined
-// with any map input. NO_COLOR and TERM=dumb turn colour off; an explicit CLI
-// flag always wins over the environment.
+// with any map input. A --seed-number value selects the generated Tiny World from
+// an exact decimal uint64 (0..18446744073709551615); it must be strict decimal
+// digits only, may not be repeated, and is mutually exclusive with --seed,
+// positional maps, and --map. NO_COLOR and TERM=dumb turn colour off; an explicit
+// CLI flag always wins over the environment.
 [[nodiscard]] CliResult parse_cli(const std::vector<std::string>& args, const Environment& environment);
 
 // Convenience overload for a raw argv (argv[0] is the program name and skipped).

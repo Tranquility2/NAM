@@ -37,8 +37,12 @@ GameEvent move_event(Direction direction, const MoveOutcome& outcome, std::uint6
 }
 
 // Wrap a rest transition into the rest event the HUD now also consumes.
-GameEvent rest_event(std::uint32_t before, std::uint32_t recovered, std::uint64_t sequence = 0) {
-    return GameEvent{sequence, RestedEvent{before, recovered, before + recovered}};
+GameEvent rest_event(RestResult result, Terrain terrain, std::uint32_t before, std::uint32_t after,
+                     std::uint32_t recovered, std::uint32_t provisions_before,
+                     std::uint32_t provisions_after, std::uint64_t sequence = 0) {
+    return GameEvent{sequence,
+                     RestedEvent{result, terrain, before, after, recovered, provisions_before,
+                                 provisions_after}};
 }
 
 }  // namespace
@@ -145,18 +149,21 @@ TEST_CASE("a rest updates only the message and success flag, leaving counters an
     const std::size_t attempts = hud.attempt_count();
     const std::size_t history = hud.recent().size();
 
-    hud.record_event(rest_event(4, 4, 1));
+    hud.record_event(
+        rest_event(RestResult::recovered, Terrain::open, 4, 8, 4, 2, 1, 1));
     CHECK(hud.move_count() == moves);
     CHECK(hud.attempt_count() == attempts);
     CHECK(hud.recent().size() == history);
     CHECK_FALSE(hud.last_move_succeeded());
-    CHECK(hud.message() == "Rested and recovered 4 stamina.");
+    CHECK(hud.message() ==
+          "Made camp on open ground and recovered 4 stamina. Provisions left: 1.");
 
-    hud.record_event(rest_event(12, 0, 2));
+    hud.record_event(rest_event(RestResult::already_full, Terrain::open, 20, 20, 0, 1, 1, 2));
     CHECK(hud.move_count() == moves);
     CHECK(hud.attempt_count() == attempts);
     CHECK(hud.recent().size() == history);
-    CHECK(hud.message() == "Stamina is already full.");
+    CHECK(hud.message() ==
+          "A heroic rest is attempted. Your stamina remains heroically full.");
 }
 
 TEST_CASE("a stamina block is an attempt, not a move, and records no history") {

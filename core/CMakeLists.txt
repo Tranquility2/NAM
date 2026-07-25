@@ -18,6 +18,10 @@ add_library(nam_core STATIC
     game_state.cpp
     objective.h
     objective.cpp
+    exploration.h
+    exploration.cpp
+    expedition_score.h
+    expedition_score.cpp
     pcg32.h
     pcg32.cpp
     world_generation.h

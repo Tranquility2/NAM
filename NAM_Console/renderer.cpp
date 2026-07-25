@@ -214,6 +214,11 @@ constexpr int color_beacon = 96;  // Bright cyan: a currently visible beacon.
     return std::to_string(input.stamina) + "/" + std::to_string(input.max_stamina);
 }
 
+// The current/starting provisions pair shared by every HUD layout (REQ-130).
+[[nodiscard]] std::string provisions_text(const RenderInput& input) {
+    return std::to_string(input.provisions) + "/" + std::to_string(input.starting_provisions);
+}
+
 [[nodiscard]] std::string recent_text(const std::vector<RecentMove>& recent) {
     if (recent.empty()) {
         return "Recent: (none)";
@@ -268,6 +273,7 @@ constexpr int color_beacon = 96;  // Bright cyan: a currently visible beacon.
     std::vector<std::string> hud;
     if (standard) {
         hud.push_back("Pos " + position_text(input.actor) + "   Stamina: " + stamina_text(input) +
+                      "   Provisions: " + provisions_text(input) +
                       "   Terrain: " + terrain_name(input.terrain) +
                       "   Moves: " + std::to_string(input.move_count));
         // The objective line sits after the status line and before the latest
@@ -281,9 +287,9 @@ constexpr int color_beacon = 96;  // Bright cyan: a currently visible beacon.
             hud.push_back(debug_text(input, size));
         }
     } else {
-        std::string status = position_text(input.actor) + " S:" + stamina_text(input) + " " +
-                             terrain_name(input.terrain) + "  M:" + std::to_string(input.move_count) +
-                             "  " + input.message;
+        std::string status = position_text(input.actor) + " S:" + stamina_text(input) +
+                             " P:" + provisions_text(input) + " " + terrain_name(input.terrain) +
+                             "  M:" + std::to_string(input.move_count) + "  " + input.message;
         hud.push_back(std::move(status));
         // Compact layout adds one bounded Goal line for the objective phase.
         if (input.objective != nullptr) {
@@ -354,17 +360,15 @@ constexpr int color_beacon = 96;  // Bright cyan: a currently visible beacon.
             std::string("Press Enter to continue, or use a movement key.")};
 }
 
-// The exact completion-screen logical lines in order (REQ-023): the fixed banner,
-// the named beacon, the move/attempt counters, the final stamina pair, and the
-// fixed acknowledgement instruction. All counters are converted to decimal.
-[[nodiscard]] std::vector<std::string> completion_lines(const CompletionSummary& summary) {
-    return {std::string("EXPEDITION COMPLETE"),
-            "Beacon: " + summary.beacon_name,
-            "Moves: " + std::to_string(summary.move_count),
-            "Attempts: " + std::to_string(summary.attempt_count),
-            "Final stamina: " + std::to_string(summary.stamina) + "/" +
-                std::to_string(summary.max_stamina),
-            std::string("Press Enter or q to exit.")};
+// The exact rescue-screen logical lines in order (REQ-131 / REQ-134): a dry banner
+// with humorous wording announcing that provisions ran out and the explorer
+// signaled for an embarrassingly early pickup, followed by the acknowledgement
+// instruction. The expedition name is shown for continuity.
+[[nodiscard]] std::vector<std::string> rescue_lines(const std::string& beacon_name) {
+    return {std::string("RESCUE REQUESTED"), beacon_name,
+            std::string("Provisions exhausted and no move remains."),
+            std::string("You light a flare and wait for an embarrassingly early pickup."),
+            std::string("Press Enter to read the expedition report.")};
 }
 
 // Compose a bounded, ANSI-free panel frame from a set of logical lines. The frame
@@ -436,6 +440,45 @@ constexpr int journal_reserved_rows = 2;
     return std::max(1, rows - journal_reserved_rows);
 }
 
+// --- Report screen ----------------------------------------------------------
+
+// The report reserves a fixed title row and a fixed control row; the remaining
+// rows scroll the report body. Kept in one place so page capacity, clamping, and
+// frame assembly can never drift (GUD-004).
+constexpr int report_reserved_rows = 2;
+constexpr char report_controls[] =
+    "Up/Down scroll  PgUp/PgDn page  Left/Right pan  Enter/q/Esc exit";
+
+// The report body body-row capacity for a resolved row count, at least one row.
+[[nodiscard]] int report_capacity_for_rows(int rows) {
+    return std::max(1, rows - report_reserved_rows);
+}
+
+// Slice one already-safe report line at byte offset `offset` and fit it to
+// `columns`. Because report content is ASCII, a byte offset is a column offset, so
+// horizontal scrolling reaches every byte of a wide row. An offset at or past the
+// end yields an empty visible row.
+[[nodiscard]] std::string report_horizontal_slice(const std::string& line, int offset,
+                                                  int columns) {
+    if (offset < 0) {
+        offset = 0;
+    }
+    if (static_cast<std::size_t>(offset) >= line.size()) {
+        return std::string();
+    }
+    return fit_plain(line.substr(static_cast<std::size_t>(offset)), columns);
+}
+
+// The longest body line length (the report lines after the sticky title banner),
+// used to clamp the horizontal offset.
+[[nodiscard]] std::size_t report_longest_body_line(const std::vector<std::string>& lines) {
+    std::size_t longest = 0;
+    for (std::size_t i = 1; i < lines.size(); ++i) {
+        longest = std::max(longest, lines[i].size());
+    }
+    return longest;
+}
+
 }  // namespace
 
 Frame Renderer::render(const RenderInput& input, TerminalSize size) const {
@@ -469,7 +512,7 @@ std::string Renderer::render_plain(const RenderInput& input) const {
         text.push_back('\n');
     }
     text += "Pos " + position_text(input.actor) + "  Stamina: " + stamina_text(input) +
-            "  Terrain: " + terrain_name(input.terrain) +
+            "  Provisions: " + provisions_text(input) + "  Terrain: " + terrain_name(input.terrain) +
             "  Moves: " + std::to_string(input.move_count) + "\n";
     // The objective line sits after the status line and before the latest event
     // message, matching the standard interactive layout order.
@@ -491,12 +534,83 @@ std::string Renderer::render_discovery_plain(const std::string& beacon_name) con
     return panel_block(discovery_lines(beacon_name));
 }
 
-Frame Renderer::render_completion(const CompletionSummary& summary, TerminalSize size) const {
-    return panel_frame(completion_lines(summary), size);
+Frame Renderer::render_rescue(const std::string& beacon_name, TerminalSize size) const {
+    return panel_frame(rescue_lines(beacon_name), size);
 }
 
-std::string Renderer::render_completion_plain(const CompletionSummary& summary) const {
-    return panel_block(completion_lines(summary));
+std::string Renderer::render_rescue_plain(const std::string& beacon_name) const {
+    return panel_block(rescue_lines(beacon_name));
+}
+
+ReportViewport Renderer::clamp_report_viewport(const ExpeditionReport& report,
+                                               ReportViewport requested, TerminalSize size) const {
+    const int columns = size.valid() ? size.columns : fallback_columns;
+    const int rows = size.valid() ? size.rows : fallback_rows;
+
+    const std::vector<std::string> lines = format_report_lines(report);
+    // The body is every logical line after the sticky title banner.
+    const int body_count = lines.empty() ? 0 : static_cast<int>(lines.size()) - 1;
+    const int body_rows = report_capacity_for_rows(rows);
+    const int max_vertical = std::max(0, body_count - body_rows);
+    const int max_horizontal =
+        std::max(0, static_cast<int>(report_longest_body_line(lines)) - columns);
+
+    ReportViewport clamped;
+    clamped.vertical = std::clamp(requested.vertical, 0, max_vertical);
+    clamped.horizontal = std::clamp(requested.horizontal, 0, max_horizontal);
+    return clamped;
+}
+
+int Renderer::report_page_capacity(TerminalSize size) const {
+    const int rows = size.valid() ? size.rows : fallback_rows;
+    return report_capacity_for_rows(rows);
+}
+
+Frame Renderer::render_report(const ExpeditionReport& report, ReportViewport viewport,
+                             TerminalSize size) const {
+    const int columns = size.valid() ? size.columns : fallback_columns;
+    const int rows = size.valid() ? size.rows : fallback_rows;
+
+    if (columns < absolute_min_columns || rows < absolute_min_rows) {
+        return too_small_panel(columns, rows);
+    }
+
+    const std::vector<std::string> lines = format_report_lines(report);
+    const ReportViewport clamped = clamp_report_viewport(report, viewport, size);
+    const int body_rows = report_capacity_for_rows(rows);
+    const int total = static_cast<int>(lines.size());
+
+    Frame frame;
+    frame.reserve(static_cast<std::size_t>(rows));
+    // The sticky title row is the report banner (logical line 0).
+    frame.push_back(fit_plain(lines.empty() ? std::string() : lines[0], columns));
+    for (int offset = 0; offset < body_rows; ++offset) {
+        // Body lines start at logical index 1 (after the banner).
+        const int index = 1 + clamped.vertical + offset;
+        if (index < total) {
+            frame.push_back(report_horizontal_slice(lines[static_cast<std::size_t>(index)],
+                                                    clamped.horizontal, columns));
+        } else {
+            frame.emplace_back();
+        }
+    }
+    frame.push_back(fit_plain(report_controls, columns));
+
+    // Defensive clamp so the frame is exactly `rows` lines regardless of rounding.
+    if (frame.size() > static_cast<std::size_t>(rows)) {
+        frame.resize(static_cast<std::size_t>(rows));
+    } else {
+        while (frame.size() < static_cast<std::size_t>(rows)) {
+            frame.emplace_back();
+        }
+    }
+    return frame;
+}
+
+std::string Renderer::render_report_plain(const ExpeditionReport& report) const {
+    // Every logical report line, each terminated by a single LF, yields exactly one
+    // trailing LF and no ANSI (REQ-010).
+    return panel_block(format_report_lines(report));
 }
 
 int Renderer::journal_page_capacity(TerminalSize size) const {

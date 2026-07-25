@@ -1,11 +1,16 @@
 #include <doctest/doctest.h>
 
+#include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
+#include "map.h"
 #include "nam/version.h"
 #include "settings.h"
+#include "world_generation.h"
 
 using namespace nam::console;
 
@@ -221,6 +226,65 @@ TEST_CASE("a seed of exactly 128 bytes is accepted and 129 is rejected") {
     SUBCASE("129 bytes via the = form") {
         CHECK(parse({"--seed=" + over_len}, good_env()).exit_code == 2);
     }
+}
+
+TEST_CASE("both --seed-number syntaxes parse a decimal uint64 seed") {
+    // TASK-008 / REQ-028.
+    CHECK(parse({"--seed-number", "12345"}, good_env()).settings.numeric_seed == 12345);
+    CHECK(parse({"--seed-number=12345"}, good_env()).settings.numeric_seed == 12345);
+
+    const CliResult zero = parse({"--seed-number", "0"}, good_env());
+    CHECK(zero.action == CliAction::run);
+    REQUIRE(zero.settings.numeric_seed.has_value());
+    CHECK(*zero.settings.numeric_seed == 0);
+    CHECK_FALSE(zero.settings.seed_text.has_value());
+
+    const std::string max_decimal = std::to_string(std::numeric_limits<std::uint64_t>::max());
+    const CliResult max_seed = parse({"--seed-number", max_decimal}, good_env());
+    CHECK(max_seed.action == CliAction::run);
+    CHECK(*max_seed.settings.numeric_seed == std::numeric_limits<std::uint64_t>::max());
+}
+
+TEST_CASE("malformed and overflowing numeric seeds exit with code 2") {
+    // TASK-008 / REQ-028.
+    CHECK(parse({"--seed-number", ""}, good_env()).exit_code == 2);
+    CHECK(parse({"--seed-number", "-5"}, good_env()).exit_code == 2);
+    CHECK(parse({"--seed-number", "+5"}, good_env()).exit_code == 2);
+    CHECK(parse({"--seed-number", "12x"}, good_env()).exit_code == 2);
+    CHECK(parse({"--seed-number", "0x10"}, good_env()).exit_code == 2);
+    CHECK(parse({"--seed-number", " 12"}, good_env()).exit_code == 2);
+    CHECK(parse({"--seed-number", "12 "}, good_env()).exit_code == 2);
+    CHECK(parse({"--seed-number", "1_2"}, good_env()).exit_code == 2);
+    // One past uint64 max overflows and is rejected.
+    CHECK(parse({"--seed-number", "18446744073709551616"}, good_env()).exit_code == 2);
+    // A missing value for the separate form is a usage error.
+    CHECK(parse({"--seed-number"}, good_env()).exit_code == 2);
+}
+
+TEST_CASE("numeric seeds are single-use and mutually exclusive with other world sources") {
+    // TASK-008 / REQ-029.
+    CHECK(parse({"--seed-number", "1", "--seed-number", "2"}, good_env()).exit_code == 2);
+    CHECK(parse({"--seed-number=1", "--seed-number=2"}, good_env()).exit_code == 2);
+    CHECK(parse({"--seed-number", "1", "--seed", "a"}, good_env()).exit_code == 2);
+    CHECK(parse({"--seed=a", "--seed-number", "1"}, good_env()).exit_code == 2);
+    CHECK(parse({"--seed-number=1", "level.map"}, good_env()).exit_code == 2);
+    CHECK(parse({"--seed-number=1", "--map", "level.map"}, good_env()).exit_code == 2);
+}
+
+TEST_CASE("a text seed and its decimal hash generate byte-identical worlds") {
+    // TASK-008 / TEST-008 / REQ-030: --seed glass-river and --seed-number <hash>
+    // reproduce the same Tiny World.
+    const std::uint64_t hash = hash_seed_text("glass-river");
+    const CliResult numeric = parse({"--seed-number", std::to_string(hash)}, good_env());
+    REQUIRE(numeric.settings.numeric_seed.has_value());
+    CHECK(*numeric.settings.numeric_seed == hash);
+
+    WorldGenerationResult from_text = generate_tiny_world(hash);
+    WorldGenerationResult from_number = generate_tiny_world(*numeric.settings.numeric_seed);
+    REQUIRE(std::holds_alternative<GeneratedWorld>(from_text));
+    REQUIRE(std::holds_alternative<GeneratedWorld>(from_number));
+    CHECK(std::get<GeneratedWorld>(from_text).map.to_string() ==
+          std::get<GeneratedWorld>(from_number).map.to_string());
 }
 
 TEST_CASE("format_seed_for_display escapes every required class of byte") {
