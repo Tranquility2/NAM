@@ -3,16 +3,18 @@
 #include <cstdint>
 
 #include "coordinates.h"
+#include "expedition_time.h"
 #include "terrain.h"
 
 // The rule-level result of attempting to move the actor. Presentation text is
 // deliberately absent: a frontend maps these values onto messages, animation,
 // sound, or particles without parsing strings.
 enum class MoveResult {
-    moved,               // The actor moved to a new, walkable cell.
-    blocked_by_boundary, // The destination was outside the map bounds.
-    blocked_by_terrain,  // The destination was in bounds but not walkable.
-    blocked_by_stamina,  // The destination was walkable but unaffordable.
+    moved,                // The actor moved to a new, walkable cell.
+    blocked_by_boundary,  // The destination was outside the map bounds.
+    blocked_by_terrain,   // The destination was in bounds but not walkable.
+    blocked_by_daylight,  // The destination was walkable but not enough daylight remained.
+    blocked_by_stamina,   // The destination was walkable and lit but unaffordable in stamina.
 };
 
 // A structured description of a move attempt.
@@ -35,6 +37,12 @@ enum class MoveResult {
 // - stamina_after:  the actor's current stamina after the attempt. On `moved`
 //            this is exactly `stamina_before - stamina_cost`; on every blocked
 //            result it equals `stamina_before` because no stamina is spent.
+// - travel_hours: the daylight hours entering the outcome's terrain requires. Set
+//            on `moved`, `blocked_by_daylight`, and `blocked_by_stamina` (every
+//            walkable-destination result); 0 on boundary and terrain blocks.
+// - time_before/time_after: the expedition time bracketing the attempt. On
+//            `moved`, after raises daylight_hours_used by travel_hours; on every
+//            blocked result they are equal because no daylight is spent.
 struct MoveOutcome {
     MoveResult result{};
     Coordinates from{};
@@ -43,4 +51,7 @@ struct MoveOutcome {
     std::uint32_t stamina_cost{};
     std::uint32_t stamina_before{};
     std::uint32_t stamina_after{};
+    std::uint32_t travel_hours{};
+    ExpeditionTime time_before{};
+    ExpeditionTime time_after{};
 };

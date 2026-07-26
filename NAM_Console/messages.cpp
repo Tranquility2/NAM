@@ -39,11 +39,17 @@ std::string describe_move(const MoveOutcome& outcome) {
     switch (outcome.result) {
         case MoveResult::moved:
             return "Moved onto " + terrain_name(outcome.terrain) + " for " +
-                   std::to_string(outcome.stamina_cost) + " stamina.";
+                   std::to_string(outcome.stamina_cost) + " stamina and " +
+                   std::to_string(outcome.travel_hours) +
+                   (outcome.travel_hours == 1 ? " hour." : " hours.");
         case MoveResult::blocked_by_boundary:
             return "Blocked by the edge of the map.";
         case MoveResult::blocked_by_terrain:
             return "Blocked by " + terrain_name(outcome.terrain) + ".";
+        case MoveResult::blocked_by_daylight:
+            return "Not enough daylight for " + terrain_name(outcome.terrain) + ": need " +
+                   std::to_string(outcome.travel_hours) + (outcome.travel_hours == 1 ? " hour" : " hours") +
+                   ", have " + std::to_string(outcome.time_before.remaining_daylight()) + ".";
         case MoveResult::blocked_by_stamina:
             return "Not enough stamina for " + terrain_name(outcome.terrain) + ": need " +
                    std::to_string(outcome.stamina_cost) + ", have " +
@@ -55,16 +61,46 @@ std::string describe_move(const MoveOutcome& outcome) {
 std::string describe_rest(const RestedEvent& rested) {
     switch (rested.result) {
         case RestResult::recovered:
-            return "Made camp on " + terrain_name(rested.terrain) + " and recovered " +
+            return "Made emergency camp on " + terrain_name(rested.terrain) + " and recovered " +
                    std::to_string(rested.stamina_recovered) + " stamina. Provisions left: " +
                    std::to_string(rested.provisions_after) + ".";
         case RestResult::already_full:
             return "A heroic rest is attempted. Your stamina remains heroically full.";
+        case RestResult::blocked_by_daylight:
+            return "Too little daylight remains to rest. Make camp or press on.";
         case RestResult::no_provisions:
-            return "No provisions left to make camp. Stamina holds at " +
+            return "No provisions left to rest. Stamina holds at " +
                    std::to_string(rested.stamina_after) + ".";
     }
     return "A heroic rest is attempted. Your stamina remains heroically full.";
+}
+
+std::string describe_camp(const CampedEvent& camped) {
+    switch (camped.result) {
+        case CampResult::camped:
+            if (camped.kind == CampKind::bivouac) {
+                return "Bivouacked on " + terrain_name(camped.terrain) + ". A rough night: stamina " +
+                       std::to_string(camped.stamina_after) + ", provisions " +
+                       std::to_string(camped.provisions_after) + ". Day " +
+                       std::to_string(camped.time.after.day) + " begins.";
+            }
+            return "Made camp on " + terrain_name(camped.terrain) + ". Stamina restored to " +
+                   std::to_string(camped.stamina_after) + ", provisions " +
+                   std::to_string(camped.provisions_after) + ". Day " +
+                   std::to_string(camped.time.after.day) + " begins.";
+        case CampResult::ineligible:
+            return "Too early to camp. Travel a while or tire first.";
+        case CampResult::no_provisions:
+            if (camped.kind == CampKind::bivouac) {
+                return "Not enough provisions to bivouac here: need " +
+                       std::to_string(camped.provision_cost) + ", have " +
+                       std::to_string(camped.provisions_before) + ".";
+            }
+            return "Not enough provisions to make camp: need " +
+                   std::to_string(camped.provision_cost) + ", have " +
+                   std::to_string(camped.provisions_before) + ".";
+    }
+    return "Too early to camp. Travel a while or tire first.";
 }
 
 std::string describe_map_error(const MapLoadError& error) {
@@ -134,6 +170,10 @@ std::string restored_completion_message(const std::string& name) {
 
 std::string restored_rescue_message(const std::string& name) {
     return "Rescued: the " + name + " expedition ran out of provisions and ended early.";
+}
+
+std::string restored_overdue_message(const std::string& name) {
+    return "Overdue: the " + name + " expedition missed its return window and was collected late.";
 }
 
 }  // namespace nam::console

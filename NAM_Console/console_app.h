@@ -32,6 +32,7 @@ enum class Presentation {
     beacon_discovery,
     expedition_complete,
     expedition_rescue,
+    expedition_overdue,
     journal,
 };
 
@@ -84,16 +85,19 @@ public:
 private:
     [[nodiscard]] RenderInput make_input(bool emphasize) const;
     // The result of applying one command: the objective transition it caused (none
-    // for rest) and the rescue transition the core reported on the event.
+    // for rest and camp) and the expedition-ending transition the core reported on
+    // the event (none, rescued, or overdue).
     struct AppliedCommand {
         ObjectiveTransition objective_transition = ObjectiveTransition::none;
-        RescueTransition rescue = RescueTransition::none;
+        ExpeditionEndingTransition ending = ExpeditionEndingTransition::none;
     };
     // Apply one movement command and return the transitions it caused so the
     // caller can choose the resulting presentation state.
     [[nodiscard]] AppliedCommand apply_move(Direction direction, bool& emphasize);
-    // Apply one rest command and return the rescue transition it caused.
-    [[nodiscard]] RescueTransition apply_rest(bool& emphasize);
+    // Apply one rest command and return the ending transition it caused.
+    [[nodiscard]] ExpeditionEndingTransition apply_rest(bool& emphasize);
+    // Apply one camp command and return the ending transition it caused.
+    [[nodiscard]] ExpeditionEndingTransition apply_camp(bool& emphasize);
 
     // Enter the completion presentation: build the completed final expedition
     // report from the fully-updated game, journal, route history, and objective
@@ -108,6 +112,13 @@ private:
     // command whose event reported a rescue has been fully recorded. Leaves the
     // presentation on the rescue acknowledgement screen; the caller draws it.
     void enter_rescue();
+
+    // Enter the overdue presentation: record the structured overdue journal entry,
+    // build the overdue final report, reset the report viewport, and set the
+    // restored overdue final message. Emits no core event. Called after the command
+    // whose event reported an overdue ending has been fully recorded. Leaves the
+    // presentation on the overdue acknowledgement screen; the caller draws it.
+    void enter_overdue();
 
     // Open the journal over the current presentation. Remembers the state it was
     // opened from and positions the scroll on the newest page for the given entry
@@ -156,6 +167,11 @@ private:
 // distinct command family from movement, so it is mapped separately from
 // direction_for. Exposed for direct testing.
 [[nodiscard]] bool is_rest_event(const KeyEvent& event) noexcept;
+
+// Whether an event asks to camp in place (lower- or upper-case 'c'). Camp is a
+// distinct command family from movement and rest, so it is mapped separately.
+// Exposed for direct testing.
+[[nodiscard]] bool is_camp_event(const KeyEvent& event) noexcept;
 
 // Whether an event asks to open or dismiss the expedition journal (lower- or
 // upper-case 'j'). `j` is reserved for the journal and is no longer a movement

@@ -157,7 +157,8 @@ ExpeditionReport build_test_report(std::size_t interior_width) {
                                    /*move_count=*/1, /*attempt_count=*/1,
                                    /*final_stamina=*/11, /*max_stamina=*/12,
                                    /*starting_provisions=*/4,
-                                   /*provisions_remaining=*/3);
+                                   /*provisions_remaining=*/3, ExpeditionTime{},
+                                   objective.deadline_days);
 }
 
 ExpeditionReport build_rescued_report() {
@@ -190,7 +191,8 @@ ExpeditionReport build_rescued_report() {
                                    /*move_count=*/1, /*attempt_count=*/2,
                                    /*final_stamina=*/0, /*max_stamina=*/20,
                                    /*starting_provisions=*/2,
-                                   /*provisions_remaining=*/0);
+                                   /*provisions_remaining=*/0, ExpeditionTime{},
+                                   objective.deadline_days);
 }
 
 // Concatenate a frame's raw rows so escape sequences can be searched globally.
@@ -491,14 +493,17 @@ TEST_CASE("hud status includes provisions in standard compact and plain layouts"
     CHECK(join_visible(standard).find(
               "Pos (0,0)   Stamina: 7/12   Provisions: 3/4   Terrain: open ground   Moves: 3") !=
           std::string::npos);
+    // The standard layout adds the day/deadline/daylight line under the status.
+    CHECK(join_visible(standard).find("Day 1/3  Daylight: 0/12 used") != std::string::npos);
 
     const Frame compact = renderer.render(make_input(map), TerminalSize{80, 6});
-    CHECK(join_visible(compact).find("(0,0) S:7/12 P:3/4 open ground  M:3") !=
+    CHECK(join_visible(compact).find("(0,0) S:7/12 P:3/4 D1/3 H0/12 open ground  M:3") !=
           std::string::npos);
 
     const std::string plain = renderer.render_plain(make_input(map));
     CHECK(plain.find("Pos (0,0)  Stamina: 7/12  Provisions: 3/4  Terrain: open ground  Moves: 3") !=
           std::string::npos);
+    CHECK(plain.find("Day 1/3  Daylight: 0/12 used") != std::string::npos);
 }
 
 TEST_CASE("rendering is a pure function of its input") {
@@ -862,6 +867,31 @@ TEST_CASE("the interactive rescue screen contains exact lines and stays bounded"
           "Glass River Beacon\n"
           "Provisions exhausted and no move remains.\n"
           "You light a flare and wait for an embarrassingly early pickup.\n"
+          "Press Enter to read the expedition report.\n");
+}
+
+TEST_CASE("the interactive overdue screen contains exact lines and stays bounded") {
+    const Renderer renderer(color_config());
+    const Frame frame = renderer.render_overdue("Glass River Beacon", TerminalSize{80, 16});
+    CHECK(frame.size() == 16);
+    CHECK_FALSE(any_esc(frame));
+    for (const std::string& row : frame) {
+        CHECK(strip_ansi(row).size() <= 80);
+    }
+    const std::vector<std::string> lines = panel_content_lines(frame);
+    REQUIRE(lines.size() == 5);
+    CHECK(lines[0] == "EXPEDITION OVERDUE");
+    CHECK(lines[1] == "Glass River Beacon");
+    CHECK(lines[2] == "The return window closed while you were still out there.");
+    CHECK(lines[3] == "A late retrieval party trudges out and escorts you home.");
+    CHECK(lines[4] == "Press Enter to read the expedition report.");
+
+    const std::string plain = renderer.render_overdue_plain("Glass River Beacon");
+    CHECK(plain ==
+          "EXPEDITION OVERDUE\n"
+          "Glass River Beacon\n"
+          "The return window closed while you were still out there.\n"
+          "A late retrieval party trudges out and escorts you home.\n"
           "Press Enter to read the expedition report.\n");
 }
 

@@ -29,6 +29,7 @@ constexpr char route_unexplored_glyph = '?';
     switch (result) {
         case ExpeditionResult::completed: return completed_score_maximum;
         case ExpeditionResult::rescued:   return rescued_score_maximum;
+        case ExpeditionResult::overdue:   return overdue_score_maximum;
     }
     return completed_score_maximum;
 }
@@ -79,13 +80,24 @@ ExpeditionReport build_expedition_report(
     const VisibilityMap& visibility, const Journal& journal, const RouteHistory& route,
     const WorldIdentity& identity, std::uint64_t move_count, std::uint64_t attempt_count,
     std::uint32_t final_stamina, std::uint32_t max_stamina, std::uint32_t starting_provisions,
-    std::uint32_t provisions_remaining) {
+    std::uint32_t provisions_remaining, ExpeditionTime final_time, std::uint32_t deadline_days) {
     // Derive stamina spent from the completed structured journal only (REQ-143):
-    // sum travel stamina.
+    // sum travel stamina. The successful normal camps, emergency rests, and
+    // bivouacs are counted from the typed journal variants, never from prose
+    // (TASK-018).
     std::uint64_t stamina_spent = 0;
+    std::uint64_t normal_camps = 0;
+    std::uint64_t emergency_rests = 0;
+    std::uint64_t bivouacs = 0;
     for (const JournalEntry& entry : journal.entries()) {
         if (const auto* travel = std::get_if<TravelEntry>(&entry.data)) {
             stamina_spent += travel->stamina_spent;
+        } else if (std::holds_alternative<RestEntry>(entry.data)) {
+            ++emergency_rests;
+        } else if (std::holds_alternative<CampEntry>(entry.data)) {
+            ++normal_camps;
+        } else if (std::holds_alternative<BivouacEntry>(entry.data)) {
+            ++bivouacs;
         }
     }
 
@@ -116,14 +128,23 @@ ExpeditionReport build_expedition_report(
         score_input.actual_stamina_spent = stamina_spent;
         score_input.blocked_attempts = blocked_attempts;
         score_input.provisions_remaining = provisions_remaining;
+        score_input.days_used = final_time.day;
+        score_input.minimum_completion_days = objective.minimum_completion_days;
         score = compute_completed_score(score_input);
-    } else {
+    } else if (result == ExpeditionResult::rescued) {
         RescuedScoreInput score_input;
         score_input.explored_reachable_cells = explored;
         score_input.total_reachable_cells = total;
         score_input.beacon_discovered = beacon_discovered;
         score_input.blocked_attempts = blocked_attempts;
         score = compute_rescued_score(score_input);
+    } else {
+        OverdueScoreInput score_input;
+        score_input.explored_reachable_cells = explored;
+        score_input.total_reachable_cells = total;
+        score_input.beacon_discovered = beacon_discovered;
+        score_input.blocked_attempts = blocked_attempts;
+        score = compute_overdue_score(score_input);
     }
 
     ExpeditionReport report{map, visibility};
@@ -150,6 +171,14 @@ ExpeditionReport build_expedition_report(
     report.explored_reachable_cells = explored;
     report.total_reachable_cells = total;
     report.beacon_discovered = beacon_discovered;
+    report.days_used = final_time.day;
+    report.minimum_completion_days = objective.minimum_completion_days;
+    report.deadline_days = deadline_days;
+    report.daylight_used_final = final_time.daylight_hours_used;
+    report.daylight_per_day = final_time.daylight_hours_per_day;
+    report.normal_camps = normal_camps;
+    report.emergency_rests = emergency_rests;
+    report.bivouacs = bivouacs;
     return report;
 }
 
@@ -159,6 +188,8 @@ std::string format_report_result(const ExpeditionReport& report) {
             return "Result: expedition complete.";
         case ExpeditionResult::rescued:
             return "Result: rescued after running out of provisions.";
+        case ExpeditionResult::overdue:
+            return "Result: overdue; collected late after missing the return deadline.";
     }
     return "Result: expedition complete.";
 }
@@ -178,6 +209,14 @@ std::string format_report_story(const ExpeditionReport& report) {
                ", earning a final score of " + std::to_string(report.score.value) + " out of " +
                std::to_string(maximum) + ".";
     }
+    if (report.result == ExpeditionResult::overdue) {
+        return "The " + report.beacon_name + " expedition ran overdue. After " +
+               std::to_string(moves) + " " + plural(moves, "move", "moves") + " across " +
+               std::to_string(report.days_used) + " " + plural(report.days_used, "day", "days") +
+               ", the return window closed and a late retrieval party collected the explorer, "
+               "earning an overdue score of " +
+               std::to_string(report.score.value) + " out of " + std::to_string(maximum) + ".";
+    }
     return "The " + report.beacon_name + " expedition ended early. Out of provisions after " +
            std::to_string(moves) + " " + plural(moves, "move", "moves") + " and " +
            std::to_string(used) + " " + plural(used, "provision", "provisions") +
@@ -191,9 +230,17 @@ std::vector<std::string> format_report_statistics(const ExpeditionReport& report
     lines.emplace_back("STATISTICS");
     lines.push_back("Score: " + std::to_string(report.score.value) + " / " +
                     std::to_string(maximum));
+    lines.push_back("Days used: " + std::to_string(report.days_used));
+    lines.push_back("Minimum completion days: " + std::to_string(report.minimum_completion_days));
+    lines.push_back("Deadline day: " + std::to_string(report.deadline_days));
+    lines.push_back("Daylight used final day: " + std::to_string(report.daylight_used_final) + "/" +
+                    std::to_string(report.daylight_per_day));
     lines.push_back("Moves: " + std::to_string(report.move_count));
     lines.push_back("Move attempts: " + std::to_string(report.attempt_count));
     lines.push_back("Blocked moves: " + std::to_string(report.blocked_attempts));
+    lines.push_back("Normal camps: " + std::to_string(report.normal_camps));
+    lines.push_back("Emergency rests: " + std::to_string(report.emergency_rests));
+    lines.push_back("Bivouacs: " + std::to_string(report.bivouacs));
     lines.push_back("Provisions used: " + std::to_string(report.provisions_used));
     lines.push_back("Provisions remaining: " + std::to_string(report.provisions_remaining));
     lines.push_back("Provisions starting: " + std::to_string(report.provisions_starting));

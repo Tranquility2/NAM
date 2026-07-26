@@ -121,21 +121,17 @@ TEST_CASE("successful movement onto each terrain spends its exact cost") {
     }
 }
 
-TEST_CASE("a mixed path can leave two stamina and then block a four-cost mountain") {
-    GameState state(make_map("NAM-MAP 1\nwidth 8\nheight 1\nspawn 0 0\n---\n.~@~@.~@\n"));
+TEST_CASE("a fields path can leave two stamina and then block a four-cost mountain") {
+    // Fields cost 2 stamina but only 1 daylight hour, so nine fields steps spend 18
+    // stamina over nine hours (within the 12-hour day) and leave stamina 2 before a
+    // mountain that then blocks by stamina rather than daylight.
+    GameState state(make_map("NAM-MAP 1\nwidth 11\nheight 1\nspawn 0 0\n---\n.xxxxxxxxx@\n"));
 
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // water, 20->17
-    CHECK(state.stamina() == 17u);
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // mountain, 17->13
-    CHECK(state.stamina() == 13u);
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // water, 13->10
-    CHECK(state.stamina() == 10u);
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // mountain, 10->6
-    CHECK(state.stamina() == 6u);
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // open, 6->5
-    CHECK(state.stamina() == 5u);
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // water, 5->2
+    for (int i = 0; i < 9; ++i) {
+        CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // -2 stamina
+    }
     CHECK(state.stamina() == 2u);
+    CHECK(state.expedition_time().daylight_hours_used == 9u);
 
     const Coordinates before_pos = state.actor_position();
     const std::string before_render = state.render();
@@ -158,16 +154,15 @@ TEST_CASE("a mixed path can leave two stamina and then block a four-cost mountai
 }
 
 TEST_CASE("an exact-cost path reaches zero and then blocks without underflow") {
-    GameState state(make_map("NAM-MAP 1\nwidth 7\nheight 1\nspawn 0 0\n---\n.@@@@@.\n"));
+    // Ten fields steps spend all 20 stamina over ten daylight hours; the eleventh
+    // open step still fits the remaining daylight, so the block is by stamina.
+    GameState state(make_map("NAM-MAP 1\nwidth 12\nheight 1\nspawn 0 0\n---\n.xxxxxxxxxx.\n"));
 
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 20->16
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 16->12
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 12->8
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 8->4
-    const MoveOutcome last = outcome_of(state.move(Direction::right));            // 4->0
-    CHECK(last.result == MoveResult::moved);
-    CHECK(last.stamina_after == 0u);
+    for (int i = 0; i < 10; ++i) {
+        CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // -2 stamina
+    }
     CHECK(state.stamina() == 0u);
+    CHECK(state.expedition_time().daylight_hours_used == 10u);
 
     const MoveOutcome blocked = outcome_of(state.move(Direction::right));  // open, need 1
     CHECK(blocked.result == MoveResult::blocked_by_stamina);
@@ -176,7 +171,7 @@ TEST_CASE("an exact-cost path reaches zero and then blocks without underflow") {
     CHECK(blocked.stamina_before == 0u);
     CHECK(blocked.stamina_after == 0u);
     CHECK(state.stamina() == 0u);
-    CHECK(state.actor_position() == Coordinates{5, 0});
+    CHECK(state.actor_position() == Coordinates{10, 0});
 }
 
 TEST_CASE("boundary and wall blocks cost zero at non-full stamina") {
@@ -346,34 +341,50 @@ TEST_CASE("resting below full with zero provisions is a no-op") {
     CHECK(state.provisions() == 0u);
 }
 
-TEST_CASE("resting on fields from zero enables the next water move") {
-    // Drain to zero on fields (2-cost terrain), then recover 6 on fields and take
-    // a water move that was previously unaffordable.
-    GameState state(make_map("NAM-MAP 1\nwidth 8\nheight 1\nspawn 0 0\n---\n.@@@@xx~\n"));
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 20->16
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 16->12
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 12->8
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 8->4
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 4->2
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 2->0
-    CHECK(state.actor_terrain() == Terrain::fields);
-    CHECK(state.stamina() == 0u);
-
-    CHECK(state.peek(Direction::right).result == MoveResult::blocked_by_stamina);
+TEST_CASE("resting is blocked when too little daylight remains") {
+    // Eleven open steps spend eleven daylight hours, leaving one hour of daylight —
+    // fewer than the two an emergency rest needs. Stamina is below the cap and a
+    // provision remains, so the rest is blocked purely by daylight and changes no
+    // state, still emitting exactly one event.
+    GameState state(make_map("NAM-MAP 1\nwidth 13\nheight 1\nspawn 0 0\n---\n.............\n"));
+    for (int i = 0; i < 11; ++i) {
+        REQUIRE(outcome_of(state.move(Direction::right)).result == MoveResult::moved);
+    }
+    CHECK(state.expedition_time().daylight_hours_used == 11u);
+    CHECK(state.stamina() == 9u);
+    REQUIRE(state.provisions() >= 1u);
 
     const std::uint32_t provisions_before = state.provisions();
+    const std::uint32_t stamina_before = state.stamina();
+    const ExpeditionTime time_before = state.expedition_time();
+
+    const RestedEvent rested = rested_of(state.rest());
+    CHECK(rested.result == RestResult::blocked_by_daylight);
+    CHECK(rested.stamina_before == stamina_before);
+    CHECK(rested.stamina_after == stamina_before);
+    CHECK(rested.provisions_before == provisions_before);
+    CHECK(rested.provisions_after == provisions_before);
+    CHECK(rested.time.before == time_before);
+    CHECK(rested.time.after == time_before);
+    CHECK(state.stamina() == stamina_before);
+    CHECK(state.provisions() == provisions_before);
+    CHECK(state.expedition_time() == time_before);
+}
+
+TEST_CASE("resting consumes two daylight hours") {
+    // A single fields step spends one daylight hour; a following rest recovers
+    // stamina, spends a provision, and consumes exactly two more daylight hours.
+    GameState state(make_map("NAM-MAP 1\nwidth 4\nheight 1\nspawn 0 0\n---\n.xxx\n"));
+    REQUIRE(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 20->18, 1 hour
+    REQUIRE(state.actor_terrain() == Terrain::fields);
+    CHECK(state.expedition_time().daylight_hours_used == 1u);
+
     const RestedEvent rested = rested_of(state.rest());
     CHECK(rested.result == RestResult::recovered);
-    CHECK(rested.terrain == Terrain::fields);
-    CHECK(rested.stamina_after == 6u);
-    CHECK(rested.provisions_before == provisions_before);
-    CHECK(rested.provisions_after + 1u == provisions_before);
-
-    const MoveOutcome water = outcome_of(state.move(Direction::right));  // water, cost 3.
-    CHECK(water.result == MoveResult::moved);
-    CHECK(water.terrain == Terrain::water);
-    CHECK(water.stamina_cost == 3u);
-    CHECK(state.stamina() == 3u);
+    CHECK(rested.stamina_after == 20u);  // fields recover 6, capped at the maximum.
+    CHECK(rested.time.before.daylight_hours_used == 1u);
+    CHECK(rested.time.after.daylight_hours_used == 3u);
+    CHECK(state.expedition_time().daylight_hours_used == 3u);
 }
 
 TEST_CASE("resting preserves actor position map serialization and visibility") {

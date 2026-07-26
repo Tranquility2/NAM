@@ -45,6 +45,29 @@ TEST_CASE("terrain visibility radius maps to the canonical 2/2/2/3/4/0/0 table")
     CHECK(visibility_radius_of(Terrain::wall_vertical) == 0);
 }
 
+TEST_CASE("terrain travel hours map to the canonical 1/1/2/2/3 table") {
+    // TASK-001 / TEST-001: entering open ground or fields costs 1 daylight hour,
+    // hills or water cost 2, mountains cost 3, and both wall variants are
+    // impassable so they have no travel time.
+    CHECK(travel_hours_of(Terrain::open).value() == 1u);
+    CHECK(travel_hours_of(Terrain::fields).value() == 1u);
+    CHECK(travel_hours_of(Terrain::hill).value() == 2u);
+    CHECK(travel_hours_of(Terrain::water).value() == 2u);
+    CHECK(travel_hours_of(Terrain::mountain).value() == 3u);
+    CHECK_FALSE(travel_hours_of(Terrain::wall_horizontal).has_value());
+    CHECK_FALSE(travel_hours_of(Terrain::wall_vertical).has_value());
+}
+
+TEST_CASE("travel hours are defined exactly where the terrain is walkable") {
+    // travel_hours_of and stamina_cost_of agree on walkability, so a walkable
+    // terrain always has both and an impassable one has neither.
+    for (const Terrain terrain :
+         {Terrain::open, Terrain::fields, Terrain::hill, Terrain::water, Terrain::mountain,
+          Terrain::wall_horizontal, Terrain::wall_vertical}) {
+        CHECK(travel_hours_of(terrain).has_value() == stamina_cost_of(terrain).has_value());
+    }
+}
+
 TEST_CASE("public GameState radius constants derive from the terrain table") {
     // TASK-005 / TEST-002: the exposed constants must equal the canonical table
     // rather than hard-coded literals so the two can never drift.

@@ -58,6 +58,26 @@ enum class Terrain : unsigned char {
     return std::nullopt;
 }
 
+// The daylight hours an actor spends to enter a cell of this terrain. This is the
+// single source of truth for movement time, mirroring how stamina_cost_of owns
+// movement stamina: entering open ground or fields costs 1 hour, entering a hill
+// or water costs 2 hours, and entering a mountain costs 3 hours. Both wall
+// variants are impassable and therefore carry no travel time (std::nullopt), so a
+// walkable terrain always yields a value and an unwalkable one never does. This is
+// consistent with stamina_cost_of: a value means walkable at that time cost.
+[[nodiscard]] constexpr std::optional<std::uint32_t> travel_hours_of(Terrain terrain) noexcept {
+    switch (terrain) {
+        case Terrain::open:            return 1;
+        case Terrain::fields:          return 1;
+        case Terrain::hill:            return 2;
+        case Terrain::water:           return 2;
+        case Terrain::mountain:        return 3;
+        case Terrain::wall_horizontal: return std::nullopt;
+        case Terrain::wall_vertical:   return std::nullopt;
+    }
+    return std::nullopt;
+}
+
 // The stamina a single rest recovers while standing on this terrain. This is the
 // single source of truth for rest recovery, mirroring how stamina_cost_of owns
 // movement cost: sheltered, forageable terrain recovers more (fields 6, open 4),

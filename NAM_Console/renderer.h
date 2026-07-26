@@ -36,6 +36,10 @@ struct RenderInput {
     std::uint32_t max_stamina = 0;
     std::uint32_t provisions = 0;           // Current provisions remaining.
     std::uint32_t starting_provisions = 0;  // Provisions the expedition began with.
+    std::uint32_t day = 1;                   // Current expedition day.
+    std::uint32_t deadline_day = 3;          // The deadline day (minimum + 2).
+    std::uint32_t daylight_used = 0;         // Daylight hours used this day.
+    std::uint32_t daylight_per_day = 12;     // Daylight hours in a day.
     std::string message;
     std::vector<RecentMove> recent;
     bool emphasize_actor = false;  // One-frame emphasis after a successful move.
@@ -117,6 +121,17 @@ public:
     // the exact rescue lines, one per line, with a single trailing newline. Used
     // by plain mode before the failed-expedition report (REQ-132).
     [[nodiscard]] std::string render_rescue_plain(const std::string& beacon_name) const;
+
+    // Build the interactive overdue-acknowledgement screen for the given size. Like
+    // the rescue screen it is a centred, ANSI-free panel of fixed lines announcing
+    // that the expedition missed its return window and a late retrieval party
+    // collected the explorer, shown before the final report (REQ-033 / REQ-034).
+    [[nodiscard]] Frame render_overdue(const std::string& beacon_name, TerminalSize size) const;
+
+    // Render the overdue-acknowledgement screen as an ANSI-free plain-text block:
+    // the exact overdue lines, one per line, with a single trailing newline. Used
+    // by plain mode before the overdue report (REQ-035).
+    [[nodiscard]] std::string render_overdue_plain(const std::string& beacon_name) const;
 
     // Build the interactive expedition-completion report for the given size. The
     // frame has exactly `size.rows` rows and keeps every row within `size.columns`.

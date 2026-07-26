@@ -219,6 +219,20 @@ constexpr int color_beacon = 96;  // Bright cyan: a currently visible beacon.
     return std::to_string(input.provisions) + "/" + std::to_string(input.starting_provisions);
 }
 
+// The exact day/deadline and daylight-used HUD line for the standard and plain
+// layouts (REQ-029): `Day <current>/<deadline>  Daylight: <used>/12 used`.
+[[nodiscard]] std::string time_line_text(const RenderInput& input) {
+    return "Day " + std::to_string(input.day) + "/" + std::to_string(input.deadline_day) +
+           "  Daylight: " + std::to_string(input.daylight_used) + "/" +
+           std::to_string(input.daylight_per_day) + " used";
+}
+
+// The compact day/daylight fragment folded into the single compact status line.
+[[nodiscard]] std::string compact_time_text(const RenderInput& input) {
+    return "D" + std::to_string(input.day) + "/" + std::to_string(input.deadline_day) + " H" +
+           std::to_string(input.daylight_used) + "/" + std::to_string(input.daylight_per_day);
+}
+
 [[nodiscard]] std::string recent_text(const std::vector<RecentMove>& recent) {
     if (recent.empty()) {
         return "Recent: (none)";
@@ -276,7 +290,10 @@ constexpr int color_beacon = 96;  // Bright cyan: a currently visible beacon.
                       "   Provisions: " + provisions_text(input) +
                       "   Terrain: " + terrain_name(input.terrain) +
                       "   Moves: " + std::to_string(input.move_count));
-        // The objective line sits after the status line and before the latest
+        // The day/deadline/daylight line sits directly under the status line so the
+        // time contract is always visible (REQ-029).
+        hud.push_back(time_line_text(input));
+        // The objective line sits after the time line and before the latest
         // event message.
         if (input.objective != nullptr) {
             hud.push_back(objective_line(*input.objective));
@@ -288,8 +305,9 @@ constexpr int color_beacon = 96;  // Bright cyan: a currently visible beacon.
         }
     } else {
         std::string status = position_text(input.actor) + " S:" + stamina_text(input) +
-                             " P:" + provisions_text(input) + " " + terrain_name(input.terrain) +
-                             "  M:" + std::to_string(input.move_count) + "  " + input.message;
+                             " P:" + provisions_text(input) + " " + compact_time_text(input) + " " +
+                             terrain_name(input.terrain) + "  M:" + std::to_string(input.move_count) +
+                             "  " + input.message;
         hud.push_back(std::move(status));
         // Compact layout adds one bounded Goal line for the objective phase.
         if (input.objective != nullptr) {
@@ -328,7 +346,7 @@ constexpr int color_beacon = 96;  // Bright cyan: a currently visible beacon.
     Frame frame;
     frame.reserve(static_cast<std::size_t>(rows));
     if (standard) {
-        frame.push_back(fit_plain("NAM - arrows/WASD move, r rest, j journal, q quit", columns));
+        frame.push_back(fit_plain("NAM - arrows/WASD move, r rest, c camp, j journal, q quit", columns));
     }
     frame.insert(frame.end(), static_cast<std::size_t>(top_filler), std::string());
     for (std::string& line : map_lines) {
@@ -368,6 +386,18 @@ constexpr int color_beacon = 96;  // Bright cyan: a currently visible beacon.
     return {std::string("RESCUE REQUESTED"), beacon_name,
             std::string("Provisions exhausted and no move remains."),
             std::string("You light a flare and wait for an embarrassingly early pickup."),
+            std::string("Press Enter to read the expedition report.")};
+}
+
+// The exact overdue-screen logical lines in order (REQ-033 / REQ-034): a dry
+// banner announcing that the return window was missed and a late retrieval party
+// collected the explorer, followed by the acknowledgement instruction. The
+// expedition name is shown for continuity. Concise, deterministic, humorous rather
+// than severe, and ASCII-only.
+[[nodiscard]] std::vector<std::string> overdue_lines(const std::string& beacon_name) {
+    return {std::string("EXPEDITION OVERDUE"), beacon_name,
+            std::string("The return window closed while you were still out there."),
+            std::string("A late retrieval party trudges out and escorts you home."),
             std::string("Press Enter to read the expedition report.")};
 }
 
@@ -489,10 +519,12 @@ Frame Renderer::render(const RenderInput& input, TerminalSize size) const {
         return too_small_panel(columns, rows);
     }
 
-    const int base_hud_rows = config_.debug ? 4 : 3;
-    // The optional objective line adds one HUD row in the standard layout, so the
-    // standard/compact threshold must budget for it to keep the map region and
-    // the defensive clamp from ever dropping a HUD line.
+    const int base_hud_rows = config_.debug ? 5 : 4;
+    // The standard layout always shows a status line, a day/daylight time line, the
+    // latest-event message, and the recent-moves line (plus a debug line under
+    // --debug); the optional objective line adds one more HUD row. The
+    // standard/compact threshold must budget for every one so the map region and
+    // the defensive clamp never drop a HUD line (REQ-029 / RISK-004).
     const int objective_rows = input.objective != nullptr ? 1 : 0;
     const int hud_rows = base_hud_rows + objective_rows;
     const bool standard = columns >= standard_min_columns &&
@@ -514,7 +546,10 @@ std::string Renderer::render_plain(const RenderInput& input) const {
     text += "Pos " + position_text(input.actor) + "  Stamina: " + stamina_text(input) +
             "  Provisions: " + provisions_text(input) + "  Terrain: " + terrain_name(input.terrain) +
             "  Moves: " + std::to_string(input.move_count) + "\n";
-    // The objective line sits after the status line and before the latest event
+    // The day/deadline/daylight line sits under the status line, matching the
+    // standard interactive layout order (REQ-029).
+    text += time_line_text(input) + "\n";
+    // The objective line sits after the time line and before the latest event
     // message, matching the standard interactive layout order.
     if (input.objective != nullptr) {
         text += objective_line(*input.objective) + "\n";
@@ -540,6 +575,14 @@ Frame Renderer::render_rescue(const std::string& beacon_name, TerminalSize size)
 
 std::string Renderer::render_rescue_plain(const std::string& beacon_name) const {
     return panel_block(rescue_lines(beacon_name));
+}
+
+Frame Renderer::render_overdue(const std::string& beacon_name, TerminalSize size) const {
+    return panel_frame(overdue_lines(beacon_name), size);
+}
+
+std::string Renderer::render_overdue_plain(const std::string& beacon_name) const {
+    return panel_block(overdue_lines(beacon_name));
 }
 
 ReportViewport Renderer::clamp_report_viewport(const ExpeditionReport& report,

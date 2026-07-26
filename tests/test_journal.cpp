@@ -45,6 +45,20 @@ GameEvent rest_event(std::uint64_t sequence, RestResult result, Terrain terrain,
                                  stamina_recovered, provisions_before, provisions_after}};
 }
 
+GameEvent camp_event(std::uint64_t sequence, CampResult result, CampKind kind, Terrain terrain,
+                     std::uint32_t day_before, std::uint32_t day_after,
+                     std::uint32_t stamina_after, std::uint32_t provisions_after) {
+    CampedEvent camped;
+    camped.result = result;
+    camped.kind = kind;
+    camped.terrain = terrain;
+    camped.time.before.day = day_before;
+    camped.time.after.day = day_after;
+    camped.stamina_after = stamina_after;
+    camped.provisions_after = provisions_after;
+    return GameEvent{sequence, camped};
+}
+
 std::vector<std::string> prose_of(const Journal& journal) {
     std::vector<std::string> lines;
     for (const JournalEntry& entry : journal.entries()) {
@@ -297,7 +311,7 @@ TEST_CASE("rest prose uses recovered wording with terrain and provisions") {
     recovered.record_event(
         rest_event(0, RestResult::recovered, Terrain::hill, 9, 12, 3, 2, 1), "Beacon");
     CHECK(format_entry(recovered.entries().front()) ==
-          std::string("Made camp on hill and recovered 3 stamina (1 provisions left)."));
+          std::string("Rested on hill and recovered 3 stamina (1 provisions left)."));
 }
 
 TEST_CASE("rescue prose states whether the beacon was reached") {
@@ -362,7 +376,7 @@ TEST_CASE("repeated identical scripts produce byte-identical prose and structure
 
     const std::vector<std::string> expected{
         "Traveled east across open ground for 2 steps.",
-        "Made camp on open ground and recovered 4 stamina (1 provisions left).",
+        "Rested on open ground and recovered 4 stamina (1 provisions left).",
         "Traveled north across hill for 1 step.",
         "Discovered North Ridge.",
         "Traveled south across hill for 1 step.",
@@ -370,6 +384,63 @@ TEST_CASE("repeated identical scripts produce byte-identical prose and structure
         "Ran out of provisions after reaching North Ridge; signaled for an early rescue.",
     };
     CHECK(prose_of(first) == expected);
+}
+
+TEST_CASE("only successful camps and bivouacs create typed entries and break grouping") {
+    Journal journal;
+    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Beacon");
+    // A successful normal camp appends a CampEntry and closes travel grouping.
+    journal.record_event(
+        camp_event(1, CampResult::camped, CampKind::normal, Terrain::open, 1, 2, 20, 1), "Beacon");
+    // A following move starts a fresh travel group, not merged with the earlier one.
+    journal.record_event(move_event(2, Direction::right, Terrain::water, 3), "Beacon");
+    // A successful bivouac appends a BivouacEntry.
+    journal.record_event(
+        camp_event(3, CampResult::camped, CampKind::bivouac, Terrain::water, 2, 3, 10, 0), "Beacon");
+    // Failed camps create no entry.
+    journal.record_event(
+        camp_event(4, CampResult::ineligible, CampKind::normal, Terrain::water, 3, 3, 10, 0),
+        "Beacon");
+    journal.record_event(
+        camp_event(5, CampResult::no_provisions, CampKind::bivouac, Terrain::water, 3, 3, 10, 0),
+        "Beacon");
+
+    REQUIRE(journal.size() == 4u);
+    CHECK(std::holds_alternative<TravelEntry>(journal.entries()[0].data));
+    CHECK(std::holds_alternative<CampEntry>(journal.entries()[1].data));
+    CHECK(std::holds_alternative<TravelEntry>(journal.entries()[2].data));
+    CHECK(std::holds_alternative<BivouacEntry>(journal.entries()[3].data));
+}
+
+TEST_CASE("camp and bivouac prose name the terrain the new day and the resources") {
+    Journal camp;
+    camp.record_event(
+        camp_event(0, CampResult::camped, CampKind::normal, Terrain::fields, 1, 2, 20, 3), "Beacon");
+    CHECK(format_entry(camp.entries().front()) ==
+          std::string("Camped on fields overnight; day 2 began with 20 stamina (3 provisions "
+                      "left)."));
+
+    Journal bivouac;
+    bivouac.record_event(
+        camp_event(0, CampResult::camped, CampKind::bivouac, Terrain::mountain, 2, 3, 10, 1),
+        "Beacon");
+    CHECK(format_entry(bivouac.entries().front()) ==
+          std::string("Bivouacked on mountain overnight; day 3 began with 10 stamina (1 provisions "
+                      "left)."));
+}
+
+TEST_CASE("overdue prose states whether the beacon was reached") {
+    Journal reached;
+    reached.record_overdue("North Ridge", true);
+    CHECK(format_entry(reached.entries().front()) ==
+          std::string("Missed the return deadline after reaching North Ridge; a late retrieval "
+                      "party collected the explorer."));
+
+    Journal not_reached;
+    not_reached.record_overdue("North Ridge", false);
+    CHECK(format_entry(not_reached.entries().front()) ==
+          std::string("Missed the return deadline before reaching North Ridge; a late retrieval "
+                      "party collected the explorer."));
 }
 
 }  // TEST_SUITE("journal")

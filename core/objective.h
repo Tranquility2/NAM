@@ -53,13 +53,21 @@ struct BeaconObjective {
     // run. It is 0 when the beacon coincides with spawn (a single-cell map).
     std::uint64_t minimum_round_trip_stamina_cost = 0;
     // The deterministic minimum number of provisions that make this expedition
-    // feasible: a finite state search over (position, stamina 0..maximum, phase)
-    // that minimizes provisions consumed to travel from spawn to the beacon and
-    // back, where a move needs stamina_cost_of(destination) stamina and a rest
-    // spends one provision to recover rest_recovery_of(current terrain) capped at
-    // the stamina maximum. It is 0 when the beacon coincides with spawn. Frontends
-    // start a run with this baseline plus one spare provision.
+    // feasible: the lexicographic (overnight transitions, provisions) planning
+    // search in expedition_planning selects the plan with the fewest overnight
+    // camps/bivouacs and, among those, the fewest provisions consumed. This field
+    // is that provisions component. It is 0 when the beacon coincides with spawn.
+    // Frontends start a run with this baseline plus one spare provision.
     std::uint64_t minimum_required_provisions = 0;
+    // The deterministic minimum number of numbered days the expedition needs to
+    // complete the beacon round trip: one more than the fewest overnight
+    // transitions in the planning search (REQ-016). It is 1 when the beacon
+    // coincides with spawn (initial single-cell completion).
+    std::uint32_t minimum_completion_days = 1;
+    // The deterministic deadline day, two days beyond minimum_completion_days
+    // (REQ-019). An action that leaves the objective incomplete at hour 12 on this
+    // day, or with no continuation on this day, ends the expedition as overdue.
+    std::uint32_t deadline_days = 3;
     // The number of walkable cells reachable from spawn over cardinal walkable
     // steps, including spawn itself. A pure map/objective property used as the
     // denominator of the rescued exploration score, so every frontend agrees on

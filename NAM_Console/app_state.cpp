@@ -33,6 +33,14 @@ void Hud::record_event(const GameEvent& event) {
         message_ = describe_rest(*rested);
         return;
     }
+
+    if (const auto* camped = std::get_if<CampedEvent>(&event.data)) {
+        // Camp is not a movement: it updates only the latest message and clears the
+        // success flag, leaving attempt/move counters and history unchanged.
+        last_move_succeeded_ = false;
+        message_ = describe_camp(*camped);
+        return;
+    }
 }
 
 void Hud::set_message(std::string message) {

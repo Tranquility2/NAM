@@ -330,4 +330,65 @@ TEST_CASE("rescued scoring is overflow-safe at extreme counters") {
     CHECK(score.value == 0);  // The blocked penalty saturates past the reward.
 }
 
+TEST_CASE("completed scoring subtracts twenty-five points per day beyond the minimum") {
+    CompletedScoreInput input;
+    input.provisions_remaining = 1;         // spare unused: base 900 + 100 = 1000.
+    input.days_used = 4;
+    input.minimum_completion_days = 1;      // 3 excess days * 25 = 75 penalty.
+    const ExpeditionScore score = compute_completed_score(input);
+    CHECK(score.excess_days == 3u);
+    CHECK(score.value == 925u);  // 1000 - 75.
+}
+
+TEST_CASE("completed scoring applies no day penalty when finishing on time") {
+    CompletedScoreInput input;
+    input.provisions_remaining = 1;
+    input.days_used = 2;
+    input.minimum_completion_days = 2;  // exactly on time: no excess days.
+    const ExpeditionScore score = compute_completed_score(input);
+    CHECK(score.excess_days == 0u);
+    CHECK(score.value == 1000u);
+}
+
+TEST_CASE("completed day penalty is overflow-safe and never underflows the score") {
+    CompletedScoreInput input;
+    input.provisions_remaining = 0;  // no spare bonus.
+    input.days_used = std::numeric_limits<std::uint64_t>::max();
+    input.minimum_completion_days = 1;
+    const ExpeditionScore score = compute_completed_score(input);
+    CHECK(score.value == 0u);  // the day penalty saturates past the base.
+}
+
+TEST_CASE("overdue scoring uses the exact exploration plus beacon formula") {
+    OverdueScoreInput input;
+    input.explored_reachable_cells = 5;
+    input.total_reachable_cells = 10;  // floor(500 * 5 / 10) = 250.
+    input.beacon_discovered = true;    // + 100 = 350.
+    input.blocked_attempts = 2;        // - 40 = 310.
+    const ExpeditionScore score = compute_overdue_score(input);
+    CHECK(score.result == ExpeditionResult::overdue);
+    CHECK(score.exploration_points == 250u);
+    CHECK(score.value == 310u);
+}
+
+TEST_CASE("a fully explored overdue run clamps at the overdue maximum of 600") {
+    OverdueScoreInput input;
+    input.explored_reachable_cells = 8;
+    input.total_reachable_cells = 8;  // 500 exploration.
+    input.beacon_discovered = true;   // + 100 = 600, the overdue maximum.
+    const ExpeditionScore score = compute_overdue_score(input);
+    CHECK(score.exploration_points == 500u);
+    CHECK(score.value == 600u);
+}
+
+TEST_CASE("overdue scoring is overflow-safe at extreme counters") {
+    OverdueScoreInput input;
+    input.explored_reachable_cells = std::numeric_limits<std::uint64_t>::max();
+    input.total_reachable_cells = 1;
+    input.beacon_discovered = true;
+    input.blocked_attempts = std::numeric_limits<std::uint64_t>::max();
+    const ExpeditionScore score = compute_overdue_score(input);
+    CHECK(score.value == 0u);
+}
+
 }  // TEST_SUITE("game")

@@ -30,9 +30,32 @@ namespace {
 }
 
 [[nodiscard]] std::string rest_prose(const RestEntry& entry) {
-    return "Made camp on " + terrain_name(entry.terrain) + " and recovered " +
+    return "Rested on " + terrain_name(entry.terrain) + " and recovered " +
            std::to_string(entry.stamina_recovered) + " stamina (" +
            std::to_string(entry.provisions_after) + " provisions left).";
+}
+
+[[nodiscard]] std::string camp_prose(const CampEntry& entry) {
+    return "Camped on " + terrain_name(entry.terrain) + " overnight; day " +
+           std::to_string(entry.day_after) + " began with " +
+           std::to_string(entry.stamina_after) + " stamina (" +
+           std::to_string(entry.provisions_after) + " provisions left).";
+}
+
+[[nodiscard]] std::string bivouac_prose(const BivouacEntry& entry) {
+    return "Bivouacked on " + terrain_name(entry.terrain) + " overnight; day " +
+           std::to_string(entry.day_after) + " began with " +
+           std::to_string(entry.stamina_after) + " stamina (" +
+           std::to_string(entry.provisions_after) + " provisions left).";
+}
+
+[[nodiscard]] std::string overdue_prose(const OverdueEntry& entry) {
+    if (entry.beacon_discovered) {
+        return "Missed the return deadline after reaching " + entry.beacon_name +
+               "; a late retrieval party collected the explorer.";
+    }
+    return "Missed the return deadline before reaching " + entry.beacon_name +
+           "; a late retrieval party collected the explorer.";
 }
 
 [[nodiscard]] std::string rescue_prose(const RescueEntry& entry) {
@@ -50,6 +73,8 @@ namespace {
 struct EntryFormatter {
     std::string operator()(const TravelEntry& entry) const { return travel_prose(entry); }
     std::string operator()(const RestEntry& entry) const { return rest_prose(entry); }
+    std::string operator()(const CampEntry& entry) const { return camp_prose(entry); }
+    std::string operator()(const BivouacEntry& entry) const { return bivouac_prose(entry); }
     std::string operator()(const DiscoveryEntry& entry) const {
         return "Discovered " + entry.beacon_name + ".";
     }
@@ -60,6 +85,7 @@ struct EntryFormatter {
         return "Found " + entry.beacon_name + " at spawn; the expedition was already complete.";
     }
     std::string operator()(const RescueEntry& entry) const { return rescue_prose(entry); }
+    std::string operator()(const OverdueEntry& entry) const { return overdue_prose(entry); }
 };
 
 }  // namespace
@@ -119,8 +145,8 @@ void Journal::record_event(const GameEvent& event, const std::string& beacon_nam
 
     if (const auto* rested = std::get_if<RestedEvent>(&event.data)) {
         // Only a provision-funded rest that recovered stamina produces an entry; a
-        // heroic full-stamina rest and a no-provisions rest are no-ops here
-        // (REQ-110 / REQ-112). Rest always breaks travel grouping.
+        // heroic full-stamina rest, a no-daylight rest, and a no-provisions rest are
+        // no-ops here. Rest always breaks travel grouping.
         if (rested->result == RestResult::recovered) {
             entries_.push_back(JournalEntry{RestEntry{event.sequence, rested->terrain,
                                                       rested->stamina_before,
@@ -131,12 +157,39 @@ void Journal::record_event(const GameEvent& event, const std::string& beacon_nam
         travel_open_ = false;
         return;
     }
+
+    if (const auto* camped = std::get_if<CampedEvent>(&event.data)) {
+        // Only a successful camp or bivouac produces an entry; an ineligible or
+        // unaffordable camp is a no-op here. A normal camp and an emergency bivouac
+        // are distinct journal variants so report counts derive from typed entries,
+        // not prose (REQ-032). Camp always breaks travel grouping.
+        if (camped->result == CampResult::camped) {
+            if (camped->kind == CampKind::bivouac) {
+                entries_.push_back(JournalEntry{BivouacEntry{
+                    event.sequence, camped->terrain, camped->time.before.day, camped->time.after.day,
+                    camped->stamina_after, camped->provisions_after}});
+            } else {
+                entries_.push_back(JournalEntry{CampEntry{
+                    event.sequence, camped->terrain, camped->time.before.day, camped->time.after.day,
+                    camped->stamina_after, camped->provisions_after}});
+            }
+        }
+        travel_open_ = false;
+        return;
+    }
 }
 
 void Journal::record_rescue(const std::string& beacon_name, bool beacon_discovered) {
     // The sequence field is informational; the rescue is appended after the
     // triggering command's own entry. Keep grouping closed after a terminal entry.
     entries_.push_back(JournalEntry{RescueEntry{0, beacon_name, beacon_discovered}});
+    travel_open_ = false;
+}
+
+void Journal::record_overdue(const std::string& beacon_name, bool beacon_discovered) {
+    // The overdue entry is appended after the triggering command's own entry. Keep
+    // grouping closed after a terminal entry.
+    entries_.push_back(JournalEntry{OverdueEntry{0, beacon_name, beacon_discovered}});
     travel_open_ = false;
 }
 

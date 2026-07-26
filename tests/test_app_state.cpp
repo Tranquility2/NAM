@@ -156,7 +156,7 @@ TEST_CASE("a rest updates only the message and success flag, leaving counters an
     CHECK(hud.recent().size() == history);
     CHECK_FALSE(hud.last_move_succeeded());
     CHECK(hud.message() ==
-          "Made camp on open ground and recovered 4 stamina. Provisions left: 1.");
+          "Made emergency camp on open ground and recovered 4 stamina. Provisions left: 1.");
 
     hud.record_event(rest_event(RestResult::already_full, Terrain::open, 20, 20, 0, 1, 1, 2));
     CHECK(hud.move_count() == moves);

@@ -61,14 +61,21 @@ TEST_CASE("move outcomes map to distinct human-readable sentences") {
     CHECK(describe_move(terrain).find("Blocked") != std::string::npos);
 }
 
-TEST_CASE("successful move messages state the destination terrain and exact cost") {
-    // A singular one-point cost onto open ground.
-    MoveOutcome one{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 1, 12, 11};
-    CHECK(describe_move(one) == "Moved onto open ground for 1 stamina.");
+TEST_CASE("successful move messages state the destination terrain, cost, and hours") {
+    // A singular one-point cost and one hour onto open ground.
+    MoveOutcome one{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 1, 12, 11, 1};
+    CHECK(describe_move(one) == "Moved onto open ground for 1 stamina and 1 hour.");
 
-    // A multi-point cost onto a mountain.
-    MoveOutcome four{MoveResult::moved, {0, 0}, {1, 0}, Terrain::mountain, 4, 12, 8};
-    CHECK(describe_move(four) == "Moved onto mountain for 4 stamina.");
+    // A multi-point cost and multi-hour step onto a mountain.
+    MoveOutcome four{MoveResult::moved, {0, 0}, {1, 0}, Terrain::mountain, 4, 12, 8, 3};
+    CHECK(describe_move(four) == "Moved onto mountain for 4 stamina and 3 hours.");
+}
+
+TEST_CASE("insufficient-daylight messages state terrain, required hours, and remaining daylight") {
+    MoveOutcome block{MoveResult::blocked_by_daylight, {3, 0}, {3, 0}, Terrain::mountain, 4, 5, 5, 3};
+    block.time_before.daylight_hours_used = 11;  // only 1 hour of the 12-hour day remains
+    block.time_after = block.time_before;
+    CHECK(describe_move(block) == "Not enough daylight for mountain: need 3 hours, have 1.");
 }
 
 TEST_CASE("insufficient-stamina messages state terrain, required cost, and available stamina") {
@@ -91,15 +98,51 @@ TEST_CASE("boundary and impassable-terrain wording carries no stamina cost") {
     CHECK(describe_move(wall) == "Blocked by wall.");
 }
 
-TEST_CASE("rest messages match the recovered full and no-provisions wording") {
+TEST_CASE("rest messages match the recovered full daylight-blocked and no-provisions wording") {
     CHECK(describe_rest(RestedEvent{RestResult::recovered, Terrain::fields, 10, 12, 2, 3, 2}) ==
-          "Made camp on fields and recovered 2 stamina. Provisions left: 2.");
+          "Made emergency camp on fields and recovered 2 stamina. Provisions left: 2.");
     CHECK(describe_rest(
               RestedEvent{RestResult::already_full, Terrain::open, 20, 20, 0, 2, 2}) ==
           "A heroic rest is attempted. Your stamina remains heroically full.");
     CHECK(describe_rest(
+              RestedEvent{RestResult::blocked_by_daylight, Terrain::open, 7, 7, 0, 2, 2}) ==
+          "Too little daylight remains to rest. Make camp or press on.");
+    CHECK(describe_rest(
               RestedEvent{RestResult::no_provisions, Terrain::mountain, 7, 7, 0, 0, 0}) ==
-          "No provisions left to make camp. Stamina holds at 7.");
+          "No provisions left to rest. Stamina holds at 7.");
+}
+
+TEST_CASE("camp messages distinguish normal camp bivouac and failure wording") {
+    CampedEvent normal;
+    normal.result = CampResult::camped;
+    normal.kind = CampKind::normal;
+    normal.terrain = Terrain::fields;
+    normal.stamina_after = 20;
+    normal.provisions_after = 2;
+    normal.time.after.day = 3;
+    CHECK(describe_camp(normal) ==
+          "Made camp on fields. Stamina restored to 20, provisions 2. Day 3 begins.");
+
+    CampedEvent bivouac;
+    bivouac.result = CampResult::camped;
+    bivouac.kind = CampKind::bivouac;
+    bivouac.terrain = Terrain::water;
+    bivouac.stamina_after = 10;
+    bivouac.provisions_after = 1;
+    bivouac.time.after.day = 2;
+    CHECK(describe_camp(bivouac) ==
+          "Bivouacked on water. A rough night: stamina 10, provisions 1. Day 2 begins.");
+
+    CampedEvent ineligible;
+    ineligible.result = CampResult::ineligible;
+    CHECK(describe_camp(ineligible) == "Too early to camp. Travel a while or tire first.");
+
+    CampedEvent broke;
+    broke.result = CampResult::no_provisions;
+    broke.kind = CampKind::normal;
+    broke.provision_cost = 1;
+    broke.provisions_before = 0;
+    CHECK(describe_camp(broke) == "Not enough provisions to make camp: need 1, have 0.");
 }
 
 TEST_CASE("map errors describe the source and position when present") {
@@ -166,6 +209,9 @@ TEST_CASE("objective-screen reminders and restored completion wording are exact"
           "Expedition complete: Glass River Beacon.");
     CHECK(restored_rescue_message("Glass River Beacon") ==
           "Rescued: the Glass River Beacon expedition ran out of provisions and ended early.");
+    CHECK(restored_overdue_message("Glass River Beacon") ==
+          "Overdue: the Glass River Beacon expedition missed its return window and was collected "
+          "late.");
     // The restored completion line carries neither the pre-completion goodbye
     // wording nor any coordinate.
     CHECK(restored_completion_message("Glass River Beacon").find("Goodbye") == std::string::npos);

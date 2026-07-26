@@ -82,7 +82,7 @@ ExpeditionReport build_report(ExpeditionResult result, const BeaconObjective& ob
     return build_expedition_report(result, objective, map, visibility, journal, route,
                                    world_identity_from(Settings{}), move_count, attempt_count,
                                    final_stamina, max_stamina, starting_provisions,
-                                   remaining_provisions);
+                                   remaining_provisions, ExpeditionTime{}, objective.deadline_days);
 }
 
 }  // namespace
@@ -154,21 +154,28 @@ TEST_CASE("completed report shows result story new statistics and legend wording
           "980 out of 1000.");
 
     const std::vector<std::string> stats = format_report_statistics(report);
-    REQUIRE(stats.size() == 14);
+    REQUIRE(stats.size() == 21);
     CHECK(stats[0] == "STATISTICS");
     CHECK(stats[1] == "Score: 980 / 1000");
-    CHECK(stats[2] == "Moves: 3");
-    CHECK(stats[3] == "Move attempts: 4");
-    CHECK(stats[4] == "Blocked moves: 1");
-    CHECK(stats[5] == "Provisions used: 1");
-    CHECK(stats[6] == "Provisions remaining: 1");
-    CHECK(stats[7] == "Provisions starting: 2");
-    CHECK(stats[8] == "Minimum provisions required: 1");
-    CHECK(stats[9] == "Stamina spent: 3");
-    CHECK(stats[10] == "Optimal round-trip cost: 6");
-    CHECK(stats[11] == "Final stamina: 17/20");
-    CHECK(stats[12] == "Explored reachable terrain: 4 / 4");
-    CHECK(stats[13] == "Beacon reached: yes");
+    CHECK(stats[2] == "Days used: 1");
+    CHECK(stats[3] == "Minimum completion days: 1");
+    CHECK(stats[4] == "Deadline day: 3");
+    CHECK(stats[5] == "Daylight used final day: 0/12");
+    CHECK(stats[6] == "Moves: 3");
+    CHECK(stats[7] == "Move attempts: 4");
+    CHECK(stats[8] == "Blocked moves: 1");
+    CHECK(stats[9] == "Normal camps: 0");
+    CHECK(stats[10] == "Emergency rests: 0");
+    CHECK(stats[11] == "Bivouacs: 0");
+    CHECK(stats[12] == "Provisions used: 1");
+    CHECK(stats[13] == "Provisions remaining: 1");
+    CHECK(stats[14] == "Provisions starting: 2");
+    CHECK(stats[15] == "Minimum provisions required: 1");
+    CHECK(stats[16] == "Stamina spent: 3");
+    CHECK(stats[17] == "Optimal round-trip cost: 6");
+    CHECK(stats[18] == "Final stamina: 17/20");
+    CHECK(stats[19] == "Explored reachable terrain: 4 / 4");
+    CHECK(stats[20] == "Beacon reached: yes");
 
     const std::vector<std::string> legend = format_report_legend();
     REQUIRE(legend.size() == 6);
@@ -204,9 +211,9 @@ TEST_CASE("rescued report uses rescued result story and 750 score ceiling") {
           "rescued score of 605 out of 750.");
 
     const std::vector<std::string> stats = format_report_statistics(report);
-    REQUIRE(stats.size() == 14);
+    REQUIRE(stats.size() == 21);
     CHECK(stats[1] == "Score: 605 / 750");
-    CHECK(stats[13] == "Beacon reached: yes");
+    CHECK(stats[20] == "Beacon reached: yes");
 }
 
 TEST_CASE("rescued report marks beacon reached no when objective was never discovered") {
@@ -229,9 +236,47 @@ TEST_CASE("rescued report marks beacon reached no when objective was never disco
                      /*remaining_provisions=*/0);
 
     const std::vector<std::string> stats = format_report_statistics(report);
-    REQUIRE(stats.size() == 14);
+    REQUIRE(stats.size() == 21);
     CHECK(stats[1] == "Score: 250 / 750");
-    CHECK(stats[13] == "Beacon reached: no");
+    CHECK(stats[20] == "Beacon reached: no");
+}
+
+TEST_CASE("overdue report uses overdue result story score ceiling and time statistics") {
+    const Map map = row_map("....", Coordinates{0, 0});
+    BeaconObjective objective = make_objective(Coordinates{3, 0}, "North Ridge",
+                                               ObjectiveStatus::returning_to_spawn, 6, 1, 4);
+    objective.minimum_completion_days = 1;
+    objective.deadline_days = 3;
+    VisibilityMap visibility(4, 1);
+    visibility.reveal_square(Coordinates{1, 0}, 1);  // explore 2 of 4 reachable cells.
+
+    Journal journal;
+    RouteHistory route(Coordinates{0, 0});
+    const GameEvent first = moved_event(0, Direction::right, Terrain::open, 1, Coordinates{1, 0});
+    journal.record_event(first, objective.name);
+    route.record_event(first);
+
+    ExpeditionTime final_time;
+    final_time.day = 3;                 // ended on the deadline day.
+    final_time.daylight_hours_used = 12;  // fully spent.
+
+    const ExpeditionReport report = build_expedition_report(
+        ExpeditionResult::overdue, objective, map, visibility, journal, route,
+        world_identity_from(Settings{}), /*move_count=*/1, /*attempt_count=*/1,
+        /*final_stamina=*/5, /*max_stamina=*/20, /*starting_provisions=*/2,
+        /*provisions_remaining=*/0, final_time, objective.deadline_days);
+
+    CHECK(format_report_result(report) ==
+          "Result: overdue; collected late after missing the return deadline.");
+    CHECK(format_report_story(report).find("ran overdue") != std::string::npos);
+    CHECK(format_report_story(report).find("overdue score of") != std::string::npos);
+
+    const std::vector<std::string> stats = format_report_statistics(report);
+    REQUIRE(stats.size() == 21);
+    CHECK(stats[1].find("/ 600") != std::string::npos);  // overdue score ceiling.
+    CHECK(stats[2] == "Days used: 3");
+    CHECK(stats[4] == "Deadline day: 3");
+    CHECK(stats[5] == "Daylight used final day: 12/12");
 }
 
 TEST_CASE("report line sections appear in the required order") {

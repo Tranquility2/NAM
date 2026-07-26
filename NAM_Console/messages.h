@@ -32,9 +32,17 @@ namespace nam::console {
 
 // A sentence describing a rest command for the HUD's latest-event line. A rest
 // that recovered stamina reports the terrain amount and remaining provisions; a
-// heroic rest at full stamina reports the exact fixed heroic line; a rest with no
+// heroic rest at full stamina reports the exact fixed heroic line; a rest with
+// too little daylight left reports that dusk is too near; a rest with no
 // provisions left reports that no provisions remain.
 [[nodiscard]] std::string describe_rest(const RestedEvent& rested);
+
+// A sentence describing a camp command for the HUD's latest-event line. A
+// successful normal camp reports the new day and restored stamina; a successful
+// bivouac reports the rough overnight and the fixed stamina result; an ineligible
+// camp reports why camping is not yet allowed; a camp with too few provisions
+// reports the shortfall.
+[[nodiscard]] std::string describe_camp(const CampedEvent& camped);
 
 // A user-facing explanation of why a map failed to load, including the source
 // and line/column when the parser reported them.
@@ -80,5 +88,11 @@ namespace nam::console {
 // the rescue is being acknowledged this replaces every goodbye/EOF/interrupt line
 // so the acknowledgement can never overwrite it.
 [[nodiscard]] std::string restored_rescue_message(const std::string& name);
+
+// The single line printed once on the restored normal screen after an
+// interactive run that missed its return deadline, naming the overdue expedition.
+// While the overdue outcome is being acknowledged this replaces every
+// goodbye/EOF/interrupt line so the acknowledgement can never overwrite it.
+[[nodiscard]] std::string restored_overdue_message(const std::string& name);
 
 }  // namespace nam::console

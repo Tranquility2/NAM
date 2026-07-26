@@ -289,7 +289,7 @@ std::string usage_text() {
     text += "  -h, --help        Show this help and exit.\n";
     text += "  -V, --version     Show version information and exit.\n\n";
     text += "Controls (interactive): arrow keys or W/A/S/D (H/K/L also move) to move, r to rest,\n";
-    text += "j for the expedition journal, q or Esc to quit.\n";
+    text += "c to camp, j for the expedition journal, q or Esc to quit.\n";
     text += "Environment: NO_COLOR and TERM=dumb disable colour; a non-terminal stdin/stdout\n";
     text += "uses plain mode automatically.\n";
     return text;

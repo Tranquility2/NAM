@@ -43,6 +43,41 @@ struct RestEntry {
     std::uint32_t provisions_after = 0;
 };
 
+// A single successful normal camp that ended the day (REQ-032). Only a camp that
+// actually happened (eligible and affordable) produces an entry; an ineligible or
+// unaffordable camp produces no journal entry. Carries the terrain, the day the
+// night began and the day it started, and the stamina and provisions after.
+struct CampEntry {
+    std::uint64_t sequence = 0;
+    Terrain terrain{};
+    std::uint32_t day_before = 0;
+    std::uint32_t day_after = 0;
+    std::uint32_t stamina_after = 0;
+    std::uint32_t provisions_after = 0;
+};
+
+// A single successful emergency bivouac on water or mountain that ended the day
+// (REQ-032). Only a bivouac that actually happened produces an entry. Carries the
+// same time and resource fields as a normal camp.
+struct BivouacEntry {
+    std::uint64_t sequence = 0;
+    Terrain terrain{};
+    std::uint32_t day_before = 0;
+    std::uint32_t day_after = 0;
+    std::uint32_t stamina_after = 0;
+    std::uint32_t provisions_after = 0;
+};
+
+// The command after which the expedition missed its return deadline and a late
+// retrieval party collected the explorer (REQ-032 / REQ-033). It is appended after
+// the triggering command's own entry. `beacon_discovered` records whether the
+// beacon had been reached before the deadline was missed.
+struct OverdueEntry {
+    std::uint64_t sequence = 0;
+    std::string beacon_name;
+    bool beacon_discovered = false;
+};
+
 // The move that first entered the beacon cell (REQ-010).
 struct DiscoveryEntry {
     std::uint64_t sequence = 0;
@@ -74,8 +109,8 @@ struct RescueEntry {
 // The payload of one journal entry. A variant so distinct entry kinds keep their
 // own typed fields and prose is rendered through one total visitor (GUD-002).
 using JournalEntryData =
-    std::variant<TravelEntry, RestEntry, DiscoveryEntry, CompletionEntry, InitialCompletionEntry,
-                 RescueEntry>;
+    std::variant<TravelEntry, RestEntry, CampEntry, BivouacEntry, DiscoveryEntry, CompletionEntry,
+                 InitialCompletionEntry, RescueEntry, OverdueEntry>;
 
 // One journal entry: a structured payload with no rendered text of its own.
 struct JournalEntry {
@@ -106,6 +141,11 @@ public:
     // expedition (REQ-122). `beacon_discovered` records whether the beacon had
     // been reached before the rescue. Breaks any travel grouping.
     void record_rescue(const std::string& beacon_name, bool beacon_discovered);
+
+    // Record the structured overdue entry after the command that missed the return
+    // deadline (REQ-033). `beacon_discovered` records whether the beacon had been
+    // reached before the deadline was missed. Breaks any travel grouping.
+    void record_overdue(const std::string& beacon_name, bool beacon_discovered);
 
     [[nodiscard]] const std::vector<JournalEntry>& entries() const noexcept { return entries_; }
     [[nodiscard]] bool empty() const noexcept { return entries_.empty(); }

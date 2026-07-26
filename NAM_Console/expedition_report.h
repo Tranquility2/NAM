@@ -7,6 +7,7 @@
 
 #include "coordinates.h"
 #include "expedition_score.h"
+#include "expedition_time.h"
 #include "game_event.h"
 #include "journal.h"
 #include "map.h"
@@ -105,22 +106,36 @@ struct ExpeditionReport {
     std::uint64_t explored_reachable_cells = 0;
     std::uint64_t total_reachable_cells = 0;
     bool beacon_discovered = false;
+    // Time and camp statistics (REQ-037). days_used is the numbered day the run
+    // ended on; daylight_used_final is the daylight hours used on that final day;
+    // the successful-action counts derive from the typed journal variants, never
+    // from prose (TASK-018).
+    std::uint32_t days_used = 1;
+    std::uint32_t minimum_completion_days = 1;
+    std::uint32_t deadline_days = 3;
+    std::uint32_t daylight_used_final = 0;
+    std::uint32_t daylight_per_day = daylight_hours_per_day;
+    std::uint64_t normal_camps = 0;
+    std::uint64_t emergency_rests = 0;
+    std::uint64_t bivouacs = 0;
 };
 
-// Build the final report for either ending. `result` selects the completed or
-// rescued score and prose. Stamina spent is the sum of TravelEntry::stamina_spent
-// across the completed journal (REQ-143). Blocked attempts are attempt_count minus
-// move_count via comparison-before-subtraction. Provisions used are starting minus
-// remaining. Explored reachable terrain is computed from the map and visibility
-// snapshot by the core, and the total comes from the objective. Whether the beacon
-// was reached is derived from the objective status. `map` and `visibility` are
-// snapshotted for the route map.
+// Build the final report for either ending. `result` selects the completed,
+// rescued, or overdue score and prose. Stamina spent is the sum of
+// TravelEntry::stamina_spent across the completed journal (REQ-143). Blocked
+// attempts are attempt_count minus move_count via comparison-before-subtraction.
+// Provisions used are starting minus remaining. Explored reachable terrain is
+// computed from the map and visibility snapshot by the core, and the total comes
+// from the objective. Whether the beacon was reached is derived from the objective
+// status. `final_time` supplies the day, daylight, and per-day capacity; the
+// successful normal camps, emergency rests, and bivouacs are counted from the
+// structured journal. `map` and `visibility` are snapshotted for the route map.
 [[nodiscard]] ExpeditionReport build_expedition_report(
     ExpeditionResult result, const BeaconObjective& objective, const Map& map,
     const VisibilityMap& visibility, const Journal& journal, const RouteHistory& route,
     const WorldIdentity& identity, std::uint64_t move_count, std::uint64_t attempt_count,
     std::uint32_t final_stamina, std::uint32_t max_stamina, std::uint32_t starting_provisions,
-    std::uint32_t provisions_remaining);
+    std::uint32_t provisions_remaining, ExpeditionTime final_time, std::uint32_t deadline_days);
 
 // The single result/status line distinguishing completion from rescue (REQ-133).
 [[nodiscard]] std::string format_report_result(const ExpeditionReport& report);

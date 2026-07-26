@@ -44,12 +44,12 @@ GameState make_big_state() {
         "NAM-MAP 1\nwidth 9\nheight 3\nspawn 1 1\n---\n=========\n......@..\n=========\n"));
 }
 
-// A one-lane mountain corridor for stamina integration. With the 20-stamina cap,
-// five mountain steps drain to zero and the sixth mountain is unaffordable. A
-// distant water glyph at x=10 stays hidden at that blocking point.
+// A one-lane fields corridor for stamina integration. Ten fields steps drain
+// stamina to zero in ten daylight hours; the next fields step is unaffordable
+// while the distant water glyph at x=13 remains outside the refreshed sight.
 GameState make_cost_state() {
     return GameState(make_map(
-        "NAM-MAP 1\nwidth 11\nheight 3\nspawn 0 1\n---\n===========\n.@@@@@@...~\n===========\n"));
+        "NAM-MAP 1\nwidth 14\nheight 3\nspawn 0 1\n---\n==============\n.xxxxxxxxxxx.~\n==============\n"));
 }
 
 // A corridor with an open spawn at x=1, a hill at x=2, and a distinctive water
@@ -61,13 +61,12 @@ GameState make_hill_state() {
         "NAM-MAP 1\nwidth 9\nheight 3\nspawn 1 1\n---\n=========\n..^..~...\n=========\n"));
 }
 
-// A long corridor where four mountains then four open tiles drain stamina to zero
-// on open ground; the next mountain is blocked until one open-ground rest recovers
-// enough stamina. A distant water glyph at x=13 becomes visible only after that
-// mountain is entered.
+// A long corridor where fields drain stamina to zero before the distant water
+// glyph is visible. The next fields step is blocked until camp resets stamina
+// and daylight, then entering it reveals the water.
 GameState make_mountain_reach_state() {
     return GameState(make_map(
-        "NAM-MAP 1\nwidth 14\nheight 3\nspawn 0 1\n---\n==============\n.@@@@....@...~\n==============\n"));
+        "NAM-MAP 1\nwidth 14\nheight 3\nspawn 0 1\n---\n==============\n.xxxxxxxxxxx.~\n==============\n"));
 }
 
 std::size_t count_char(const std::string& text, char needle) {
@@ -160,6 +159,42 @@ GameState make_rescue_state() {
 
 std::string rescue_beacon_name() {
     return make_rescue_state().objective().name;
+}
+
+GameState make_overdue_mountain_state() {
+    return GameState(make_map("NAM-MAP 1\nwidth 9\nheight 1\nspawn 0 0\n---\n.@@@@@@@@\n"));
+}
+
+std::string overdue_plain_commands() {
+    GameState probe = make_overdue_mountain_state();
+    std::string commands;
+    Direction direction = Direction::right;
+    char command = 'd';
+    for (int guard = 0; guard < 200; ++guard) {
+        const GameEvent event = probe.move(direction);
+        commands.push_back(command);
+        commands.push_back('\n');
+        if (event.ending != ExpeditionEndingTransition::none) {
+            return commands;
+        }
+        if (const auto* move = std::get_if<MoveAttemptedEvent>(&event.data);
+            move != nullptr && move->outcome.result == MoveResult::moved) {
+            if (direction == Direction::right) {
+                direction = Direction::left;
+                command = 'a';
+            } else {
+                direction = Direction::right;
+                command = 'd';
+            }
+        } else {
+            const GameEvent camp_event = probe.camp();
+            commands += "c\n";
+            if (camp_event.ending != ExpeditionEndingTransition::none) {
+                return commands;
+            }
+        }
+    }
+    return commands;
 }
 
 std::string stranded_plain_commands() {
@@ -442,79 +477,69 @@ TEST_CASE("entering a hill reveals a far glyph that persists as memory after lea
     CHECK(remembered.find('\x1b') == std::string::npos);  // plain stays ANSI-free.
 }
 
-TEST_CASE("an unaffordable mountain keeps a far glyph hidden until a rest lets the actor enter") {
+TEST_CASE("an unaffordable fields step keeps a far glyph hidden until camp lets the actor enter") {
+    const std::string ten_fields = R"(d
+d
+d
+d
+d
+d
+d
+d
+d
+d
+)";
+
     std::string blocked;
-    const int code_blocked = run_plain_state(make_mountain_reach_state(),
-                                             R"(d
-d
-d
-d
-d
-d
-d
-d
-d
-q
-)", blocked);
+    const int code_blocked = run_plain_state(make_mountain_reach_state(), ten_fields + "d\nq\n", blocked);
     CHECK(code_blocked == 0);
-    CHECK(blocked.find("Not enough stamina for mountain: need 4, have 0.") != std::string::npos);
+    CHECK(blocked.find("Stamina: 0/20") != std::string::npos);
+    CHECK(blocked.find("Not enough stamina for fields: need 2, have 0.") != std::string::npos);
     CHECK(blocked.find('~') == std::string::npos);
 
     std::string reached;
-    const int code_reached = run_plain_state(make_mountain_reach_state(),
-                                             R"(d
-d
-d
-d
-d
-d
-d
-d
-r
-d
-q
-)", reached);
+    const int code_reached = run_plain_state(make_mountain_reach_state(), ten_fields + "c\nd\nq\n", reached);
     CHECK(code_reached == 0);
-    CHECK(reached.find("Made camp on open ground and recovered 4 stamina. Provisions left:") !=
+    CHECK(reached.find("Made camp on fields. Stamina restored to 20, provisions ") !=
           std::string::npos);
-    CHECK(reached.find("Moved onto mountain for 4 stamina.") != std::string::npos);
+    CHECK(reached.find("Day 2 begins.") != std::string::npos);
+    CHECK(reached.find("Moved onto fields for 2 stamina and 1 hour.") != std::string::npos);
     CHECK(reached.find('~') != std::string::npos);
     CHECK(reached.find('\x1b') == std::string::npos);
 }
 
-TEST_CASE("a scripted high-cost route shows costs drains stamina and blocks deterministically") {
-    std::string output;
-    const int code = run_plain_state(make_cost_state(),
-                                     R"(d
+TEST_CASE("a scripted fields route shows costs drains stamina and blocks deterministically") {
+    const std::string script = R"(d
+d
+d
+d
+d
+d
 d
 d
 d
 d
 d
 q
-)", output);
+)";
+    std::string output;
+    const int code = run_plain_state(make_cost_state(), script, output);
     CHECK(code == 0);
 
-    CHECK(output.find("Moved onto mountain for 4 stamina.") != std::string::npos);
+    CHECK(output.find("Moved onto fields for 2 stamina and 1 hour.") != std::string::npos);
+    CHECK(output.find("Stamina: 18/20") != std::string::npos);
     CHECK(output.find("Stamina: 16/20") != std::string::npos);
     CHECK(output.find("Stamina: 12/20") != std::string::npos);
     CHECK(output.find("Stamina: 8/20") != std::string::npos);
     CHECK(output.find("Stamina: 4/20") != std::string::npos);
     CHECK(output.find("Stamina: 0/20") != std::string::npos);
-    CHECK(output.find("Not enough stamina for mountain: need 4, have 0.") != std::string::npos);
+    CHECK(output.find("Daylight: 10/12 used") != std::string::npos);
+    CHECK(output.find("Not enough stamina for fields: need 2, have 0.") != std::string::npos);
     CHECK(output.find('~') == std::string::npos);
     CHECK(output.find('\x1b') == std::string::npos);
 
     std::string second;
-    const int code_again = run_plain_state(make_cost_state(),
-                                           R"(d
-d
-d
-d
-d
-d
-q
-)", second);
+    const int code_again = run_plain_state(make_cost_state(), script, second);
     CHECK(code_again == code);
     CHECK(second == output);
 }
@@ -539,54 +564,78 @@ q
     CHECK(letter.find("Unknown command") == std::string::npos);
 }
 
-TEST_CASE("resting from zero lets the actor complete the next water move") {
+TEST_CASE("camping from zero lets the actor complete the next water move") {
     const auto make_zero_water_state = [] {
         return GameState(make_map(R"(NAM-MAP 1
-width 10
+width 14
 height 3
 spawn 0 1
 ---
-==========
-.@@@@....~
-==========
+==============
+.xxxxxxxxxx~..
+==============
 )"));
     };
+    const std::string ten_fields = R"(d
+d
+d
+d
+d
+d
+d
+d
+d
+d
+)";
 
     std::string blocked_first;
-    const int code_blocked = run_plain_state(make_zero_water_state(),
-                                             R"(d
-d
-d
-d
-d
-d
-d
-d
-d
-q
-)", blocked_first);
+    const int code_blocked = run_plain_state(make_zero_water_state(), ten_fields + "d\nq\n", blocked_first);
     CHECK(code_blocked == 0);
     CHECK(blocked_first.find("Stamina: 0/20") != std::string::npos);
     CHECK(blocked_first.find("Not enough stamina for water: need 3, have 0.") !=
           std::string::npos);
 
     std::string recovered;
-    const int code = run_plain_state(make_zero_water_state(),
-                                     R"(d
-d
-d
-d
-d
-d
-d
-d
-r
-d
-q
-)", recovered);
+    const int code = run_plain_state(make_zero_water_state(), ten_fields + "c\nd\nq\n", recovered);
     CHECK(code == 0);
-    CHECK(recovered.find("Stamina: 1/20") != std::string::npos);
+    CHECK(recovered.find("Made camp on fields. Stamina restored to 20, provisions ") !=
+          std::string::npos);
+    CHECK(recovered.find("Moved onto water for 3 stamina and 2 hours.") != std::string::npos);
+    CHECK(recovered.find("Stamina: 17/20") != std::string::npos);
     CHECK(recovered.find('\x1b') == std::string::npos);
+}
+
+TEST_CASE("plain mode recognises camp command and reports camp eligibility") {
+    CHECK(is_camp_event(KeyEvent::of_character('c')));
+    CHECK(is_camp_event(KeyEvent::of_character('C')));
+    CHECK_FALSE(is_camp_event(KeyEvent::of_character('r')));
+    CHECK_FALSE(direction_for(KeyEvent::of_character('c')).has_value());
+
+    std::string too_early;
+    const int early_code = run_plain_with("c\nq\n", too_early);
+    CHECK(early_code == 0);
+    CHECK(too_early.find("Too early to camp. Travel a while or tire first.") != std::string::npos);
+    CHECK(too_early.find("Unknown command") == std::string::npos);
+
+    std::string camped;
+    const int camp_code = run_plain_with("d\nc\nq\n", camped);
+    CHECK(camp_code == 0);
+    CHECK(camped.find("Made camp on open ground. Stamina restored to 20, provisions ") !=
+          std::string::npos);
+    CHECK(camped.find("Day 2 begins.") != std::string::npos);
+    CHECK(camped.find("Day 2/") != std::string::npos);
+    CHECK(camped.find("Daylight: 0/12 used") != std::string::npos);
+}
+
+TEST_CASE("plain mode overdue prints overdue block and report") {
+    std::string output;
+    const int code = run_plain_state(make_overdue_mountain_state(), overdue_plain_commands(), output);
+    CHECK(code == 0);
+    CHECK(output.find("EXPEDITION OVERDUE") != std::string::npos);
+    CHECK(output.find("Result: overdue; collected late after missing the return deadline.") !=
+          std::string::npos);
+    CHECK(output.find("Goodbye") == std::string::npos);
+    CHECK(output.find('\x1b') == std::string::npos);
 }
 
 TEST_CASE("one rest command produces exactly one additional plain frame") {
@@ -656,7 +705,7 @@ TEST_CASE("plain mode shows the discovery block only when a move enters the beac
     std::string approach;
     run_plain_state(make_corridor_state(), "d\nd\nq\n", approach);
     CHECK(approach.find("BEACON DISCOVERED") == std::string::npos);
-    CHECK(approach.find("Moved onto open ground for 1 stamina.") != std::string::npos);
+    CHECK(approach.find("Moved onto open ground for 1 stamina and 1 hour.") != std::string::npos);
 
     // The third move enters the beacon and prints the exact discovery block.
     std::string entered;

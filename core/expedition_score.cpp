@@ -49,6 +49,11 @@ ExpeditionScore compute_completed_score(const CompletedScoreInput& input) noexce
         saturating_sub(input.actual_stamina_spent, input.optimal_round_trip_cost);
     // The one spare provision is unused when at least one provision remains.
     score.spare_unused = input.provisions_remaining >= 1;
+    // Excess days are every numbered day used beyond the minimum completion day
+    // count (REQ-038).
+    score.days_used = input.days_used;
+    score.minimum_completion_days = input.minimum_completion_days;
+    score.excess_days = saturating_sub(input.days_used, input.minimum_completion_days);
 
     // Start at the base and add the spare bonus, saturating so the reward can never
     // overflow before the clamp.
@@ -64,6 +69,8 @@ ExpeditionScore compute_completed_score(const CompletedScoreInput& input) noexce
         penalty, saturating_mul(score.excess_stamina, completed_penalty_per_excess_stamina));
     penalty = saturating_add(
         penalty, saturating_mul(score.blocked_attempts, completed_penalty_per_blocked_attempt));
+    penalty = saturating_add(
+        penalty, saturating_mul(score.excess_days, completed_penalty_per_excess_day));
 
     score.value = at_most(saturating_sub(reward, penalty), completed_score_maximum);
     return score;
@@ -96,5 +103,33 @@ ExpeditionScore compute_rescued_score(const RescuedScoreInput& input) noexcept {
         saturating_mul(input.blocked_attempts, rescued_penalty_per_blocked_attempt);
 
     score.value = at_most(saturating_sub(reward, penalty), rescued_score_maximum);
+    return score;
+}
+
+ExpeditionScore compute_overdue_score(const OverdueScoreInput& input) noexcept {
+    ExpeditionScore score;
+    score.result = ExpeditionResult::overdue;
+    score.explored_reachable_cells = input.explored_reachable_cells;
+    score.total_reachable_cells = input.total_reachable_cells;
+    score.beacon_discovered = input.beacon_discovered;
+    score.blocked_attempts = input.blocked_attempts;
+
+    // Exploration component: floor(max * explored / total), clamped and guarded
+    // against a zero denominator exactly like the rescued score.
+    if (input.total_reachable_cells > 0) {
+        const std::uint64_t numerator =
+            saturating_mul(overdue_exploration_maximum, input.explored_reachable_cells);
+        score.exploration_points =
+            at_most(numerator / input.total_reachable_cells, overdue_exploration_maximum);
+    }
+
+    std::uint64_t reward = score.exploration_points;
+    if (input.beacon_discovered) {
+        reward = saturating_add(reward, overdue_beacon_bonus);
+    }
+    const std::uint64_t penalty =
+        saturating_mul(input.blocked_attempts, overdue_penalty_per_blocked_attempt);
+
+    score.value = at_most(saturating_sub(reward, penalty), overdue_score_maximum);
     return score;
 }
