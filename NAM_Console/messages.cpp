@@ -2,6 +2,20 @@
 
 namespace nam::console {
 
+namespace {
+
+[[nodiscard]] std::string cardinal_direction_name(Direction direction) {
+    switch (direction) {
+        case Direction::up:    return "north";
+        case Direction::down:  return "south";
+        case Direction::left:  return "west";
+        case Direction::right: return "east";
+    }
+    return "north";
+}
+
+}  // namespace
+
 std::string terrain_name(Terrain terrain) {
     switch (terrain) {
         case Terrain::open:            return "open ground";
@@ -122,22 +136,23 @@ std::string describe_map_error(const MapLoadError& error) {
 
 std::string objective_line(const BeaconObjective& objective) {
     switch (objective.status) {
-        case ObjectiveStatus::seeking_beacon:
-            return "Objective: Reach " + objective.name + " (*), then return to spawn.";
-        case ObjectiveStatus::returning_to_spawn:
-            return "Objective: Return to spawn.";
+        case ObjectiveStatus::seeking_landmark:
+            return "Objective: Reach " + objective.name + " (*).";
+        case ObjectiveStatus::seeking_exit:
+            return "Objective: Reach the exit to the " +
+                   cardinal_direction_name(objective.exit_bearing) + " (*).";
         case ObjectiveStatus::completed:
-            return "Objective complete: " + objective.name + ".";
+            return "Level complete: reached the exit beyond " + objective.name + ".";
     }
-    return "Objective: Reach " + objective.name + " (*), then return to spawn.";
+    return "Objective: Reach " + objective.name + " (*).";
 }
 
 std::string goal_line(const BeaconObjective& objective) {
     switch (objective.status) {
-        case ObjectiveStatus::seeking_beacon:
+        case ObjectiveStatus::seeking_landmark:
             return "Goal: reach " + objective.name;
-        case ObjectiveStatus::returning_to_spawn:
-            return "Goal: return to spawn";
+        case ObjectiveStatus::seeking_exit:
+            return "Goal: exit " + cardinal_direction_name(objective.exit_bearing);
         case ObjectiveStatus::completed:
             return "Goal: complete";
     }
@@ -145,19 +160,19 @@ std::string goal_line(const BeaconObjective& objective) {
 }
 
 std::string describe_beacon_discovered(const std::string& name) {
-    return "Reached " + name + ". Return to spawn.";
+    return "Reached " + name + ". Exit direction revealed.";
 }
 
 std::string describe_expedition_completed(const std::string& name) {
-    return "Objective complete: returned to spawn after reaching " + name + ".";
+    return "Level complete: reached the exit after " + name + ".";
 }
 
 std::string describe_spawn_beacon(const std::string& name) {
-    return "Objective complete: " + name + " is at spawn.";
+    return "Level complete: " + name + " and the exit are at spawn.";
 }
 
 std::string discovery_reminder() {
-    return "Beacon discovered. Press Enter or use a movement command to continue.";
+    return "Landmark discovered. Press Enter or use a movement command to continue.";
 }
 
 std::string completion_reminder() {
@@ -165,7 +180,7 @@ std::string completion_reminder() {
 }
 
 std::string restored_completion_message(const std::string& name) {
-    return "Expedition complete: " + name + ".";
+    return "Level complete beyond " + name + ".";
 }
 
 std::string restored_rescue_message(const std::string& name) {
@@ -173,7 +188,7 @@ std::string restored_rescue_message(const std::string& name) {
 }
 
 std::string restored_overdue_message(const std::string& name) {
-    return "Overdue: the " + name + " expedition missed its return window and was collected late.";
+    return "Overdue: the " + name + " route missed its level deadline and was collected late.";
 }
 
 }  // namespace nam::console

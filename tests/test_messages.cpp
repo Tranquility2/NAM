@@ -173,29 +173,28 @@ TEST_CASE("map errors omit position details that do not apply") {
 }
 
 TEST_CASE("the objective line states the exact wording for every phase") {
-    CHECK(objective_line(objective_with(ObjectiveStatus::seeking_beacon)) ==
-          "Objective: Reach Glass River Beacon (*), then return to spawn.");
-    CHECK(objective_line(objective_with(ObjectiveStatus::returning_to_spawn)) ==
-          "Objective: Return to spawn.");
+    CHECK(objective_line(objective_with(ObjectiveStatus::seeking_landmark)) ==
+          "Objective: Reach Glass River Beacon (*).");
+    CHECK(objective_line(objective_with(ObjectiveStatus::seeking_exit)) ==
+          "Objective: Reach the exit to the east (*).");
     CHECK(objective_line(objective_with(ObjectiveStatus::completed)) ==
-          "Objective complete: Glass River Beacon.");
+          "Level complete: reached the exit beyond Glass River Beacon.");
 }
 
 TEST_CASE("the compact goal line stays short for every phase") {
-    CHECK(goal_line(objective_with(ObjectiveStatus::seeking_beacon)) ==
+    CHECK(goal_line(objective_with(ObjectiveStatus::seeking_landmark)) ==
           "Goal: reach Glass River Beacon");
-    CHECK(goal_line(objective_with(ObjectiveStatus::returning_to_spawn)) ==
-          "Goal: return to spawn");
+    CHECK(goal_line(objective_with(ObjectiveStatus::seeking_exit)) == "Goal: exit east");
     CHECK(goal_line(objective_with(ObjectiveStatus::completed)) == "Goal: complete");
 }
 
 TEST_CASE("beacon transition messages match the exact required wording") {
     CHECK(describe_beacon_discovered("Glass River Beacon") ==
-          "Reached Glass River Beacon. Return to spawn.");
+          "Reached Glass River Beacon. Exit direction revealed.");
     CHECK(describe_expedition_completed("Glass River Beacon") ==
-          "Objective complete: returned to spawn after reaching Glass River Beacon.");
+          "Level complete: reached the exit after Glass River Beacon.");
     CHECK(describe_spawn_beacon("Glass River Beacon") ==
-          "Objective complete: Glass River Beacon is at spawn.");
+          "Level complete: Glass River Beacon and the exit are at spawn.");
 }
 
 TEST_CASE("objective-screen reminders and restored completion wording are exact") {
@@ -203,15 +202,14 @@ TEST_CASE("objective-screen reminders and restored completion wording are exact"
     // normal-screen completion line use their exact fixed wording, and the
     // restored line names the finished beacon.
     CHECK(discovery_reminder() ==
-          "Beacon discovered. Press Enter or use a movement command to continue.");
+          "Landmark discovered. Press Enter or use a movement command to continue.");
     CHECK(completion_reminder() == "Run complete. Press Enter or q to exit.");
     CHECK(restored_completion_message("Glass River Beacon") ==
-          "Expedition complete: Glass River Beacon.");
+          "Level complete beyond Glass River Beacon.");
     CHECK(restored_rescue_message("Glass River Beacon") ==
           "Rescued: the Glass River Beacon expedition ran out of provisions and ended early.");
     CHECK(restored_overdue_message("Glass River Beacon") ==
-          "Overdue: the Glass River Beacon expedition missed its return window and was collected "
-          "late.");
+          "Overdue: the Glass River Beacon route missed its level deadline and was collected late.");
     // The restored completion line carries neither the pre-completion goodbye
     // wording nor any coordinate.
     CHECK(restored_completion_message("Glass River Beacon").find("Goodbye") == std::string::npos);

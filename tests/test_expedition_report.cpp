@@ -149,7 +149,7 @@ TEST_CASE("completed report shows result story new statistics and legend wording
 
     CHECK(format_report_result(report) == "Result: expedition complete.");
     CHECK(format_report_story(report) ==
-          "The Glass River Beacon expedition is complete. The party made 3 successful moves, "
+          "The level beyond Glass River Beacon is complete. The party made 3 successful moves, "
           "spent 3 stamina, used 1 provision, and hit 1 blocked move, earning a final score of "
           "980 out of 1000.");
 
@@ -175,7 +175,7 @@ TEST_CASE("completed report shows result story new statistics and legend wording
     CHECK(stats[17] == "Optimal round-trip cost: 6");
     CHECK(stats[18] == "Final stamina: 17/20");
     CHECK(stats[19] == "Explored reachable terrain: 4 / 4");
-    CHECK(stats[20] == "Beacon reached: yes");
+    CHECK(stats[20] == "Landmark reached: yes");
 
     const std::vector<std::string> legend = format_report_legend();
     REQUIRE(legend.size() == 6);
@@ -213,7 +213,7 @@ TEST_CASE("rescued report uses rescued result story and 750 score ceiling") {
     const std::vector<std::string> stats = format_report_statistics(report);
     REQUIRE(stats.size() == 21);
     CHECK(stats[1] == "Score: 605 / 750");
-    CHECK(stats[20] == "Beacon reached: yes");
+    CHECK(stats[20] == "Landmark reached: yes");
 }
 
 TEST_CASE("rescued report marks beacon reached no when objective was never discovered") {
@@ -238,7 +238,7 @@ TEST_CASE("rescued report marks beacon reached no when objective was never disco
     const std::vector<std::string> stats = format_report_statistics(report);
     REQUIRE(stats.size() == 21);
     CHECK(stats[1] == "Score: 250 / 750");
-    CHECK(stats[20] == "Beacon reached: no");
+    CHECK(stats[20] == "Landmark reached: no");
 }
 
 TEST_CASE("overdue report uses overdue result story score ceiling and time statistics") {
@@ -267,7 +267,7 @@ TEST_CASE("overdue report uses overdue result story score ceiling and time stati
         /*provisions_remaining=*/0, final_time, objective.deadline_days);
 
     CHECK(format_report_result(report) ==
-          "Result: overdue; collected late after missing the return deadline.");
+          "Result: overdue; collected late after missing the level deadline.");
     CHECK(format_report_story(report).find("ran overdue") != std::string::npos);
     CHECK(format_report_story(report).find("overdue score of") != std::string::npos);
 

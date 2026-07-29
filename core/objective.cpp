@@ -82,6 +82,62 @@ constexpr std::array<Coordinates, 4> kCardinalOffsets{
     return distance;
 }
 
+[[nodiscard]] std::vector<Coordinates> shortest_path(const Map& map, Coordinates source,
+                                                     Coordinates target) {
+    const int width = static_cast<int>(map.width());
+    const int height = static_cast<int>(map.height());
+    const std::size_t cell_count =
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    const auto flat_index = [width](Coordinates position) {
+        return static_cast<std::size_t>(position.y) * static_cast<std::size_t>(width) +
+               static_cast<std::size_t>(position.x);
+    };
+    const auto coordinate_at = [width](std::size_t index) {
+        return Coordinates{static_cast<int>(index % static_cast<std::size_t>(width)),
+                           static_cast<int>(index / static_cast<std::size_t>(width))};
+    };
+
+    const std::size_t source_index = flat_index(source);
+    const std::size_t target_index = flat_index(target);
+    std::vector<bool> visited(cell_count, false);
+    std::vector<std::size_t> parent(cell_count, cell_count);
+    std::vector<std::size_t> frontier;
+    frontier.reserve(cell_count);
+    visited[source_index] = true;
+    frontier.push_back(source_index);
+
+    for (std::size_t head = 0; head < frontier.size() && !visited[target_index]; ++head) {
+        const std::size_t current_index = frontier[head];
+        const Coordinates current = coordinate_at(current_index);
+        for (const Coordinates offset : kCardinalOffsets) {
+            const Coordinates neighbour = current + offset;
+            if (!map.contains(neighbour) || !is_walkable(map.terrain_at(neighbour))) {
+                continue;
+            }
+            const std::size_t neighbour_index = flat_index(neighbour);
+            if (visited[neighbour_index]) {
+                continue;
+            }
+            visited[neighbour_index] = true;
+            parent[neighbour_index] = current_index;
+            frontier.push_back(neighbour_index);
+        }
+    }
+
+    std::vector<Coordinates> path;
+    if (!visited[target_index]) {
+        return path;
+    }
+    for (std::size_t current = target_index;; current = parent[current]) {
+        path.push_back(coordinate_at(current));
+        if (current == source_index) {
+            break;
+        }
+    }
+    std::reverse(path.begin(), path.end());
+    return path;
+}
+
 // The deterministic cheapest stamina cost of a walkable cardinal path from
 // `source` to `target`, where entering a cell costs stamina_cost_of(that cell).
 // This is a Dijkstra shortest-path search: only the scalar minimum total cost is
@@ -167,34 +223,45 @@ constexpr std::array<Coordinates, 4> kCardinalOffsets{
 // terrain glyphs and decimal coordinates, never a map path, seed text, or any
 // mutable global state, so the name is a pure function of the placed objective.
 [[nodiscard]] std::string name_fingerprint(const Map& map, Coordinates spawn,
-                                           Coordinates beacon) {
+                                           Coordinates landmark) {
     std::string input = map.to_string();
     input += "\nspawn ";
     input += std::to_string(spawn.x);
     input += " ";
     input += std::to_string(spawn.y);
-    input += "\nbeacon ";
-    input += std::to_string(beacon.x);
+    input += "\nlandmark ";
+    input += std::to_string(landmark.x);
     input += " ";
-    input += std::to_string(beacon.y);
+    input += std::to_string(landmark.y);
     return input;
 }
 
 [[nodiscard]] std::string generate_beacon_name(const Map& map, Coordinates spawn,
-                                               Coordinates beacon) {
-    const std::uint64_t hash = hash_seed_text(name_fingerprint(map, spawn, beacon));
+                                               Coordinates landmark) {
+    const std::uint64_t hash = hash_seed_text(name_fingerprint(map, spawn, landmark));
     const std::size_t first = static_cast<std::size_t>(hash & 0x0FULL);
     const std::size_t second = static_cast<std::size_t>((hash >> 8) & 0x0FULL);
     std::string name = kFirstWords[first];
     name += ' ';
     name += kSecondWords[second];
-    name += " Beacon";
+    name += " Landmark";
     return name;
+}
+
+[[nodiscard]] Direction bearing_to(Coordinates source, Coordinates target) noexcept {
+    const int dx = target.x - source.x;
+    const int dy = target.y - source.y;
+    const int abs_x = dx < 0 ? -dx : dx;
+    const int abs_y = dy < 0 ? -dy : dy;
+    if (abs_x >= abs_y) {
+        return dx < 0 ? Direction::left : Direction::right;
+    }
+    return dy < 0 ? Direction::up : Direction::down;
 }
 
 }  // namespace
 
-BeaconObjective create_beacon_objective(const Map& map, std::uint32_t max_stamina) {
+LevelObjective create_beacon_objective(const Map& map, std::uint32_t max_stamina) {
     const std::vector<int> distance = compute_distances(map);
     const Coordinates spawn = map.spawn();
     const int width = static_cast<int>(map.width());
@@ -263,11 +330,19 @@ BeaconObjective create_beacon_objective(const Map& map, std::uint32_t max_stamin
         }
     }
 
-    BeaconObjective objective;
+    LevelObjective objective;
     objective.beacon = beacon;
-    objective.name = generate_beacon_name(map, spawn, beacon);
-    objective.status =
-        (beacon == spawn) ? ObjectiveStatus::completed : ObjectiveStatus::seeking_beacon;
+    const std::vector<Coordinates> path = shortest_path(map, spawn, beacon);
+    objective.landmark = path.size() <= 2u ? spawn : path[path.size() / 2u];
+    objective.name = generate_beacon_name(map, spawn, objective.landmark);
+    objective.exit_bearing = bearing_to(objective.landmark, beacon);
+    if (beacon == spawn) {
+        objective.status = ObjectiveStatus::completed;
+    } else if (objective.landmark == spawn) {
+        objective.status = ObjectiveStatus::seeking_exit;
+    } else {
+        objective.status = ObjectiveStatus::seeking_landmark;
+    }
     // The cheapest round trip is computed only after the beacon coordinate is
     // fixed, so it can never influence beacon selection or naming (RISK-001). Both
     // legs use stamina_cost_of as the sole terrain-entry cost, and the two
@@ -304,15 +379,14 @@ BeaconObjective create_beacon_objective(const Map& map, std::uint32_t max_stamin
     return objective;
 }
 
-ObjectiveTransition advance_objective(BeaconObjective& objective, Coordinates actor,
-                                      Coordinates spawn) {
-    if (objective.status == ObjectiveStatus::seeking_beacon && actor == objective.beacon) {
-        objective.status = ObjectiveStatus::returning_to_spawn;
-        return ObjectiveTransition::beacon_discovered;
+ObjectiveTransition advance_objective(LevelObjective& objective, Coordinates actor) {
+    if (objective.status == ObjectiveStatus::seeking_landmark && actor == objective.landmark) {
+        objective.status = ObjectiveStatus::seeking_exit;
+        return ObjectiveTransition::landmark_discovered;
     }
-    if (objective.status == ObjectiveStatus::returning_to_spawn && actor == spawn) {
+    if (objective.status == ObjectiveStatus::seeking_exit && actor == objective.beacon) {
         objective.status = ObjectiveStatus::completed;
-        return ObjectiveTransition::expedition_completed;
+        return ObjectiveTransition::level_completed;
     }
     return ObjectiveTransition::none;
 }

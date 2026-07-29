@@ -284,8 +284,10 @@ RenderInput beacon_input(const BeaconScene& scene, Coordinates actor,
 
 BeaconObjective beacon_at(Coordinates cell, ObjectiveStatus status) {
     BeaconObjective objective;
+    objective.landmark = cell;
     objective.beacon = cell;
     objective.name = "Glass River Beacon";
+    objective.exit_bearing = Direction::right;
     objective.status = status;
     return objective;
 }
@@ -724,7 +726,7 @@ TEST_CASE("the standard layout shows the objective line after status and before 
 
     const std::size_t status = visible.find("Stamina: 7/12");
     const std::size_t objline = visible.find(
-        "Objective: Reach Glass River Beacon (*), then return to spawn.");
+        "Objective: Reach Glass River Beacon (*).");
     const std::size_t message = visible.find("> Moved onto open ground");
     REQUIRE(status != std::string::npos);
     REQUIRE(objline != std::string::npos);
@@ -765,7 +767,7 @@ TEST_CASE("plain rendering places the objective line after status and before the
     const std::string text = renderer.render_plain(input);
 
     const std::size_t status = text.find("Stamina: 7/12");
-    const std::size_t objline = text.find("Objective: Return to spawn.");
+    const std::size_t objline = text.find("Objective: Reach the exit to the east (*).");
     const std::size_t message = text.find("Moved onto open ground");
     REQUIRE(status != std::string::npos);
     REQUIRE(objline != std::string::npos);
@@ -839,9 +841,9 @@ TEST_CASE("the interactive discovery screen contains the exact ordered lines and
     }
     const std::vector<std::string> lines = panel_content_lines(frame);
     REQUIRE(lines.size() == 4);
-    CHECK(lines[0] == "BEACON DISCOVERED");
+    CHECK(lines[0] == "LANDMARK DISCOVERED");
     CHECK(lines[1] == "Glass River Beacon");
-    CHECK(lines[2] == "Return to spawn to complete the expedition.");
+    CHECK(lines[2] == "The exit direction is now revealed.");
     CHECK(lines[3] == "Press Enter to continue, or use a movement key.");
 }
 
@@ -901,9 +903,9 @@ TEST_CASE("the plain discovery block is the exact lines with one trailing newlin
     const Renderer renderer(plain_config());
     const std::string block = renderer.render_discovery_plain("Glass River Beacon");
     CHECK(block ==
-          "BEACON DISCOVERED\n"
+          "LANDMARK DISCOVERED\n"
           "Glass River Beacon\n"
-          "Return to spawn to complete the expedition.\n"
+          "The exit direction is now revealed.\n"
           "Press Enter to continue, or use a movement key.\n");
     CHECK(block.find('\x1b') == std::string::npos);
     // Exactly one trailing newline: the last character is a newline and the one

@@ -24,7 +24,7 @@ constexpr int standard_min_map_rows = 3;
 // --- Colour helpers ---------------------------------------------------------
 
 constexpr int color_actor = 93;   // Bright yellow.
-constexpr int color_beacon = 96;  // Bright cyan: a currently visible beacon.
+constexpr int color_beacon = 96;  // Bright cyan: the current objective target.
 
 [[nodiscard]] std::string sgr(int code) {
     return "\033[" + std::to_string(code) + "m";
@@ -120,10 +120,11 @@ constexpr int color_beacon = 96;  // Bright cyan: a currently visible beacon.
     for (int offset = 0; offset < cols; ++offset) {
         const Coordinates here{x0 + offset, y};
         const bool is_actor = here == input.actor;
-        // The beacon overlay is applied only after visibility classification and
+        // The current objective overlay is applied only after visibility classification and
         // never while the actor stands on the cell, so the actor glyph keeps
         // priority and the beacon reappears once the actor leaves.
-        const bool is_beacon = input.objective != nullptr && here == input.objective->beacon;
+        const bool is_beacon =
+            input.objective != nullptr && here == objective_target(*input.objective);
 
         if (!ansi) {
             if (is_actor) {
@@ -370,11 +371,10 @@ constexpr int color_beacon = 96;  // Bright cyan: a currently visible beacon.
 
 // --- Objective screens ------------------------------------------------------
 
-// The exact discovery-screen logical lines in order (REQ-017): the fixed banner,
-// the generated beacon name, and the two fixed instruction lines.
+// The landmark screen confirms that the broad exit direction is now available.
 [[nodiscard]] std::vector<std::string> discovery_lines(const std::string& beacon_name) {
-    return {std::string("BEACON DISCOVERED"), beacon_name,
-            std::string("Return to spawn to complete the expedition."),
+    return {std::string("LANDMARK DISCOVERED"), beacon_name,
+            std::string("The exit direction is now revealed."),
             std::string("Press Enter to continue, or use a movement key.")};
 }
 

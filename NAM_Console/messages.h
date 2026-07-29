@@ -48,20 +48,19 @@ namespace nam::console {
 // and line/column when the parser reported them.
 [[nodiscard]] std::string describe_map_error(const MapLoadError& error);
 
-// The HUD objective line for the current expedition phase. Seeking names the
-// beacon and its glyph and asks the player to reach it and return; returning asks
-// only to return to spawn; completed reports the finished expedition by name.
+// The HUD objective line for the current level phase: reach the landmark, then
+// follow the revealed broad direction to the exit.
 [[nodiscard]] std::string objective_line(const BeaconObjective& objective);
 
 // A single bounded "Goal:" line summarising the objective phase for the compact
 // layout, which has no room for the full objective sentence.
 [[nodiscard]] std::string goal_line(const BeaconObjective& objective);
 
-// The latest-event message shown when a move first enters the beacon cell,
+// The latest-event message shown when a move first enters the landmark cell,
 // replacing the ordinary move wording for that command.
 [[nodiscard]] std::string describe_beacon_discovered(const std::string& name);
 
-// The latest-event message shown when a move completes the return to spawn,
+// The latest-event message shown when a move reaches the exit,
 // replacing the ordinary move wording for that command.
 [[nodiscard]] std::string describe_expedition_completed(const std::string& name);
 

@@ -51,17 +51,17 @@ std::string placement_fingerprint(const Map& map, Coordinates spawn) {
     return input;
 }
 
-std::string expected_name(const Map& map, Coordinates spawn, Coordinates beacon) {
+std::string expected_name(const Map& map, Coordinates spawn, Coordinates landmark) {
     std::string input = placement_fingerprint(map, spawn);
-    input += "\nbeacon ";
-    input += std::to_string(beacon.x);
+    input += "\nlandmark ";
+    input += std::to_string(landmark.x);
     input += " ";
-    input += std::to_string(beacon.y);
+    input += std::to_string(landmark.y);
     const std::uint64_t hash = hash_seed_text(input);
     std::string name = kFirstWords[static_cast<std::size_t>(hash & 0x0FULL)];
     name += ' ';
     name += kSecondWords[static_cast<std::size_t>((hash >> 8) & 0x0FULL)];
-    name += " Beacon";
+    name += " Landmark";
     return name;
 }
 
@@ -288,7 +288,8 @@ TEST_CASE("unreachable walkable cells are ignored when placing the beacon") {
     const BeaconObjective objective = create_beacon_objective(map);
     CHECK(objective.beacon == Coordinates{0, 0});
     CHECK(is_walkable(map.terrain_at(objective.beacon)));
-    CHECK(objective.status == ObjectiveStatus::seeking_beacon);
+    CHECK(objective.landmark == map.spawn());
+    CHECK(objective.status == ObjectiveStatus::seeking_exit);
 }
 
 TEST_CASE("a single reachable spawn produces a completed beacon at spawn") {
@@ -321,13 +322,13 @@ TEST_CASE("beacon names use the exact fixed tables and hash indices") {
     const BeaconObjective first = create_beacon_objective(map);
     const BeaconObjective second = create_beacon_objective(map);
 
-    const std::string expected = expected_name(map, map.spawn(), first.beacon);
+    const std::string expected = expected_name(map, map.spawn(), first.landmark);
     CHECK(first.name == expected);
     CHECK(second.name == expected);
     CHECK(first.beacon == second.beacon);
     // The name ends with the fixed suffix and contains exactly two spaces.
-    CHECK(first.name.size() > std::string(" Beacon").size());
-    CHECK(first.name.rfind(" Beacon") == first.name.size() - std::string(" Beacon").size());
+    CHECK(first.name.size() > std::string(" Landmark").size());
+    CHECK(first.name.rfind(" Landmark") == first.name.size() - std::string(" Landmark").size());
 }
 
 TEST_CASE("distinct beacon coordinates change the deterministic name input") {
@@ -335,51 +336,54 @@ TEST_CASE("distinct beacon coordinates change the deterministic name input") {
     // independently reconstructable name for its selected beacon.
     const Map corridor = make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n");
     const BeaconObjective objective = create_beacon_objective(corridor);
-    CHECK(objective.name == expected_name(corridor, corridor.spawn(), objective.beacon));
+    CHECK(objective.name == expected_name(corridor, corridor.spawn(), objective.landmark));
 }
 
-TEST_CASE("advance_objective marks discovery only when a move enters the beacon") {
-    BeaconObjective objective;
-    objective.beacon = Coordinates{4, 0};
-    objective.status = ObjectiveStatus::seeking_beacon;
-    const Coordinates spawn{0, 0};
-
-    // Entering spawn before discovery changes nothing.
-    CHECK(advance_objective(objective, spawn, spawn) == ObjectiveTransition::none);
-    CHECK(objective.status == ObjectiveStatus::seeking_beacon);
-
-    // A non-beacon cell changes nothing.
-    CHECK(advance_objective(objective, Coordinates{3, 0}, spawn) == ObjectiveTransition::none);
-    CHECK(objective.status == ObjectiveStatus::seeking_beacon);
-
-    // Entering the beacon discovers it and flips to returning.
-    CHECK(advance_objective(objective, Coordinates{4, 0}, spawn) ==
-          ObjectiveTransition::beacon_discovered);
-    CHECK(objective.status == ObjectiveStatus::returning_to_spawn);
+TEST_CASE("the landmark lies on the deterministic route to the exit") {
+    const Map map = make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n");
+    const LevelObjective objective = create_beacon_objective(map);
+    CHECK(objective.landmark == Coordinates{2, 0});
+    CHECK(objective.beacon == Coordinates{3, 0});
+    CHECK(objective.exit_bearing == Direction::right);
+    CHECK(objective_target(objective) == objective.landmark);
 }
 
-TEST_CASE("advance_objective completes only on returning to spawn after discovery") {
+TEST_CASE("advance_objective reveals the exit only at the landmark") {
     BeaconObjective objective;
+    objective.landmark = Coordinates{2, 0};
     objective.beacon = Coordinates{4, 0};
-    objective.status = ObjectiveStatus::returning_to_spawn;
-    const Coordinates spawn{0, 0};
+    objective.status = ObjectiveStatus::seeking_landmark;
 
-    // Leaving the beacon while returning changes nothing.
-    CHECK(advance_objective(objective, Coordinates{3, 0}, spawn) == ObjectiveTransition::none);
-    CHECK(objective.status == ObjectiveStatus::returning_to_spawn);
+    CHECK(advance_objective(objective, Coordinates{1, 0}) == ObjectiveTransition::none);
+    CHECK(objective.status == ObjectiveStatus::seeking_landmark);
 
-    // Returning to spawn completes the expedition.
-    CHECK(advance_objective(objective, spawn, spawn) == ObjectiveTransition::expedition_completed);
+    CHECK(advance_objective(objective, Coordinates{2, 0}) ==
+          ObjectiveTransition::landmark_discovered);
+    CHECK(objective.status == ObjectiveStatus::seeking_exit);
+    CHECK(objective_target(objective) == objective.beacon);
+}
+
+TEST_CASE("advance_objective completes only at the exit after landmark discovery") {
+    BeaconObjective objective;
+    objective.landmark = Coordinates{2, 0};
+    objective.beacon = Coordinates{4, 0};
+    objective.status = ObjectiveStatus::seeking_exit;
+
+    CHECK(advance_objective(objective, Coordinates{3, 0}) == ObjectiveTransition::none);
+    CHECK(objective.status == ObjectiveStatus::seeking_exit);
+
+    CHECK(advance_objective(objective, Coordinates{4, 0}) ==
+          ObjectiveTransition::level_completed);
     CHECK(objective.status == ObjectiveStatus::completed);
 
-    // A completed objective never transitions again.
-    CHECK(advance_objective(objective, Coordinates{4, 0}, spawn) == ObjectiveTransition::none);
+    CHECK(advance_objective(objective, Coordinates{2, 0}) == ObjectiveTransition::none);
     CHECK(objective.status == ObjectiveStatus::completed);
 }
 
 TEST_CASE("a GameState owns a seeking objective and exposes completion state") {
     GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n"));
-    CHECK(state.objective().status == ObjectiveStatus::seeking_beacon);
+    CHECK(state.objective().status == ObjectiveStatus::seeking_landmark);
+    CHECK(state.objective().landmark == Coordinates{2, 0});
     CHECK(state.objective().beacon == Coordinates{3, 0});
     CHECK_FALSE(state.objective_completed());
 }
@@ -391,54 +395,56 @@ TEST_CASE("a single-cell GameState starts already completed") {
     CHECK(state.objective().beacon == state.map().spawn());
 }
 
-TEST_CASE("moves carry exact before/after status and typed discovery/completion") {
-    // Walk the corridor to the beacon at (3,0), then back to spawn, asserting the
-    // objective update nested in each movement event.
+TEST_CASE("moves carry exact landmark and exit transitions") {
     GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n"));
+    REQUIRE(state.objective().landmark == Coordinates{2, 0});
     REQUIRE(state.objective().beacon == Coordinates{3, 0});
 
-    // (0,0) -> (1,0): still seeking, no transition, equal before/after.
     const GameEvent e1 = state.move(Direction::right);
-    CHECK(payload_of(e1).objective_update.before == ObjectiveStatus::seeking_beacon);
-    CHECK(payload_of(e1).objective_update.after == ObjectiveStatus::seeking_beacon);
+    CHECK(payload_of(e1).objective_update.before == ObjectiveStatus::seeking_landmark);
+    CHECK(payload_of(e1).objective_update.after == ObjectiveStatus::seeking_landmark);
     CHECK(payload_of(e1).objective_update.transition == ObjectiveTransition::none);
 
-    (void)state.move(Direction::right);  // (2,0)
-
-    // (2,0) -> (3,0): enters the beacon, discovery, seeking -> returning.
     const GameEvent discover = state.move(Direction::right);
-    CHECK(payload_of(discover).objective_update.before == ObjectiveStatus::seeking_beacon);
-    CHECK(payload_of(discover).objective_update.after == ObjectiveStatus::returning_to_spawn);
+    CHECK(payload_of(discover).objective_update.before == ObjectiveStatus::seeking_landmark);
+    CHECK(payload_of(discover).objective_update.after == ObjectiveStatus::seeking_exit);
     CHECK(payload_of(discover).objective_update.transition ==
-          ObjectiveTransition::beacon_discovered);
-    CHECK(state.objective().status == ObjectiveStatus::returning_to_spawn);
+          ObjectiveTransition::landmark_discovered);
+    CHECK(state.objective().status == ObjectiveStatus::seeking_exit);
 
-    (void)state.move(Direction::left);  // (2,0)
-    (void)state.move(Direction::left);  // (1,0)
-
-    // (1,0) -> (0,0): returns to spawn, completion, returning -> completed.
-    const GameEvent complete = state.move(Direction::left);
-    CHECK(payload_of(complete).objective_update.before == ObjectiveStatus::returning_to_spawn);
+    const GameEvent complete = state.move(Direction::right);
+    CHECK(payload_of(complete).objective_update.before == ObjectiveStatus::seeking_exit);
     CHECK(payload_of(complete).objective_update.after == ObjectiveStatus::completed);
     CHECK(payload_of(complete).objective_update.transition ==
-          ObjectiveTransition::expedition_completed);
+          ObjectiveTransition::level_completed);
     CHECK(state.objective_completed());
 }
 
-TEST_CASE("returning to spawn before discovery does not complete or transition") {
+TEST_CASE("entering the exit before discovering the landmark does not complete") {
+    const Map map =
+        make_map("NAM-MAP 1\nwidth 3\nheight 2\nspawn 0 0\n---\n...\n...\n");
+    LevelObjective objective;
+    objective.landmark = Coordinates{1, 0};
+    objective.beacon = Coordinates{2, 0};
+    objective.status = ObjectiveStatus::seeking_landmark;
+    CHECK(advance_objective(objective, objective.beacon) == ObjectiveTransition::none);
+    CHECK(objective.status == ObjectiveStatus::seeking_landmark);
+}
+
+TEST_CASE("returning to spawn before the landmark does not transition") {
     GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n"));
     const GameEvent away = state.move(Direction::right);  // (1,0)
     CHECK(payload_of(away).objective_update.transition == ObjectiveTransition::none);
-    const GameEvent back = state.move(Direction::left);  // (0,0) spawn, still seeking
+    const GameEvent back = state.move(Direction::left);
     CHECK(payload_of(back).objective_update.transition == ObjectiveTransition::none);
-    CHECK(payload_of(back).objective_update.before == ObjectiveStatus::seeking_beacon);
-    CHECK(payload_of(back).objective_update.after == ObjectiveStatus::seeking_beacon);
-    CHECK(state.objective().status == ObjectiveStatus::seeking_beacon);
+    CHECK(payload_of(back).objective_update.before == ObjectiveStatus::seeking_landmark);
+    CHECK(payload_of(back).objective_update.after == ObjectiveStatus::seeking_landmark);
+    CHECK(state.objective().status == ObjectiveStatus::seeking_landmark);
 }
 
 TEST_CASE("blocked moves, rest, and peek never advance the objective") {
     GameState state(make_map("NAM-MAP 1\nwidth 2\nheight 2\nspawn 0 0\n---\n..\n..\n"));
-    REQUIRE(state.objective().status == ObjectiveStatus::seeking_beacon);
+    REQUIRE(state.objective().status == ObjectiveStatus::seeking_landmark);
 
     // A boundary-blocked move carries none with equal before/after and leaves
     // status unchanged.
@@ -447,15 +453,15 @@ TEST_CASE("blocked moves, rest, and peek never advance the objective") {
     CHECK(payload_of(blocked).objective_update.transition == ObjectiveTransition::none);
     CHECK(payload_of(blocked).objective_update.before ==
           payload_of(blocked).objective_update.after);
-    CHECK(state.objective().status == ObjectiveStatus::seeking_beacon);
+    CHECK(state.objective().status == ObjectiveStatus::seeking_landmark);
 
     // Rest never moves the actor, so it cannot advance the objective.
     (void)state.rest();
-    CHECK(state.objective().status == ObjectiveStatus::seeking_beacon);
+    CHECK(state.objective().status == ObjectiveStatus::seeking_landmark);
 
     // Peek is pure and leaves the objective untouched.
     (void)state.peek(Direction::right);
-    CHECK(state.objective().status == ObjectiveStatus::seeking_beacon);
+    CHECK(state.objective().status == ObjectiveStatus::seeking_landmark);
 }
 
 }  // TEST_SUITE("game")

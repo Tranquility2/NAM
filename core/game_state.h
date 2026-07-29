@@ -65,15 +65,15 @@ public:
     // the owned Map, and the actor cell is always currently visible.
     [[nodiscard]] const VisibilityMap& visibility() const noexcept { return visibility_; }
 
-    // The core-owned beacon objective: its placement, generated name, and current
-    // status. Every GameState receives one deterministic objective from its map,
+    // The core-owned level objective: its landmark, exit, generated name, and
+    // current status. Every GameState receives one deterministic objective,
     // and a successful move advances it after position, stamina, and visibility
     // commit. Frontends only present this state and react to the typed
     // transitions carried on movement events.
     [[nodiscard]] const BeaconObjective& objective() const noexcept { return objective_; }
 
-    // True once the beacon expedition has completed (the actor entered the beacon
-    // and returned to spawn, or the map had a single reachable cell at spawn).
+    // True once the actor has reached the exit after discovering the landmark, or
+    // the map had a single reachable cell at spawn.
     [[nodiscard]] bool objective_completed() const noexcept {
         return objective_.status == ObjectiveStatus::completed;
     }

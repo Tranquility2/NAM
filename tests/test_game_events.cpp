@@ -327,15 +327,12 @@ TEST_CASE("completion takes precedence and reports no ending transition") {
     // ending transition even after the run is complete.
     GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n"));
     (void)state.move(Direction::right);
-    (void)state.move(Direction::right);
-    (void)state.move(Direction::right);  // discover beacon at (3,0)
-    (void)state.move(Direction::left);
-    (void)state.move(Direction::left);
-    const GameEvent complete = state.move(Direction::left);
+    (void)state.move(Direction::right);  // discover landmark at (2,0)
+    const GameEvent complete = state.move(Direction::right);  // reach exit at (3,0)
 
-    CHECK(complete.sequence == 5u);
+    CHECK(complete.sequence == 2u);
     CHECK(payload_of(complete).objective_update.transition ==
-          ObjectiveTransition::expedition_completed);
+          ObjectiveTransition::level_completed);
     CHECK(complete.ending == ExpeditionEndingTransition::none);
     CHECK(state.objective_completed());
     CHECK(state.evaluate_ending() == ExpeditionEndingTransition::none);
@@ -407,16 +404,17 @@ TEST_CASE("two-field movement-event aggregate construction keeps a default objec
     // value-initialized: equal seeking before/after and no transition.
     const MoveOutcome outcome{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 1, 20, 19};
     const MoveAttemptedEvent event{Direction::right, outcome};
-    CHECK(event.objective_update.before == ObjectiveStatus::seeking_beacon);
-    CHECK(event.objective_update.after == ObjectiveStatus::seeking_beacon);
+    CHECK(event.objective_update.before == ObjectiveStatus::seeking_landmark);
+    CHECK(event.objective_update.after == ObjectiveStatus::seeking_landmark);
     CHECK(event.objective_update.transition == ObjectiveTransition::none);
 }
 
 TEST_CASE("every movement event carries the exact objective update in one contiguous stream") {
-    // A one-row corridor whose beacon is the distant scenic-fallback cell (3,0):
-    // walking out and back produces one ordered event per command, each nesting
+    // A one-row corridor whose landmark is (2,0) and exit is (3,0): walking
+    // forward produces one ordered event per command, each nesting
     // the exact before/after status and the typed transition for that command.
     GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n"));
+    REQUIRE(state.objective().landmark == Coordinates{2, 0});
     REQUIRE(state.objective().beacon == Coordinates{3, 0});
 
     std::uint64_t expected_sequence = 0;
@@ -433,12 +431,9 @@ TEST_CASE("every movement event carries the exact objective update in one contig
 
     using S = ObjectiveStatus;
     using T = ObjectiveTransition;
-    check_move(Direction::right, S::seeking_beacon, S::seeking_beacon, T::none);
-    check_move(Direction::right, S::seeking_beacon, S::seeking_beacon, T::none);
-    check_move(Direction::right, S::seeking_beacon, S::returning_to_spawn, T::beacon_discovered);
-    check_move(Direction::left, S::returning_to_spawn, S::returning_to_spawn, T::none);
-    check_move(Direction::left, S::returning_to_spawn, S::returning_to_spawn, T::none);
-    check_move(Direction::left, S::returning_to_spawn, S::completed, T::expedition_completed);
+    check_move(Direction::right, S::seeking_landmark, S::seeking_landmark, T::none);
+    check_move(Direction::right, S::seeking_landmark, S::seeking_exit, T::landmark_discovered);
+    check_move(Direction::right, S::seeking_exit, S::completed, T::level_completed);
     CHECK(state.objective_completed());
 }
 

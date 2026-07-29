@@ -4,46 +4,52 @@
 #include <string>
 
 #include "coordinates.h"
+#include "direction.h"
 #include "map.h"
 
-// Frontend-neutral beacon objective: every map receives one deterministic named
-// beacon placed on a distant scenic reachable cell. The beacon is chosen from the
+// Frontend-neutral V2 level objective. Every map receives one deterministic exit
+// placed on a distant scenic reachable cell. A named landmark is placed on a
+// deterministic shortest path from spawn to that exit. The player reaches the
+// landmark to reveal the broad exit direction, then completes the level by
+// entering the exit; returning to spawn is never required.
+//
+// The exit is chosen from the
 // cells whose shortest cardinal path from spawn is at least the minimum eligible
 // distance (the exact integer ceiling of 75% of the greatest reachable distance),
 // preferring hills and mountains and falling back to any distant walkable cell,
 // then selected deterministically by a portable hash so the same map always
-// yields the same beacon. The player must enter the beacon cell and then return
-// to spawn to complete the expedition. Placement, naming, and the status machine
-// live entirely in the core so any frontend only presents this state and reacts
-// to the typed transitions it produces.
+// yields the same exit. Placement, naming, bearing, and the status machine live
+// entirely in the core so frontends only present state and typed transitions.
 
-// The phase of the beacon expedition. A new nontrivial objective starts at
-// seeking_beacon; entering the beacon cell moves it to returning_to_spawn; a
-// later return onto spawn moves it to completed. A single-reachable-cell map
-// starts already completed at spawn.
+// The phase of one level objective. Compatibility aliases retain the old enum
+// spellings while console and report code migrate in later V2 steps.
 enum class ObjectiveStatus {
-    seeking_beacon,
-    returning_to_spawn,
+    seeking_landmark,
+    seeking_exit,
     completed,
+    seeking_beacon = seeking_landmark,
+    returning_to_spawn = seeking_exit,
 };
 
 // The typed change a single committed actor position causes to the objective.
-// `none` means the status did not change; `beacon_discovered` marks the move
-// that first entered the beacon cell; `expedition_completed` marks the move that
-// returned to spawn after discovery.
+// Compatibility aliases retain the old event spellings while consumers migrate.
 enum class ObjectiveTransition {
     none,
-    beacon_discovered,
-    expedition_completed,
+    landmark_discovered,
+    level_completed,
+    beacon_discovered = landmark_discovered,
+    expedition_completed = level_completed,
 };
 
-// The complete objective owned by a game: where the beacon sits, its generated
-// name, and the current expedition status. The beacon is semantic overlay state,
-// never a terrain value, so map serialization and movement cost stay unchanged.
-struct BeaconObjective {
+// The complete objective owned by a level. `beacon` temporarily retains the old
+// field name for the distant exit while report/scoring code is simplified; it is
+// semantic overlay state and never a terrain value.
+struct LevelObjective {
+    Coordinates landmark{};
     Coordinates beacon{};
     std::string name;
-    ObjectiveStatus status = ObjectiveStatus::seeking_beacon;
+    Direction exit_bearing = Direction::right;
+    ObjectiveStatus status = ObjectiveStatus::seeking_landmark;
     // The deterministic cheapest round-trip stamina cost for this expedition: the
     // minimum terrain-entry stamina cost of a walkable cardinal path from spawn to
     // the beacon plus the minimum terrain-entry stamina cost of a walkable
@@ -75,12 +81,14 @@ struct BeaconObjective {
     std::uint64_t total_reachable_walkable_cells = 0;
 };
 
+using BeaconObjective = LevelObjective;
+
 // The before/after status and typed transition around one movement command,
 // nested into the movement event so consumers observe objective progress in the
 // same ordered stream as movement, without a second event per command.
 struct ObjectiveUpdate {
-    ObjectiveStatus before = ObjectiveStatus::seeking_beacon;
-    ObjectiveStatus after = ObjectiveStatus::seeking_beacon;
+    ObjectiveStatus before = ObjectiveStatus::seeking_landmark;
+    ObjectiveStatus after = ObjectiveStatus::seeking_landmark;
     ObjectiveTransition transition = ObjectiveTransition::none;
 };
 
@@ -90,23 +98,28 @@ struct ObjectiveUpdate {
 // minimum eligible distance, which is the exact integer ceiling of 75% of that
 // greatest distance). Scenic candidates (hills and mountains, treated as one
 // pool) are preferred; when none are distant enough the full distant walkable
-// pool is used. The beacon is the candidate chosen by hashing the map-and-spawn
+// pool is used. The exit is the candidate chosen by hashing the map-and-spawn
 // fingerprint modulo the row-major candidate count, so selection is deterministic
 // and platform-independent rather than always the single farthest cell. The
-// deterministic name is then generated and the initial status is set. When spawn
-// is the only reachable walkable cell the beacon is placed at spawn and the
-// objective starts completed.
+// landmark is the middle non-spawn cell of a deterministic shortest path to the
+// exit, with adjacent exits revealed from spawn. When spawn is the only reachable
+// walkable cell the objective starts completed.
 //
 // `max_stamina` is the stamina cap used by the deterministic minimum-provision
 // search; callers pass GameState::maximum_stamina so the objective and the game
 // share one cap. The default matches the current baseline for renderer-only and
 // objective-only fixtures that do not construct a GameState.
-[[nodiscard]] BeaconObjective create_beacon_objective(const Map& map, std::uint32_t max_stamina = 20);
+[[nodiscard]] LevelObjective create_beacon_objective(const Map& map,
+                                                     std::uint32_t max_stamina = 20);
 
 // Advance the objective for a committed actor position and return the exact
-// transition it caused. Only a successful move that first enters the beacon cell
-// (while seeking) yields beacon_discovered; only a successful move onto spawn
-// after discovery yields expedition_completed. Every other position leaves the
-// status unchanged and returns none.
-ObjectiveTransition advance_objective(BeaconObjective& objective, Coordinates actor,
-                                      Coordinates spawn);
+// transition it caused. Entering the landmark while seeking reveals the exit;
+// entering the exit after that completes the level.
+ObjectiveTransition advance_objective(LevelObjective& objective, Coordinates actor);
+
+// The semantic overlay target for the current phase: landmark before discovery,
+// exit afterward. A completed objective keeps the exit as its final target.
+[[nodiscard]] constexpr Coordinates objective_target(const LevelObjective& objective) noexcept {
+    return objective.status == ObjectiveStatus::seeking_landmark ? objective.landmark
+                                                                 : objective.beacon;
+}

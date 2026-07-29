@@ -86,7 +86,7 @@ GameEvent GameState::move(Direction direction) {
         // Advance the objective only after position, stamina, time, and visibility
         // have committed, so a discovered beacon or completed return reflects the
         // fully updated state. Blocked attempts never advance the objective.
-        objective_transition = advance_objective(objective_, actor_position_, map_.spawn());
+        objective_transition = advance_objective(objective_, actor_position_);
     }
 
     GameEvent event;

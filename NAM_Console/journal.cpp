@@ -51,10 +51,10 @@ namespace {
 
 [[nodiscard]] std::string overdue_prose(const OverdueEntry& entry) {
     if (entry.beacon_discovered) {
-        return "Missed the return deadline after reaching " + entry.beacon_name +
+        return "Missed the level deadline after discovering " + entry.beacon_name +
                "; a late retrieval party collected the explorer.";
     }
-    return "Missed the return deadline before reaching " + entry.beacon_name +
+    return "Missed the level deadline before discovering " + entry.beacon_name +
            "; a late retrieval party collected the explorer.";
 }
 
@@ -76,13 +76,13 @@ struct EntryFormatter {
     std::string operator()(const CampEntry& entry) const { return camp_prose(entry); }
     std::string operator()(const BivouacEntry& entry) const { return bivouac_prose(entry); }
     std::string operator()(const DiscoveryEntry& entry) const {
-        return "Discovered " + entry.beacon_name + ".";
+        return "Discovered " + entry.beacon_name + "; the exit direction was revealed.";
     }
     std::string operator()(const CompletionEntry& entry) const {
-        return "Returned to spawn after reaching " + entry.beacon_name + "; expedition complete.";
+        return "Reached the exit after " + entry.beacon_name + "; level complete.";
     }
     std::string operator()(const InitialCompletionEntry& entry) const {
-        return "Found " + entry.beacon_name + " at spawn; the expedition was already complete.";
+        return "Found " + entry.beacon_name + " and the exit at spawn; the level was already complete.";
     }
     std::string operator()(const RescueEntry& entry) const { return rescue_prose(entry); }
     std::string operator()(const OverdueEntry& entry) const { return overdue_prose(entry); }

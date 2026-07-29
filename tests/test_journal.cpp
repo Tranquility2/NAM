@@ -331,23 +331,24 @@ TEST_CASE("rescue prose states whether the beacon was reached") {
 TEST_CASE("discovery and completion prose name the beacon exactly") {
     Journal discovery;
     discovery.record_event(
-        move_event(0, Direction::right, Terrain::open, 1, ObjectiveTransition::beacon_discovered),
+        move_event(0, Direction::right, Terrain::open, 1, ObjectiveTransition::landmark_discovered),
         "North Ridge");
-    CHECK(format_entry(discovery.entries().back()) == std::string("Discovered North Ridge."));
+    CHECK(format_entry(discovery.entries().back()) ==
+          std::string("Discovered North Ridge; the exit direction was revealed."));
 
     Journal completion;
     completion.record_event(move_event(0, Direction::left, Terrain::open, 1,
-                                       ObjectiveTransition::expedition_completed),
+                                       ObjectiveTransition::level_completed),
                             "North Ridge");
     CHECK(format_entry(completion.entries().back()) ==
-          std::string("Returned to spawn after reaching North Ridge; expedition complete."));
+          std::string("Reached the exit after North Ridge; level complete."));
 }
 
 TEST_CASE("initial completion prose is exact") {
     Journal journal;
     journal.record_initial_completion("Spawn Cairn");
     CHECK(format_entry(journal.entries().front()) ==
-          std::string("Found Spawn Cairn at spawn; the expedition was already complete."));
+          std::string("Found Spawn Cairn and the exit at spawn; the level was already complete."));
 }
 
 TEST_CASE("repeated identical scripts produce byte-identical prose and structure") {
@@ -360,10 +361,10 @@ TEST_CASE("repeated identical scripts produce byte-identical prose and structure
             rest_event(3, RestResult::recovered, Terrain::open, 8, 12, 4, 2, 1),
             "North Ridge");
         journal.record_event(move_event(4, Direction::up, Terrain::hill, 2,
-                                        ObjectiveTransition::beacon_discovered),
+                                        ObjectiveTransition::landmark_discovered),
                              "North Ridge");
         journal.record_event(move_event(5, Direction::down, Terrain::hill, 2,
-                                        ObjectiveTransition::expedition_completed),
+                                        ObjectiveTransition::level_completed),
                              "North Ridge");
         journal.record_rescue("North Ridge", true);
         return journal;
@@ -378,9 +379,9 @@ TEST_CASE("repeated identical scripts produce byte-identical prose and structure
         "Traveled east across open ground for 2 steps.",
         "Rested on open ground and recovered 4 stamina (1 provisions left).",
         "Traveled north across hill for 1 step.",
-        "Discovered North Ridge.",
+        "Discovered North Ridge; the exit direction was revealed.",
         "Traveled south across hill for 1 step.",
-        "Returned to spawn after reaching North Ridge; expedition complete.",
+        "Reached the exit after North Ridge; level complete.",
         "Ran out of provisions after reaching North Ridge; signaled for an early rescue.",
     };
     CHECK(prose_of(first) == expected);
@@ -429,17 +430,17 @@ TEST_CASE("camp and bivouac prose name the terrain the new day and the resources
                       "left)."));
 }
 
-TEST_CASE("overdue prose states whether the beacon was reached") {
+TEST_CASE("overdue prose states whether the landmark was discovered") {
     Journal reached;
     reached.record_overdue("North Ridge", true);
     CHECK(format_entry(reached.entries().front()) ==
-          std::string("Missed the return deadline after reaching North Ridge; a late retrieval "
+          std::string("Missed the level deadline after discovering North Ridge; a late retrieval "
                       "party collected the explorer."));
 
     Journal not_reached;
     not_reached.record_overdue("North Ridge", false);
     CHECK(format_entry(not_reached.entries().front()) ==
-          std::string("Missed the return deadline before reaching North Ridge; a late retrieval "
+          std::string("Missed the level deadline before discovering North Ridge; a late retrieval "
                       "party collected the explorer."));
 }
 

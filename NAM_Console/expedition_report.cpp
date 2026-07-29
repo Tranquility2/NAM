@@ -189,7 +189,7 @@ std::string format_report_result(const ExpeditionReport& report) {
         case ExpeditionResult::rescued:
             return "Result: rescued after running out of provisions.";
         case ExpeditionResult::overdue:
-            return "Result: overdue; collected late after missing the return deadline.";
+            return "Result: overdue; collected late after missing the level deadline.";
     }
     return "Result: expedition complete.";
 }
@@ -201,7 +201,7 @@ std::string format_report_story(const ExpeditionReport& report) {
     const std::uint64_t used = report.provisions_used;
     const std::uint64_t maximum = score_maximum_for(report.result);
     if (report.result == ExpeditionResult::completed) {
-        return "The " + report.beacon_name + " expedition is complete. The party made " +
+        return "The level beyond " + report.beacon_name + " is complete. The party made " +
                std::to_string(moves) + " successful " + plural(moves, "move", "moves") +
                ", spent " + std::to_string(stamina) + " stamina, used " + std::to_string(used) +
                " " + plural(used, "provision", "provisions") + ", and hit " +
@@ -213,7 +213,7 @@ std::string format_report_story(const ExpeditionReport& report) {
         return "The " + report.beacon_name + " expedition ran overdue. After " +
                std::to_string(moves) + " " + plural(moves, "move", "moves") + " across " +
                std::to_string(report.days_used) + " " + plural(report.days_used, "day", "days") +
-               ", the return window closed and a late retrieval party collected the explorer, "
+               ", the level deadline passed and a late retrieval party collected the explorer, "
                "earning an overdue score of " +
                std::to_string(report.score.value) + " out of " + std::to_string(maximum) + ".";
     }
@@ -254,7 +254,7 @@ std::vector<std::string> format_report_statistics(const ExpeditionReport& report
     lines.push_back("Explored reachable terrain: " +
                     std::to_string(report.explored_reachable_cells) + " / " +
                     std::to_string(report.total_reachable_cells));
-    lines.push_back(std::string("Beacon reached: ") + (report.beacon_discovered ? "yes" : "no"));
+    lines.push_back(std::string("Landmark reached: ") + (report.beacon_discovered ? "yes" : "no"));
     return lines;
 }
 
