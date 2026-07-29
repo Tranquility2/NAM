@@ -58,9 +58,9 @@ TEST_CASE("a new journal is empty") {
 
 TEST_CASE("matching adjacent moves merge into one travel entry") {
     Journal journal;
-    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Beacon");
-    journal.record_event(move_event(1, Direction::right, Terrain::open, 1), "Beacon");
-    journal.record_event(move_event(2, Direction::right, Terrain::open, 1), "Beacon");
+    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Exit");
+    journal.record_event(move_event(1, Direction::right, Terrain::open, 1), "Exit");
+    journal.record_event(move_event(2, Direction::right, Terrain::open, 1), "Exit");
 
     REQUIRE(journal.size() == 1);
     const auto* travel = std::get_if<TravelEntry>(&journal.entries().front().data);
@@ -75,8 +75,8 @@ TEST_CASE("matching adjacent moves merge into one travel entry") {
 
 TEST_CASE("a travel entry accumulates stamina across mixed step costs of one terrain") {
     Journal journal;
-    journal.record_event(move_event(0, Direction::up, Terrain::hill, 2), "Beacon");
-    journal.record_event(move_event(1, Direction::up, Terrain::hill, 2), "Beacon");
+    journal.record_event(move_event(0, Direction::up, Terrain::hill, 2), "Exit");
+    journal.record_event(move_event(1, Direction::up, Terrain::hill, 2), "Exit");
 
     REQUIRE(journal.size() == 1);
     const auto* travel = std::get_if<TravelEntry>(&journal.entries().front().data);
@@ -87,8 +87,8 @@ TEST_CASE("a travel entry accumulates stamina across mixed step costs of one ter
 
 TEST_CASE("a direction change starts a new travel entry") {
     Journal journal;
-    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Beacon");
-    journal.record_event(move_event(1, Direction::up, Terrain::open, 1), "Beacon");
+    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Exit");
+    journal.record_event(move_event(1, Direction::up, Terrain::open, 1), "Exit");
 
     REQUIRE(journal.size() == 2);
     const auto* first = std::get_if<TravelEntry>(&journal.entries()[0].data);
@@ -102,8 +102,8 @@ TEST_CASE("a direction change starts a new travel entry") {
 
 TEST_CASE("a terrain change starts a new travel entry") {
     Journal journal;
-    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Beacon");
-    journal.record_event(move_event(1, Direction::right, Terrain::fields, 2), "Beacon");
+    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Exit");
+    journal.record_event(move_event(1, Direction::right, Terrain::fields, 2), "Exit");
 
     REQUIRE(journal.size() == 2);
     const auto* first = std::get_if<TravelEntry>(&journal.entries()[0].data);
@@ -116,9 +116,9 @@ TEST_CASE("a terrain change starts a new travel entry") {
 
 TEST_CASE("a blocked attempt creates no entry but breaks grouping") {
     Journal journal;
-    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Beacon");
-    journal.record_event(blocked_event(1, Direction::right), "Beacon");
-    journal.record_event(move_event(2, Direction::right, Terrain::open, 1), "Beacon");
+    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Exit");
+    journal.record_event(blocked_event(1, Direction::right), "Exit");
+    journal.record_event(move_event(2, Direction::right, Terrain::open, 1), "Exit");
 
     REQUIRE(journal.size() == 2);
     const auto* first = std::get_if<TravelEntry>(&journal.entries()[0].data);
@@ -135,9 +135,9 @@ TEST_CASE("every blocked result kind breaks grouping without an entry") {
     for (const MoveResult result : {MoveResult::blocked_by_boundary,
                                     MoveResult::blocked_by_terrain}) {
         Journal journal;
-        journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Beacon");
-        journal.record_event(blocked_event(1, Direction::right, result), "Beacon");
-        journal.record_event(move_event(2, Direction::right, Terrain::open, 1), "Beacon");
+        journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Exit");
+        journal.record_event(blocked_event(1, Direction::right, result), "Exit");
+        journal.record_event(move_event(2, Direction::right, Terrain::open, 1), "Exit");
         CHECK(journal.size() == 2);
     }
 }
@@ -146,7 +146,7 @@ TEST_CASE("a discovering move merges into travel then appends a discovery entry"
     Journal journal;
     journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "North Ridge");
     journal.record_event(
-        move_event(1, Direction::right, Terrain::open, 1, ObjectiveTransition::beacon_discovered),
+        move_event(1, Direction::right, Terrain::open, 1, ObjectiveTransition::landmark_discovered),
         "North Ridge");
 
     REQUIRE(journal.size() == 2);
@@ -157,13 +157,13 @@ TEST_CASE("a discovering move merges into travel then appends a discovery entry"
     CHECK(travel->steps == 2);
     CHECK(travel->last_sequence == 1);
     CHECK(discovery->sequence == 1);
-    CHECK(discovery->beacon_name == "North Ridge");
+    CHECK(discovery->landmark_name == "North Ridge");
 }
 
 TEST_CASE("an objective entry breaks grouping so the next move starts a new travel entry") {
     Journal journal;
     journal.record_event(
-        move_event(0, Direction::right, Terrain::open, 1, ObjectiveTransition::beacon_discovered),
+        move_event(0, Direction::right, Terrain::open, 1, ObjectiveTransition::landmark_discovered),
         "North Ridge");
     journal.record_event(move_event(1, Direction::right, Terrain::open, 1), "North Ridge");
 
@@ -180,7 +180,7 @@ TEST_CASE("a completing move merges into travel then appends a completion entry"
     Journal journal;
     journal.record_event(move_event(0, Direction::left, Terrain::open, 1), "North Ridge");
     journal.record_event(move_event(1, Direction::left, Terrain::open, 1,
-                                    ObjectiveTransition::expedition_completed),
+                                    ObjectiveTransition::level_completed),
                          "North Ridge");
 
     REQUIRE(journal.size() == 2);
@@ -190,7 +190,7 @@ TEST_CASE("a completing move merges into travel then appends a completion entry"
     REQUIRE(completion != nullptr);
     CHECK(travel->steps == 2);
     CHECK(completion->sequence == 1);
-    CHECK(completion->beacon_name == "North Ridge");
+    CHECK(completion->landmark_name == "North Ridge");
 }
 
 TEST_CASE("initial completion creates exactly one special entry") {
@@ -200,29 +200,29 @@ TEST_CASE("initial completion creates exactly one special entry") {
     REQUIRE(journal.size() == 1);
     const auto* initial = std::get_if<InitialCompletionEntry>(&journal.entries()[0].data);
     REQUIRE(initial != nullptr);
-    CHECK(initial->beacon_name == "Spawn Cairn");
+    CHECK(initial->landmark_name == "Spawn Cairn");
 }
 
 TEST_CASE("travel prose uses exact singular and plural grammar") {
     Journal one;
-    one.record_event(move_event(0, Direction::right, Terrain::open, 1), "Beacon");
+    one.record_event(move_event(0, Direction::right, Terrain::open, 1), "Exit");
     CHECK(format_entry(one.entries().front()) ==
           std::string("Traveled east across open ground for 1 step."));
 
     Journal many;
-    many.record_event(move_event(0, Direction::right, Terrain::open, 1), "Beacon");
-    many.record_event(move_event(1, Direction::right, Terrain::open, 1), "Beacon");
-    many.record_event(move_event(2, Direction::right, Terrain::open, 1), "Beacon");
+    many.record_event(move_event(0, Direction::right, Terrain::open, 1), "Exit");
+    many.record_event(move_event(1, Direction::right, Terrain::open, 1), "Exit");
+    many.record_event(move_event(2, Direction::right, Terrain::open, 1), "Exit");
     CHECK(format_entry(many.entries().front()) ==
           std::string("Traveled east across open ground for 3 steps."));
 }
 
 TEST_CASE("travel prose maps every direction to a cardinal name") {
     Journal journal;
-    journal.record_event(move_event(0, Direction::up, Terrain::open, 1), "Beacon");
-    journal.record_event(move_event(1, Direction::down, Terrain::open, 1), "Beacon");
-    journal.record_event(move_event(2, Direction::left, Terrain::open, 1), "Beacon");
-    journal.record_event(move_event(3, Direction::right, Terrain::open, 1), "Beacon");
+    journal.record_event(move_event(0, Direction::up, Terrain::open, 1), "Exit");
+    journal.record_event(move_event(1, Direction::down, Terrain::open, 1), "Exit");
+    journal.record_event(move_event(2, Direction::left, Terrain::open, 1), "Exit");
+    journal.record_event(move_event(3, Direction::right, Terrain::open, 1), "Exit");
 
     const std::vector<std::string> lines = prose_of(journal);
     REQUIRE(lines.size() == 4);
@@ -232,7 +232,7 @@ TEST_CASE("travel prose maps every direction to a cardinal name") {
     CHECK(lines[3] == std::string("Traveled east across open ground for 1 step."));
 }
 
-TEST_CASE("discovery and completion prose name the beacon exactly") {
+TEST_CASE("discovery and completion prose name the exit_cell exactly") {
     Journal discovery;
     discovery.record_event(
         move_event(0, Direction::right, Terrain::open, 1, ObjectiveTransition::landmark_discovered),

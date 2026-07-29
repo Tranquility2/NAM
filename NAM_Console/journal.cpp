@@ -30,24 +30,24 @@ namespace {
 }
 
 // A fallback-safe visitor: one operator() per entry kind, each returning fixed
-// frontend wording plus decimal counters and the deterministic beacon name only
+// frontend wording plus decimal counters and the deterministic exit name only
 // (SEC-001 / SEC-002).
 struct EntryFormatter {
     std::string operator()(const TravelEntry& entry) const { return travel_prose(entry); }
     std::string operator()(const DiscoveryEntry& entry) const {
-        return "Discovered " + entry.beacon_name + "; the exit direction was revealed.";
+        return "Discovered " + entry.landmark_name + "; the exit direction was revealed.";
     }
     std::string operator()(const CompletionEntry& entry) const {
-        return "Reached the exit after " + entry.beacon_name + "; level complete.";
+        return "Reached the exit after " + entry.landmark_name + "; level complete.";
     }
     std::string operator()(const InitialCompletionEntry& entry) const {
-        return "Found " + entry.beacon_name + " and the exit at spawn; the level was already complete.";
+        return "Found " + entry.landmark_name + " and the exit at spawn; the level was already complete.";
     }
 };
 
 }  // namespace
 
-void Journal::record_event(const GameEvent& event, const std::string& beacon_name) {
+void Journal::record_event(const GameEvent& event, const std::string& landmark_name) {
     if (const auto* move = std::get_if<MoveAttemptedEvent>(&event.data)) {
         if (move->outcome.result != MoveResult::moved) {
             // A blocked attempt creates no visible entry but breaks grouping so a
@@ -87,11 +87,11 @@ void Journal::record_event(const GameEvent& event, const std::string& beacon_nam
         // next movement starts a new travel group (REQ-037).
         switch (move->objective_update.transition) {
             case ObjectiveTransition::landmark_discovered:
-                entries_.push_back(JournalEntry{DiscoveryEntry{event.sequence, beacon_name}});
+                entries_.push_back(JournalEntry{DiscoveryEntry{event.sequence, landmark_name}});
                 travel_open_ = false;
                 break;
             case ObjectiveTransition::level_completed:
-                entries_.push_back(JournalEntry{CompletionEntry{event.sequence, beacon_name}});
+                entries_.push_back(JournalEntry{CompletionEntry{event.sequence, landmark_name}});
                 travel_open_ = false;
                 break;
             case ObjectiveTransition::none:
@@ -100,8 +100,8 @@ void Journal::record_event(const GameEvent& event, const std::string& beacon_nam
     }
 }
 
-void Journal::record_initial_completion(const std::string& beacon_name) {
-    entries_.push_back(JournalEntry{InitialCompletionEntry{beacon_name}});
+void Journal::record_initial_completion(const std::string& landmark_name) {
+    entries_.push_back(JournalEntry{InitialCompletionEntry{landmark_name}});
     travel_open_ = false;
 }
 

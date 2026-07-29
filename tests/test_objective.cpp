@@ -40,7 +40,7 @@ constexpr std::array<const char*, 16> kSecondWords{
     "Crown", "Ford", "Gate", "Harbor", "Hollow", "Lantern", "Light", "Pass",
     "Peak", "Reach", "River", "Spire", "Stone", "Vale", "Watch", "Way"};
 
-// The map-and-spawn fingerprint hashed to select the beacon, mirrored from the
+// The map-and-spawn fingerprint hashed to select the exit_cell, mirrored from the
 // core so a test can independently reconstruct the deterministic candidate index.
 std::string placement_fingerprint(const Map& map, Coordinates spawn) {
     std::string input = map.to_string();
@@ -152,7 +152,7 @@ std::vector<Coordinates> distant_candidates(const Map& map) {
     return scenic.empty() ? distant : scenic;
 }
 
-Coordinates expected_beacon(const Map& map) {
+Coordinates expected_exit(const Map& map) {
     const std::vector<Coordinates> candidates = distant_candidates(map);
     const std::uint64_t hash = hash_seed_text(placement_fingerprint(map, map.spawn()));
     return candidates[static_cast<std::size_t>(hash % candidates.size())];
@@ -181,21 +181,21 @@ TEST_CASE("a divisible maximum distance selects the hashed distant candidate") {
     // TEST-001 / TEST-004: a 9-cell corridor has maximum distance 8 (divisible by
     // four), so the minimum eligible distance is 6 and the distant pool is x=6,7,8.
     const Map map = make_map("NAM-MAP 1\nwidth 9\nheight 1\nspawn 0 0\n---\n.........\n");
-    const BeaconObjective objective = create_beacon_objective(map);
-    CHECK(objective.beacon == expected_beacon(map));
-    CHECK(distance_at(map, objective.beacon) >= minimum_eligible(8));
-    CHECK(distance_at(map, objective.beacon) >= 6);
-    CHECK(objective.status == ObjectiveStatus::seeking_beacon);
+    const LevelObjective objective = create_level_objective(map);
+    CHECK(objective.exit_cell == expected_exit(map));
+    CHECK(distance_at(map, objective.exit_cell) >= minimum_eligible(8));
+    CHECK(distance_at(map, objective.exit_cell) >= 6);
+    CHECK(objective.status == ObjectiveStatus::seeking_landmark);
 }
 
 TEST_CASE("a non-divisible maximum distance rounds the threshold up") {
     // TEST-001 / TEST-004: a 6-cell corridor has maximum distance 5, so the exact
     // 75% ceiling is 4 and only x=4,5 are eligible; x=3 (distance 3) never is.
     const Map map = make_map("NAM-MAP 1\nwidth 6\nheight 1\nspawn 0 0\n---\n......\n");
-    const BeaconObjective objective = create_beacon_objective(map);
-    CHECK(objective.beacon == expected_beacon(map));
-    CHECK(distance_at(map, objective.beacon) >= 4);
-    CHECK(objective.beacon.x >= 4);  // distance 3 at x=3 is below the threshold.
+    const LevelObjective objective = create_level_objective(map);
+    CHECK(objective.exit_cell == expected_exit(map));
+    CHECK(distance_at(map, objective.exit_cell) >= 4);
+    CHECK(objective.exit_cell.x >= 4);  // distance 3 at x=3 is below the threshold.
 }
 
 TEST_CASE("candidate order is row-major and the hash modulo selects the exact cell") {
@@ -208,20 +208,20 @@ TEST_CASE("candidate order is row-major and the hash modulo selects the exact ce
     CHECK(candidates[1] == Coordinates{4, 0});
     const std::uint64_t hash = hash_seed_text(placement_fingerprint(map, map.spawn()));
     const Coordinates selected = candidates[static_cast<std::size_t>(hash % candidates.size())];
-    const BeaconObjective objective = create_beacon_objective(map);
-    CHECK(objective.beacon == selected);
+    const LevelObjective objective = create_level_objective(map);
+    CHECK(objective.exit_cell == selected);
 }
 
 TEST_CASE("scenic distant cells exclude equally distant base terrain") {
     // TEST-002 / REQ-007: a hill and open ground sit at the same maximum distance
     // two on either side of a central spawn. The scenic pool holds only the hill,
-    // so the beacon is the hill even though the open cell is equally distant.
+    // so the exit_cell is the hill even though the open cell is equally distant.
     const Map map = make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 2 0\n---\n^..x.\n");
     REQUIRE(distance_at(map, Coordinates{0, 0}) == 2);  // the hill.
     REQUIRE(distance_at(map, Coordinates{4, 0}) == 2);  // equally distant open.
-    const BeaconObjective objective = create_beacon_objective(map);
-    CHECK(objective.beacon == Coordinates{0, 0});
-    CHECK(map.terrain_at(objective.beacon) == Terrain::hill);
+    const LevelObjective objective = create_level_objective(map);
+    CHECK(objective.exit_cell == Coordinates{0, 0});
+    CHECK(map.terrain_at(objective.exit_cell) == Terrain::hill);
 }
 
 TEST_CASE("scenic distant cells are preferred over a more distant base cell") {
@@ -230,20 +230,20 @@ TEST_CASE("scenic distant cells are preferred over a more distant base cell") {
     const Map map = make_map("NAM-MAP 1\nwidth 5\nheight 2\nspawn 0 0\n---\n....^\n....x\n");
     REQUIRE(distance_at(map, Coordinates{4, 0}) == 4);  // hill.
     REQUIRE(distance_at(map, Coordinates{4, 1}) == 5);  // more distant base.
-    const BeaconObjective objective = create_beacon_objective(map);
-    CHECK(objective.beacon == Coordinates{4, 0});
-    CHECK(map.terrain_at(objective.beacon) == Terrain::hill);
+    const LevelObjective objective = create_level_objective(map);
+    CHECK(objective.exit_cell == Coordinates{4, 0});
+    CHECK(map.terrain_at(objective.exit_cell) == Terrain::hill);
 }
 
 TEST_CASE("base terrain is used when no distant scenic candidate exists") {
     // TEST-003 / REQ-008: a corridor of open ground has no scenic cell, so the full
-    // distant pool is the fallback and the selected beacon is walkable base terrain.
+    // distant pool is the fallback and the selected exit_cell is walkable base terrain.
     const Map map = make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n");
-    const BeaconObjective objective = create_beacon_objective(map);
-    CHECK(objective.beacon == expected_beacon(map));
-    CHECK(objective.beacon == Coordinates{3, 0});
-    CHECK(map.terrain_at(objective.beacon) == Terrain::open);
-    CHECK(is_walkable(map.terrain_at(objective.beacon)));
+    const LevelObjective objective = create_level_objective(map);
+    CHECK(objective.exit_cell == expected_exit(map));
+    CHECK(objective.exit_cell == Coordinates{3, 0});
+    CHECK(map.terrain_at(objective.exit_cell) == Terrain::open);
+    CHECK(is_walkable(map.terrain_at(objective.exit_cell)));
 }
 
 TEST_CASE("the selected cell need not be the earliest row-major candidate") {
@@ -254,53 +254,53 @@ TEST_CASE("the selected cell need not be the earliest row-major candidate") {
         make_map("NAM-MAP 1\nwidth 5\nheight 3\nspawn 0 0\n---\n.....\n====.\n.....\n");
     const std::vector<Coordinates> candidates = distant_candidates(map);
     REQUIRE(candidates.front() == Coordinates{0, 2});  // earliest row-major.
-    const BeaconObjective objective = create_beacon_objective(map);
-    CHECK(objective.beacon == expected_beacon(map));
-    CHECK(objective.beacon == Coordinates{2, 2});
-    CHECK(objective.beacon != candidates.front());  // not the earliest candidate.
-    // (0,2) is strictly farther than the selected cell, so the beacon is not the
+    const LevelObjective objective = create_level_objective(map);
+    CHECK(objective.exit_cell == expected_exit(map));
+    CHECK(objective.exit_cell == Coordinates{2, 2});
+    CHECK(objective.exit_cell != candidates.front());  // not the earliest candidate.
+    // (0,2) is strictly farther than the selected cell, so the exit_cell is not the
     // single farthest row-major cell either.
-    CHECK(distance_at(map, Coordinates{0, 2}) > distance_at(map, objective.beacon));
-    CHECK(is_walkable(map.terrain_at(objective.beacon)));
-    CHECK(objective.status == ObjectiveStatus::seeking_beacon);
+    CHECK(distance_at(map, Coordinates{0, 2}) > distance_at(map, objective.exit_cell));
+    CHECK(is_walkable(map.terrain_at(objective.exit_cell)));
+    CHECK(objective.status == ObjectiveStatus::seeking_landmark);
 }
 
-TEST_CASE("a symmetric open field places the beacon off the corners") {
+TEST_CASE("a symmetric open field places the exit_cell off the corners") {
     // TEST-005: on a symmetric five-by-five open field the old row-major farthest
     // rule always chose corner (0,0). The hash now selects an off-corner distant
     // cell, so a symmetric map no longer favours a corner.
     const Map map = make_map(
         "NAM-MAP 1\nwidth 5\nheight 5\nspawn 2 2\n---\n.....\n.....\n.....\n.....\n.....\n");
-    const BeaconObjective objective = create_beacon_objective(map);
-    CHECK(objective.beacon == expected_beacon(map));
-    CHECK(objective.beacon == Coordinates{0, 1});
-    const bool is_corner = (objective.beacon == Coordinates{0, 0}) ||
-                           (objective.beacon == Coordinates{4, 0}) ||
-                           (objective.beacon == Coordinates{0, 4}) ||
-                           (objective.beacon == Coordinates{4, 4});
+    const LevelObjective objective = create_level_objective(map);
+    CHECK(objective.exit_cell == expected_exit(map));
+    CHECK(objective.exit_cell == Coordinates{0, 1});
+    const bool is_corner = (objective.exit_cell == Coordinates{0, 0}) ||
+                           (objective.exit_cell == Coordinates{4, 0}) ||
+                           (objective.exit_cell == Coordinates{0, 4}) ||
+                           (objective.exit_cell == Coordinates{4, 4});
     CHECK_FALSE(is_corner);
 }
 
-TEST_CASE("unreachable walkable cells are ignored when placing the beacon") {
+TEST_CASE("unreachable walkable cells are ignored when placing the exit_cell") {
     // REQ-005: cells at x=3,4 are walkable but sealed off by the wall at x=2, so
     // the only reachable distant cell is (0,0), left of the spawn.
     const Map map = make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 1 0\n---\n..=..\n");
-    const BeaconObjective objective = create_beacon_objective(map);
-    CHECK(objective.beacon == Coordinates{0, 0});
-    CHECK(is_walkable(map.terrain_at(objective.beacon)));
+    const LevelObjective objective = create_level_objective(map);
+    CHECK(objective.exit_cell == Coordinates{0, 0});
+    CHECK(is_walkable(map.terrain_at(objective.exit_cell)));
     CHECK(objective.landmark == map.spawn());
     CHECK(objective.status == ObjectiveStatus::seeking_exit);
 }
 
-TEST_CASE("a single reachable spawn produces a completed beacon at spawn") {
+TEST_CASE("a single reachable spawn produces a completed exit_cell at spawn") {
     // TEST-006 / REQ-003: the only reachable walkable cell is the spawn, so the
-    // beacon is placed at spawn with no candidate pool or modulo, and the objective
+    // exit_cell is placed at spawn with no candidate pool or modulo, and the objective
     // starts completed.
     const Map map = make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.=.\n");
-    const BeaconObjective objective = create_beacon_objective(map);
-    CHECK(objective.beacon == map.spawn());
+    const LevelObjective objective = create_level_objective(map);
+    CHECK(objective.exit_cell == map.spawn());
     CHECK(objective.status == ObjectiveStatus::completed);
-    // A name is still generated for the spawn-is-beacon case.
+    // A name is still generated for the spawn-is-exit_cell case.
     CHECK_FALSE(objective.name.empty());
 }
 
@@ -309,49 +309,49 @@ TEST_CASE("placement never mutates terrain or map serialization") {
     const Map map = make_map(
         "NAM-MAP 1\nwidth 5\nheight 3\nspawn 0 0\n---\n.....\n====.\n.....\n");
     const std::string before = map.to_string();
-    const BeaconObjective objective = create_beacon_objective(map);
+    const LevelObjective objective = create_level_objective(map);
     (void)objective;
     CHECK(map.to_string() == before);
 }
 
-TEST_CASE("beacon names use the exact fixed tables and hash indices") {
+TEST_CASE("exit_cell names use the exact fixed tables and hash indices") {
     // The generated name matches an independent reconstruction from the public
     // hash and documented indices, and is stable across repeated builds.
     const Map map = make_map(
         "NAM-MAP 1\nwidth 5\nheight 3\nspawn 0 0\n---\n.....\n====.\n.....\n");
-    const BeaconObjective first = create_beacon_objective(map);
-    const BeaconObjective second = create_beacon_objective(map);
+    const LevelObjective first = create_level_objective(map);
+    const LevelObjective second = create_level_objective(map);
 
     const std::string expected = expected_name(map, map.spawn(), first.landmark);
     CHECK(first.name == expected);
     CHECK(second.name == expected);
-    CHECK(first.beacon == second.beacon);
+    CHECK(first.exit_cell == second.exit_cell);
     // The name ends with the fixed suffix and contains exactly two spaces.
     CHECK(first.name.size() > std::string(" Landmark").size());
     CHECK(first.name.rfind(" Landmark") == first.name.size() - std::string(" Landmark").size());
 }
 
-TEST_CASE("distinct beacon coordinates change the deterministic name input") {
-    // The fingerprint is the map/spawn/beacon triple, so a map produces an
-    // independently reconstructable name for its selected beacon.
+TEST_CASE("distinct exit_cell coordinates change the deterministic name input") {
+    // The fingerprint is the map/spawn/exit_cell triple, so a map produces an
+    // independently reconstructable name for its selected exit_cell.
     const Map corridor = make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n");
-    const BeaconObjective objective = create_beacon_objective(corridor);
+    const LevelObjective objective = create_level_objective(corridor);
     CHECK(objective.name == expected_name(corridor, corridor.spawn(), objective.landmark));
 }
 
 TEST_CASE("the landmark lies on the deterministic route to the exit") {
     const Map map = make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n");
-    const LevelObjective objective = create_beacon_objective(map);
+    const LevelObjective objective = create_level_objective(map);
     CHECK(objective.landmark == Coordinates{2, 0});
-    CHECK(objective.beacon == Coordinates{3, 0});
+    CHECK(objective.exit_cell == Coordinates{3, 0});
     CHECK(objective.exit_bearing == Direction::right);
     CHECK(objective_target(objective) == objective.landmark);
 }
 
 TEST_CASE("advance_objective reveals the exit only at the landmark") {
-    BeaconObjective objective;
+    LevelObjective objective;
     objective.landmark = Coordinates{2, 0};
-    objective.beacon = Coordinates{4, 0};
+    objective.exit_cell = Coordinates{4, 0};
     objective.status = ObjectiveStatus::seeking_landmark;
 
     CHECK(advance_objective(objective, Coordinates{1, 0}) == ObjectiveTransition::none);
@@ -360,13 +360,13 @@ TEST_CASE("advance_objective reveals the exit only at the landmark") {
     CHECK(advance_objective(objective, Coordinates{2, 0}) ==
           ObjectiveTransition::landmark_discovered);
     CHECK(objective.status == ObjectiveStatus::seeking_exit);
-    CHECK(objective_target(objective) == objective.beacon);
+    CHECK(objective_target(objective) == objective.exit_cell);
 }
 
 TEST_CASE("advance_objective completes only at the exit after landmark discovery") {
-    BeaconObjective objective;
+    LevelObjective objective;
     objective.landmark = Coordinates{2, 0};
-    objective.beacon = Coordinates{4, 0};
+    objective.exit_cell = Coordinates{4, 0};
     objective.status = ObjectiveStatus::seeking_exit;
 
     CHECK(advance_objective(objective, Coordinates{3, 0}) == ObjectiveTransition::none);
@@ -402,7 +402,7 @@ TEST_CASE("a GameState owns a seeking objective and exposes completion state") {
     GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n"));
     CHECK(state.objective().status == ObjectiveStatus::seeking_landmark);
     CHECK(state.objective().landmark == Coordinates{2, 0});
-    CHECK(state.objective().beacon == Coordinates{3, 0});
+    CHECK(state.objective().exit_cell == Coordinates{3, 0});
     CHECK_FALSE(state.objective_completed());
 }
 
@@ -410,13 +410,13 @@ TEST_CASE("a single-cell GameState starts already completed") {
     GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.=.\n"));
     CHECK(state.objective().status == ObjectiveStatus::completed);
     CHECK(state.objective_completed());
-    CHECK(state.objective().beacon == state.map().spawn());
+    CHECK(state.objective().exit_cell == state.map().spawn());
 }
 
 TEST_CASE("moves carry exact landmark and exit transitions") {
     GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n"));
     REQUIRE(state.objective().landmark == Coordinates{2, 0});
-    REQUIRE(state.objective().beacon == Coordinates{3, 0});
+    REQUIRE(state.objective().exit_cell == Coordinates{3, 0});
 
     const GameEvent e1 = state.move(Direction::right);
     CHECK(payload_of(e1).objective_update.before == ObjectiveStatus::seeking_landmark);
@@ -443,9 +443,9 @@ TEST_CASE("entering the exit before discovering the landmark does not complete")
         make_map("NAM-MAP 1\nwidth 3\nheight 2\nspawn 0 0\n---\n...\n...\n");
     LevelObjective objective;
     objective.landmark = Coordinates{1, 0};
-    objective.beacon = Coordinates{2, 0};
+    objective.exit_cell = Coordinates{2, 0};
     objective.status = ObjectiveStatus::seeking_landmark;
-    CHECK(advance_objective(objective, objective.beacon) == ObjectiveTransition::none);
+    CHECK(advance_objective(objective, objective.exit_cell) == ObjectiveTransition::none);
     CHECK(objective.status == ObjectiveStatus::seeking_landmark);
 }
 

@@ -21,32 +21,25 @@
 // yields the same exit. Placement, naming, bearing, and the status machine live
 // entirely in the core so frontends only present state and typed transitions.
 
-// The phase of one level objective. Compatibility aliases retain the old enum
-// spellings while console and report code migrate in later V2 steps.
+// The phase of one level objective.
 enum class ObjectiveStatus {
     seeking_landmark,
     seeking_exit,
     completed,
-    seeking_beacon = seeking_landmark,
-    returning_to_spawn = seeking_exit,
 };
 
 // The typed change a single committed actor position causes to the objective.
-// Compatibility aliases retain the old event spellings while consumers migrate.
 enum class ObjectiveTransition {
     none,
     landmark_discovered,
     level_completed,
-    beacon_discovered = landmark_discovered,
-    expedition_completed = level_completed,
 };
 
-// The complete objective owned by a level. `beacon` temporarily retains the old
-// field name for the distant exit while report/scoring code is simplified; it is
-// semantic overlay state and never a terrain value.
+// The complete objective owned by a level. `landmark` and `exit_cell` are
+// semantic overlay state and never terrain values.
 struct LevelObjective {
     Coordinates landmark{};
-    Coordinates beacon{};
+    Coordinates exit_cell{};
     std::string name;
     Direction exit_bearing = Direction::right;
     ObjectiveStatus status = ObjectiveStatus::seeking_landmark;
@@ -63,8 +56,6 @@ struct LevelObjective {
     // the exploration fraction.
     std::uint64_t total_reachable_walkable_cells = 0;
 };
-
-using BeaconObjective = LevelObjective;
 
 // The before/after status and typed transition around one movement command,
 // nested into the movement event so consumers observe objective progress in the
@@ -88,7 +79,7 @@ struct ObjectiveUpdate {
 // exit, with adjacent exits revealed from spawn. When spawn is the only reachable
 // walkable cell the objective starts completed.
 //
-[[nodiscard]] LevelObjective create_beacon_objective(const Map& map);
+[[nodiscard]] LevelObjective create_level_objective(const Map& map);
 
 // Advance the objective for a committed actor position and return the exact
 // transition it caused. Entering the landmark while seeking reveals the exit;
@@ -99,5 +90,5 @@ ObjectiveTransition advance_objective(LevelObjective& objective, Coordinates act
 // exit afterward. A completed objective keeps the exit as its final target.
 [[nodiscard]] constexpr Coordinates objective_target(const LevelObjective& objective) noexcept {
     return objective.status == ObjectiveStatus::seeking_landmark ? objective.landmark
-                                                                 : objective.beacon;
+                                                                 : objective.exit_cell;
 }

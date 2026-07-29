@@ -58,10 +58,11 @@ struct RenderConfig {
 // ('.', '@', '~', 'x', '^', '=', '|').
 inline constexpr char actor_glyph = 'O';
 
-// The beacon objective glyph. A semantic overlay drawn on the beacon cell when it
-// is visible or remembered and the actor is not standing on it; it never replaces
-// or mutates the underlying Terrain.
-inline constexpr char beacon_glyph = '*';
+// The objective glyph. A semantic overlay drawn on the current objective target
+// (the landmark before discovery, the exit afterward) when that cell is visible
+// or remembered and the actor is not standing on it; it never replaces or mutates
+// the underlying Terrain.
+inline constexpr char objective_glyph = '*';
 
 // A frontend-only viewport into the final expedition report: the index of the
 // topmost visible body line and the leftmost visible column. Both offsets are
@@ -94,16 +95,16 @@ public:
     // line-oriented mode: readable in redirected output and by screen readers.
     [[nodiscard]] std::string render_plain(const RenderInput& input) const;
 
-    // Build the interactive beacon-discovery screen for the given size. The frame
+    // Build the interactive landmark-discovery screen for the given size. The frame
     // has exactly `size.rows` rows, keeps every row within `size.columns`, centres
     // the fixed discovery lines when space permits, uses the 80x24 fallback for an
     // unknown size, and falls back to the shared window-too-small panel below the
     // absolute minimum. It carries no ANSI escape bytes.
-    [[nodiscard]] Frame render_discovery(const std::string& beacon_name, TerminalSize size) const;
+    [[nodiscard]] Frame render_discovery(const std::string& landmark_name, TerminalSize size) const;
 
-    // Render the beacon-discovery screen as an ANSI-free plain-text block: the
+    // Render the landmark-discovery screen as an ANSI-free plain-text block: the
     // exact discovery lines, one per line, with a single trailing newline.
-    [[nodiscard]] std::string render_discovery_plain(const std::string& beacon_name) const;
+    [[nodiscard]] std::string render_discovery_plain(const std::string& landmark_name) const;
 
 
     // Build the interactive expedition-completion report for the given size. The

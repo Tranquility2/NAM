@@ -38,9 +38,9 @@ TEST_CASE("the objective stores the exact cheapest spawn-landmark-exit stamina c
     // A five-cell open corridor places the landmark at (2,0) and the exit at
     // (3,0), so the optimal route is three open-ground entries at one each.
     const Map map = make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n");
-    const LevelObjective objective = create_beacon_objective(map);
+    const LevelObjective objective = create_level_objective(map);
     CHECK(objective.landmark == Coordinates{2, 0});
-    CHECK(objective.beacon == Coordinates{3, 0});
+    CHECK(objective.exit_cell == Coordinates{3, 0});
     CHECK(objective.minimum_route_stamina_cost == 3);
 }
 
@@ -48,16 +48,16 @@ TEST_CASE("terrain entry costs make the two route legs differ") {
     // Mountains cost 4 to enter, so the walk out is expensive while the final
     // step onto open ground is cheap.
     const Map map = make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.@@..\n");
-    const LevelObjective objective = create_beacon_objective(map);
+    const LevelObjective objective = create_level_objective(map);
     CHECK(objective.landmark == Coordinates{2, 0});
-    CHECK(objective.beacon == Coordinates{3, 0});
+    CHECK(objective.exit_cell == Coordinates{3, 0});
     // spawn -> (1,0) mountain 4, -> (2,0) mountain 4, -> (3,0) open 1.
     CHECK(objective.minimum_route_stamina_cost == 9);
 }
 
 TEST_CASE("a single reachable spawn yields a zero-cost route") {
     const Map map = make_map("NAM-MAP 1\nwidth 3\nheight 3\nspawn 1 1\n---\n===\n=.=\n===\n");
-    const LevelObjective objective = create_beacon_objective(map);
+    const LevelObjective objective = create_level_objective(map);
     CHECK(objective.minimum_route_stamina_cost == 0);
 }
 

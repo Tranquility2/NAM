@@ -52,7 +52,7 @@ Map row_map(const std::string& glyphs, Coordinates spawn) {
 LevelObjective make_objective(Coordinates exit_cell, std::string name, ObjectiveStatus status,
                               std::uint64_t route_cost, std::uint64_t reachable_cells) {
     LevelObjective objective;
-    objective.beacon = exit_cell;
+    objective.exit_cell = exit_cell;
     objective.name = std::move(name);
     objective.status = status;
     objective.minimum_route_stamina_cost = route_cost;
@@ -103,7 +103,7 @@ TEST_CASE("route history starts at spawn and appends only successful destination
 TEST_CASE("the route map applies F over B over S over star over fog terrain") {
     const Map map = row_map(".....", Coordinates{0, 0});
     const LevelObjective objective =
-        make_objective(Coordinates{3, 0}, "Test Beacon", ObjectiveStatus::completed, 6, 5);
+        make_objective(Coordinates{3, 0}, "Test Exit", ObjectiveStatus::completed, 6, 5);
     VisibilityMap visibility(5, 1);
     visibility.reveal_square(Coordinates{1, 0}, 2);
 
@@ -121,7 +121,7 @@ TEST_CASE("the route map applies F over B over S over star over fog terrain") {
 TEST_CASE("completed report shows result story statistics and legend wording") {
     const Map map = row_map("....", Coordinates{0, 0});
     const LevelObjective objective =
-        make_objective(Coordinates{3, 0}, "Glass River Beacon", ObjectiveStatus::completed, 3, 4);
+        make_objective(Coordinates{3, 0}, "Glass River Exit", ObjectiveStatus::completed, 3, 4);
     VisibilityMap visibility(4, 1);
     visibility.reveal_square(Coordinates{1, 0}, 8);
 
@@ -140,7 +140,7 @@ TEST_CASE("completed report shows result story statistics and legend wording") {
 
     CHECK(format_report_result(report) == "Result: level complete.");
     CHECK(format_report_story(report) ==
-          "The level beyond Glass River Beacon is complete. The party made 3 successful moves, "
+          "The level beyond Glass River Exit is complete. The party made 3 successful moves, "
           "spent 3 stamina, and hit 1 blocked move, earning a final score of 980 out of 1000.");
 
     const std::vector<std::string> stats = format_report_statistics(report);
@@ -208,7 +208,7 @@ TEST_CASE("a report marks the landmark unreached while the objective is still se
 TEST_CASE("report line sections appear in the required order") {
     const Map map = row_map("...", Coordinates{0, 0});
     const LevelObjective objective =
-        make_objective(Coordinates{2, 0}, "Test Beacon", ObjectiveStatus::completed, 4, 3);
+        make_objective(Coordinates{2, 0}, "Test Exit", ObjectiveStatus::completed, 4, 3);
     VisibilityMap visibility(3, 1);
     visibility.reveal_square(Coordinates{1, 0}, 8);
     Journal journal;
@@ -243,7 +243,7 @@ TEST_CASE("report line sections appear in the required order") {
 TEST_CASE("plain report block ends with one newline has no ansi and is deterministic") {
     const Map map = row_map("...", Coordinates{0, 0});
     const LevelObjective objective =
-        make_objective(Coordinates{2, 0}, "Test Beacon", ObjectiveStatus::completed, 4, 3);
+        make_objective(Coordinates{2, 0}, "Test Exit", ObjectiveStatus::completed, 4, 3);
     VisibilityMap visibility(3, 1);
     visibility.reveal_square(Coordinates{1, 0}, 8);
     Journal journal;

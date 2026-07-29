@@ -63,7 +63,7 @@ public:
     // and a successful move advances it after position, stamina, and visibility
     // commit. Frontends only present this state and react to the typed
     // transitions carried on movement events.
-    [[nodiscard]] const BeaconObjective& objective() const noexcept { return objective_; }
+    [[nodiscard]] const LevelObjective& objective() const noexcept { return objective_; }
 
     // True once the actor has reached the exit after discovering the landmark, or
     // the map had a single reachable cell at spawn.
@@ -89,9 +89,9 @@ public:
 private:
     Map map_;
     // Declared immediately after map_ and initialized from the constructed map_
-    // (never the moved-from constructor argument), so beacon placement reads a
+    // (never the moved-from constructor argument), so exit placement reads a
     // fully valid map.
-    BeaconObjective objective_;
+    LevelObjective objective_;
     Coordinates actor_position_;
     VisibilityMap visibility_;
     std::uint32_t stamina_ = maximum_stamina;

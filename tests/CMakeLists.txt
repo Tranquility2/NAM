@@ -86,7 +86,7 @@ if(TARGET nam_console)
     set(_cli_driver ${CMAKE_CURRENT_SOURCE_DIR}/cli/run_cli_test.cmake)
     set(_quit_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_quit.txt)
     set(_moves_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_moves.txt)
-    set(_beacon_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_beacon.txt)
+    set(_level_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_level.txt)
     set(_wander_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_wander.txt)
 
     # add a CLI test: name plus driver options forwarded as -D definitions.
@@ -132,30 +132,30 @@ if(TARGET nam_console)
         "-DARGS=--map|${NAM_FIXTURES_DIR}/valid-lf.map" -DINPUT_FILE=${_moves_stdin}
         -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
 
-    # A scripted expedition on a dedicated corridor map walks out to the beacon
+    # A scripted expedition on a dedicated corridor map walks out to the exit
     # and back to spawn, so the real executable completes the objective and prints
     # the final expedition report, then exits 0 on the end-of-input acknowledgement
     # with the report banners present and no ANSI when redirected. The run is also
     # deterministic across identical runs.
-    nam_add_cli_test(cli_run_beacon_complete
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_beacon_stdin}
+    nam_add_cli_test(cli_run_level_complete
+        "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_level_stdin}
         -DEXPECT_CODE=0
         "-DEXPECT_CONTAINS=EXPEDITION REPORT|ROUTE MAP|EXPEDITION JOURNAL|Score:|Move attempts:|Blocked moves:|Optimal route cost:"
         -DFORBID_ESC=1)
-    nam_add_cli_test(cli_run_beacon_deterministic
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_beacon_stdin}
+    nam_add_cli_test(cli_run_level_deterministic
+        "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_level_stdin}
         -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
 
     # The same corridor driven by a long wandering script: movement never fails for
     # want of stamina, so the real executable keeps travelling, stays ANSI-free when
     # redirected, and is deterministic across identical runs.
-    nam_add_cli_test(cli_run_beacon_wander
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_wander_stdin}
+    nam_add_cli_test(cli_run_level_wander
+        "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_wander_stdin}
         -DEXPECT_CODE=0
         "-DEXPECT_CONTAINS=Moved onto|Stamina:|Objective:"
         -DFORBID_ESC=1)
-    nam_add_cli_test(cli_run_beacon_wander_deterministic
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_wander_stdin}
+    nam_add_cli_test(cli_run_level_wander_deterministic
+        "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_wander_stdin}
         -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
 
     # --- seeded Tiny World integration -------------------------------------

@@ -29,7 +29,7 @@ Map make_map(std::string_view text) {
     return std::get<Map>(std::move(result));
 }
 
-// A room the actor can move around in horizontally. Its deterministic beacon sits
+// A room the actor can move around in horizontally. Its deterministic exit_cell sits
 // at the far right (7,1), well beyond the reach of the short movement scripts
 // below, so ordinary movement and quit tests never enter the discovery flow.
 GameState make_state() {
@@ -108,19 +108,19 @@ GameState make_corridor_state() {
     return GameState(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n"));
 }
 
-// The deterministic beacon name of the corridor map, read from an independent
+// The deterministic exit_cell name of the corridor map, read from an independent
 // GameState so expectations use the exact generated name.
-std::string corridor_beacon_name() {
+std::string corridor_landmark_name() {
     return make_corridor_state().objective().name;
 }
 
-// A single-reachable-cell map: the spawn is sealed by a wall, so the beacon is at
+// A single-reachable-cell map: the spawn is sealed by a wall, so the exit_cell is at
 // spawn and the objective starts completed.
 GameState make_single_cell_state() {
     return GameState(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.=.\n"));
 }
 
-std::string single_cell_beacon_name() {
+std::string single_cell_landmark_name() {
     return make_single_cell_state().objective().name;
 }
 
@@ -129,7 +129,7 @@ GameState make_adjacent_state() {
     return GameState(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n...\n"));
 }
 
-std::string adjacent_beacon_name() {
+std::string adjacent_landmark_name() {
     return make_adjacent_state().objective().name;
 }
 
@@ -415,9 +415,9 @@ d
 }
 
 TEST_CASE("plain mode shows the deterministic objective line from the first frame") {
-    // TASK-020 / REQ-029: the seeking objective line, naming the beacon, appears
+    // TASK-020 / REQ-029: the seeking objective line, naming the exit_cell, appears
     // in the very first plain frame before any command.
-    const std::string name = corridor_beacon_name();
+    const std::string name = corridor_landmark_name();
     std::string output;
     const int code = run_plain_state(make_corridor_state(), "q\n", output);
     CHECK(code == 0);
@@ -425,10 +425,10 @@ TEST_CASE("plain mode shows the deterministic objective line from the first fram
     CHECK(output.find(expected) != std::string::npos);
 }
 
-TEST_CASE("plain mode shows the discovery block only when a move enters the beacon") {
+TEST_CASE("plain mode shows the discovery block only when a move enters the exit_cell") {
     // TASK-020 / REQ-017 / REQ-033: the exact discovery block appears on the move
-    // that enters the beacon (3,0), not on the earlier approach moves.
-    const std::string name = corridor_beacon_name();
+    // that enters the exit_cell (3,0), not on the earlier approach moves.
+    const std::string name = corridor_landmark_name();
 
     // One approach move never opens the discovery screen.
     std::string approach;
@@ -458,7 +458,7 @@ TEST_CASE("plain discovery executes a movement command exactly once and dismisse
 
 TEST_CASE("plain discovery dismisses to gameplay on an empty line without moving") {
     // TASK-020 / REQ-020: an empty line dismisses the discovery screen to the intact
-    // gameplay frame without emitting an event, so the actor stays on the beacon.
+    // gameplay frame without emitting an event, so the actor stays on the exit_cell.
     std::string output;
     const int code = run_plain_state(make_corridor_state(), "d\nd\n\nq\n", output);
     CHECK(code == 0);
@@ -521,7 +521,7 @@ TEST_CASE("plain single-cell map prints the report once and exits immediately") 
     // REQ-002 / REQ-009 / TEST-006: a single reachable cell starts completed, so
     // plain mode writes the full report once and returns 0 immediately without
     // reading stdin. The report scores the maximum with zero moves.
-    const std::string name = single_cell_beacon_name();
+    const std::string name = single_cell_landmark_name();
     std::string output;
     const int code = run_plain_state(make_single_cell_state(), "d\nq\n", output);
     CHECK(code == 0);
@@ -534,10 +534,10 @@ TEST_CASE("plain single-cell map prints the report once and exits immediately") 
 }
 
 TEST_CASE("a fake interactive session pauses on discovery then completes on acknowledgement") {
-    // TASK-019 / TEST-011 / REQ-016 / REQ-021: reaching the beacon opens discovery;
+    // TASK-019 / TEST-011 / REQ-016 / REQ-021: reaching the exit_cell opens discovery;
     // dismissing it with movement keys walks back to spawn and opens completion,
     // which waits for the end-of-input acknowledgement. One draw per processed input.
-    const std::string name = corridor_beacon_name();
+    const std::string name = corridor_landmark_name();
     std::vector<KeyEvent> script{
         KeyEvent::of_character('d'), KeyEvent::of_character('d'), KeyEvent::of_character('d')};
     FakeSession session(std::move(script));
@@ -576,7 +576,7 @@ TEST_CASE("a fake interactive session goes directly from discovery to completion
     // TASK-019 / REQ-019: when the discovery-dismissing movement key completes the
     // objective, the completion screen is shown directly with no intermediate
     // gameplay frame (exactly one draw for that move).
-    const std::string name = adjacent_beacon_name();
+    const std::string name = adjacent_landmark_name();
     std::vector<KeyEvent> script{KeyEvent::of_character('d'), KeyEvent::of_character('d')};
     FakeSession session(std::move(script));
 
@@ -592,7 +592,7 @@ TEST_CASE("a fake interactive session goes directly from discovery to completion
 TEST_CASE("a fake interactive session ignores movement on the completion screen") {
     // TASK-019 / REQ-025 / RISK-004: completion ignores movement and rest keys
     // (no draw, no state change) and only an acknowledgement exits.
-    const std::string name = adjacent_beacon_name();
+    const std::string name = adjacent_landmark_name();
     std::vector<KeyEvent> script{KeyEvent::of_character('d'), KeyEvent::of_character('d'),
                                  KeyEvent::of_character('d'), KeyEvent::of_character('r'),
                                  KeyEvent::of(Key::enter)};
@@ -631,7 +631,7 @@ TEST_CASE("a fake interactive session waits on the completion screen for a singl
     // TASK-019 / TEST-017 / REQ-027: an already-completed objective starts on the
     // completion screen, reads input, ignores non-acknowledgement keys, and exits 0
     // on acknowledgement with the preserved completion message.
-    const std::string name = single_cell_beacon_name();
+    const std::string name = single_cell_landmark_name();
     std::vector<KeyEvent> script{KeyEvent::of_character('d'), KeyEvent::of(Key::enter)};
     FakeSession session(std::move(script));
 
@@ -648,7 +648,7 @@ TEST_CASE("the interactive report scrolls on arrow and page keys and redraws eac
     // REQ-004 / REQ-005 / REQ-006 / REQ-033: on the final report every scroll key
     // redraws exactly one frame and emits no core event; only an acknowledgement
     // exits. The completing move draws the report at (0, 0).
-    const std::string name = adjacent_beacon_name();
+    const std::string name = adjacent_landmark_name();
     std::vector<KeyEvent> script{
         KeyEvent::of_character('d'), KeyEvent::of_character('d'), KeyEvent::of(Key::up),
         KeyEvent::of(Key::down),     KeyEvent::of(Key::page_up),  KeyEvent::of(Key::page_down),
@@ -668,7 +668,7 @@ TEST_CASE("the interactive report scrolls on arrow and page keys and redraws eac
 TEST_CASE("the interactive report acknowledges with q and redraws on resize") {
     // REQ-007 / REQ-008: a resize on the report reclamps and redraws it; q
     // acknowledges and exits 0 with the preserved final message.
-    const std::string name = adjacent_beacon_name();
+    const std::string name = adjacent_landmark_name();
     std::vector<KeyEvent> script{KeyEvent::of_character('d'), KeyEvent::of_character('d'),
                                  KeyEvent::of(Key::resize), KeyEvent::of_character('q')};
     FakeSession session(std::move(script));
@@ -823,7 +823,7 @@ TEST_CASE("plain j records prior moves and does not dismiss discovery") {
     // TASK-016 / REQ-028: on the discovery screen a plain journal command prints the
     // block (including the recorded travel and discovery entries) without dismissing
     // discovery, acknowledging, or emitting an event.
-    const std::string name = corridor_beacon_name();
+    const std::string name = corridor_landmark_name();
     std::string output;
     const int code = run_plain_state(make_corridor_state(), "d\nd\nj\nq\n", output);
     CHECK(code == 0);
@@ -836,7 +836,7 @@ TEST_CASE("plain j records prior moves and does not dismiss discovery") {
 TEST_CASE("plain j on a completed single-cell map prints the initial completion entry") {
     // TASK-016 / REQ-028 / REQ-012: the journal on an already-completed map shows the
     // explicit initial-completion entry and printing it does not re-acknowledge.
-    const std::string name = single_cell_beacon_name();
+    const std::string name = single_cell_landmark_name();
     std::string output;
     const int code = run_plain_state(make_single_cell_state(), "j\n", output);
     CHECK(code == 0);

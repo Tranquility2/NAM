@@ -109,15 +109,15 @@ std::string goal_line(const LevelObjective& objective) {
     return "Goal: reach " + objective.name;
 }
 
-std::string describe_beacon_discovered(const std::string& name) {
+std::string describe_landmark_discovered(const std::string& name) {
     return "Reached " + name + ". Exit direction revealed.";
 }
 
-std::string describe_expedition_completed(const std::string& name) {
+std::string describe_level_completed(const std::string& name) {
     return "Level complete: reached the exit after " + name + ".";
 }
 
-std::string describe_spawn_beacon(const std::string& name) {
+std::string describe_spawn_landmark(const std::string& name) {
     return "Level complete: " + name + " and the exit are at spawn.";
 }
 

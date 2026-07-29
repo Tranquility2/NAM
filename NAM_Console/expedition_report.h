@@ -81,9 +81,9 @@ struct ExpeditionReport {
 
     Map map;                    // Typed terrain snapshot for the route map.
     VisibilityMap visibility;   // Typed fog snapshot: unexplored/remembered/visible.
-    std::string beacon_name;
+    std::string landmark_name;
     Coordinates spawn{};
-    Coordinates beacon{};
+    Coordinates exit_cell{};
     Coordinates final_position{};
     std::vector<Coordinates> route;
     WorldIdentity identity;
@@ -98,7 +98,7 @@ struct ExpeditionReport {
     std::uint32_t max_stamina = 0;
     std::uint64_t explored_reachable_cells = 0;
     std::uint64_t total_reachable_cells = 0;
-    bool beacon_discovered = false;
+    bool landmark_reached = false;
 };
 
 // Build the final report. Stamina spent is the sum of TravelEntry::stamina_spent

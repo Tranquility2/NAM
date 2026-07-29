@@ -135,11 +135,11 @@ TEST_CASE("terrain-transition scripts produce identical radius and visibility") 
     CHECK(a.visibility_radius() == 2);
 }
 
-TEST_CASE("identical maps and scripts produce identical beacon objectives and updates") {
+TEST_CASE("identical maps and scripts produce identical exit_cell objectives and updates") {
     // TASK-005 / TEST-008: two independent games from the same corridor map agree
-    // on the beacon coordinate, generated name, status, and the objective update
+    // on the exit_cell coordinate, generated name, status, and the objective update
     // nested in every movement event, alongside actor, stamina, visibility, and
-    // event order. The script walks out to the distant beacon at (3,0) and returns
+    // event order. The script walks out to the distant exit_cell at (3,0) and returns
     // to spawn, so it exercises discovery and completion transitions.
     constexpr std::string_view kCorridor =
         "NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n";
@@ -150,12 +150,12 @@ TEST_CASE("identical maps and scripts produce identical beacon objectives and up
     GameState a(make_map(kCorridor));
     GameState b(make_map(kCorridor));
 
-    // The beacon placement and generated name are identical before any command,
+    // The exit_cell placement and generated name are identical before any command,
     // and land on the deterministic distant scenic-fallback cell (3,0).
-    CHECK(a.objective().beacon == b.objective().beacon);
+    CHECK(a.objective().exit_cell == b.objective().exit_cell);
     CHECK(a.objective().name == b.objective().name);
     CHECK(a.objective().status == b.objective().status);
-    CHECK(a.objective().beacon == Coordinates{3, 0});
+    CHECK(a.objective().exit_cell == Coordinates{3, 0});
 
     std::uint64_t expected_sequence = 0;
     for (const Command command : script) {
@@ -184,8 +184,8 @@ TEST_CASE("identical maps and scripts produce identical beacon objectives and up
     CHECK(a.render() == b.render());
 }
 
-TEST_CASE("a symmetric field places an identical off-corner beacon on repeated builds") {
-    // TASK-005: a symmetric open field selects the same off-corner beacon and name
+TEST_CASE("a symmetric field places an identical off-corner exit_cell on repeated builds") {
+    // TASK-005: a symmetric open field selects the same off-corner exit_cell and name
     // across independent games, proving the diversified placement is deterministic
     // and not merely a farthest-corner rule.
     constexpr std::string_view kField =
@@ -193,10 +193,10 @@ TEST_CASE("a symmetric field places an identical off-corner beacon on repeated b
         ".....\n.....\n.....\n.....\n.....\n";
     GameState a(make_map(kField));
     GameState b(make_map(kField));
-    CHECK(a.objective().beacon == b.objective().beacon);
+    CHECK(a.objective().exit_cell == b.objective().exit_cell);
     CHECK(a.objective().name == b.objective().name);
     CHECK(a.objective().status == b.objective().status);
-    CHECK(a.objective().beacon == Coordinates{0, 1});  // deterministic, off-corner.
+    CHECK(a.objective().exit_cell == Coordinates{0, 1});  // deterministic, off-corner.
 }
 
 TEST_CASE("peek is a pure function of state and direction") {

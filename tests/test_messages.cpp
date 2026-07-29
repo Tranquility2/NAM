@@ -15,10 +15,10 @@ using namespace nam::console;
 
 namespace {
 
-BeaconObjective objective_with(ObjectiveStatus status) {
-    BeaconObjective objective;
-    objective.beacon = Coordinates{4, 0};
-    objective.name = "Glass River Beacon";
+LevelObjective objective_with(ObjectiveStatus status) {
+    LevelObjective objective;
+    objective.exit_cell = Coordinates{4, 0};
+    objective.name = "Glass River Exit";
     objective.status = status;
     return objective;
 }
@@ -119,27 +119,27 @@ TEST_CASE("map errors omit position details that do not apply") {
 
 TEST_CASE("the objective line states the exact wording for every phase") {
     CHECK(objective_line(objective_with(ObjectiveStatus::seeking_landmark)) ==
-          "Objective: Reach Glass River Beacon (*).");
+          "Objective: Reach Glass River Exit (*).");
     CHECK(objective_line(objective_with(ObjectiveStatus::seeking_exit)) ==
           "Objective: Reach the exit to the east (*).");
     CHECK(objective_line(objective_with(ObjectiveStatus::completed)) ==
-          "Level complete: reached the exit beyond Glass River Beacon.");
+          "Level complete: reached the exit beyond Glass River Exit.");
 }
 
 TEST_CASE("the compact goal line stays short for every phase") {
     CHECK(goal_line(objective_with(ObjectiveStatus::seeking_landmark)) ==
-          "Goal: reach Glass River Beacon");
+          "Goal: reach Glass River Exit");
     CHECK(goal_line(objective_with(ObjectiveStatus::seeking_exit)) == "Goal: exit east");
     CHECK(goal_line(objective_with(ObjectiveStatus::completed)) == "Goal: complete");
 }
 
-TEST_CASE("beacon transition messages match the exact required wording") {
-    CHECK(describe_beacon_discovered("Glass River Beacon") ==
-          "Reached Glass River Beacon. Exit direction revealed.");
-    CHECK(describe_expedition_completed("Glass River Beacon") ==
-          "Level complete: reached the exit after Glass River Beacon.");
-    CHECK(describe_spawn_beacon("Glass River Beacon") ==
-          "Level complete: Glass River Beacon and the exit are at spawn.");
+TEST_CASE("exit_cell transition messages match the exact required wording") {
+    CHECK(describe_landmark_discovered("Glass River Exit") ==
+          "Reached Glass River Exit. Exit direction revealed.");
+    CHECK(describe_level_completed("Glass River Exit") ==
+          "Level complete: reached the exit after Glass River Exit.");
+    CHECK(describe_spawn_landmark("Glass River Exit") ==
+          "Level complete: Glass River Exit and the exit are at spawn.");
 }
 
 TEST_CASE("objective-screen reminders and restored completion wording are exact") {
@@ -149,11 +149,11 @@ TEST_CASE("objective-screen reminders and restored completion wording are exact"
     CHECK(discovery_reminder() ==
           "Landmark discovered. Press Enter or use a movement command to continue.");
     CHECK(completion_reminder() == "Run complete. Press Enter or q to exit.");
-    CHECK(restored_completion_message("Glass River Beacon") ==
-          "Level complete beyond Glass River Beacon.");
+    CHECK(restored_completion_message("Glass River Exit") ==
+          "Level complete beyond Glass River Exit.");
     // The restored completion line carries neither the pre-completion goodbye
     // wording nor any coordinate.
-    CHECK(restored_completion_message("Glass River Beacon").find("Goodbye") == std::string::npos);
+    CHECK(restored_completion_message("Glass River Exit").find("Goodbye") == std::string::npos);
 }
 
 }  // TEST_SUITE("console")

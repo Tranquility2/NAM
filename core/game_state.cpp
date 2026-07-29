@@ -6,11 +6,11 @@
 
 GameState::GameState(Map map)
     : map_(std::move(map)),
-      objective_(create_beacon_objective(map_)),
+      objective_(create_level_objective(map_)),
       actor_position_(map_.spawn()),
       visibility_(map_.width(), map_.height()) {
     // map_ is declared before objective_, actor_position_, and visibility_, so it
-    // is fully constructed here and map_.spawn()/width()/height() and the beacon
+    // is fully constructed here and map_.spawn()/width()/height() and the exit
     // placement read the moved-into member, not the moved-from argument. Reveal
     // the initial sight square once the actor position and visibility buffer are
     // initialized, using the radius for the spawn terrain so an initial hill or

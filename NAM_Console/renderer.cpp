@@ -24,7 +24,7 @@ constexpr int standard_min_map_rows = 3;
 // --- Colour helpers ---------------------------------------------------------
 
 constexpr int color_actor = 93;   // Bright yellow.
-constexpr int color_beacon = 96;  // Bright cyan: the current objective target.
+constexpr int color_objective = 96;  // Bright cyan: the current objective target.
 
 [[nodiscard]] std::string sgr(int code) {
     return "\033[" + std::to_string(code) + "m";
@@ -83,10 +83,10 @@ constexpr int color_beacon = 96;  // Bright cyan: the current objective target.
 //     even if colour is disabled.
 //   * visible    -> the terrain glyph with its normal colour mapping.
 //   * the actor  -> the existing actor styling, always drawn as actor_glyph.
-// The beacon objective is a semantic overlay applied only after visibility
-// classification and only when the actor is not on the cell: a visible beacon is
-// drawn as beacon_glyph in bright cyan (ESC[96m) under colour, a remembered
-// beacon reuses the dim-memory style, and an unexplored beacon stays blank like
+// The objective target is a semantic overlay applied only after visibility
+// classification and only when the actor is not on the cell: a visible target is
+// drawn as objective_glyph in bright cyan (ESC[96m) under colour, a remembered
+// target reuses the dim-memory style, and an unexplored target stays blank like
 // any other unexplored cell so a hidden objective never leaks. Plain and
 // no-colour modes emit only the glyph with no new escape sequence.
 // ANSI style transitions explicitly reset before switching kinds so dim or
@@ -122,8 +122,8 @@ constexpr int color_beacon = 96;  // Bright cyan: the current objective target.
         const bool is_actor = here == input.actor;
         // The current objective overlay is applied only after visibility classification and
         // never while the actor stands on the cell, so the actor glyph keeps
-        // priority and the beacon reappears once the actor leaves.
-        const bool is_beacon =
+        // priority and the target reappears once the actor leaves.
+        const bool is_objective =
             input.objective != nullptr && here == objective_target(*input.objective);
 
         if (!ansi) {
@@ -131,9 +131,9 @@ constexpr int color_beacon = 96;  // Bright cyan: the current objective target.
                 row.push_back(actor_glyph);
             } else if (visibility.at(here) == CellVisibility::unexplored) {
                 row.push_back(' ');
-            } else if (is_beacon) {
-                // Visible or remembered beacon: plain mode emits only the glyph.
-                row.push_back(beacon_glyph);
+            } else if (is_objective) {
+                // Visible or remembered target: plain mode emits only the glyph.
+                row.push_back(objective_glyph);
             } else {
                 // Plain mode cannot distinguish remembered from visible without
                 // changing canonical glyphs, so both use the terrain glyph.
@@ -179,15 +179,15 @@ constexpr int color_beacon = 96;  // Bright cyan: the current objective target.
                 style_active = true;
                 active_style = style_remembered;
             }
-            // A remembered beacon reuses the dim-memory style as its overlay.
-            row.push_back(is_beacon ? beacon_glyph : symbol_of(map.terrain_at(here)));
+            // A remembered target reuses the dim-memory style as its overlay.
+            row.push_back(is_objective ? objective_glyph : symbol_of(map.terrain_at(here)));
             continue;
         }
 
         // Currently visible terrain: normal styling, never dimmed. A visible
-        // beacon overrides the terrain colour with bright cyan under colour.
+        // target overrides the terrain colour with bright cyan under colour.
         if (colored) {
-            const int code = is_beacon ? color_beacon : color_for(map.terrain_at(here));
+            const int code = is_objective ? color_objective : color_for(map.terrain_at(here));
             if (active_style != code) {
                 reset_style();
                 row += sgr(code);
@@ -197,7 +197,7 @@ constexpr int color_beacon = 96;  // Bright cyan: the current objective target.
         } else {
             reset_style();
         }
-        row.push_back(is_beacon ? beacon_glyph : symbol_of(map.terrain_at(here)));
+        row.push_back(is_objective ? objective_glyph : symbol_of(map.terrain_at(here)));
     }
 
     reset_style();
@@ -348,8 +348,8 @@ constexpr int color_beacon = 96;  // Bright cyan: the current objective target.
 // --- Objective screens ------------------------------------------------------
 
 // The landmark screen confirms that the broad exit direction is now available.
-[[nodiscard]] std::vector<std::string> discovery_lines(const std::string& beacon_name) {
-    return {std::string("LANDMARK DISCOVERED"), beacon_name,
+[[nodiscard]] std::vector<std::string> discovery_lines(const std::string& landmark_name) {
+    return {std::string("LANDMARK DISCOVERED"), landmark_name,
             std::string("The exit direction is now revealed."),
             std::string("Press Enter to continue, or use a movement key.")};
 }
@@ -511,12 +511,12 @@ std::string Renderer::render_plain(const RenderInput& input) const {
     return text;
 }
 
-Frame Renderer::render_discovery(const std::string& beacon_name, TerminalSize size) const {
-    return panel_frame(discovery_lines(beacon_name), size);
+Frame Renderer::render_discovery(const std::string& landmark_name, TerminalSize size) const {
+    return panel_frame(discovery_lines(landmark_name), size);
 }
 
-std::string Renderer::render_discovery_plain(const std::string& beacon_name) const {
-    return panel_block(discovery_lines(beacon_name));
+std::string Renderer::render_discovery_plain(const std::string& landmark_name) const {
+    return panel_block(discovery_lines(landmark_name));
 }
 
 ReportViewport Renderer::clamp_report_viewport(const ExpeditionReport& report,

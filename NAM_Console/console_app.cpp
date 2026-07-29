@@ -136,10 +136,10 @@ ObjectiveTransition ConsoleApp::apply_move(Direction direction, bool& emphasize)
     // every other successful or blocked move keeps its normal message.
     switch (payload.objective_update.transition) {
         case ObjectiveTransition::landmark_discovered:
-            hud_.set_message(describe_beacon_discovered(state_.objective().name));
+            hud_.set_message(describe_landmark_discovered(state_.objective().name));
             break;
         case ObjectiveTransition::level_completed:
-            hud_.set_message(describe_expedition_completed(state_.objective().name));
+            hud_.set_message(describe_level_completed(state_.objective().name));
             break;
         case ObjectiveTransition::none:
             break;
@@ -148,7 +148,7 @@ ObjectiveTransition ConsoleApp::apply_move(Direction direction, bool& emphasize)
 }
 
 void ConsoleApp::enter_completion() {
-    presentation_ = Presentation::expedition_complete;
+    presentation_ = Presentation::level_complete;
     final_report_active_ = true;
     // Build the report only after the completing event has updated the HUD,
     // journal, route history, objective state, visibility, and stamina.
@@ -238,7 +238,7 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
             enter_completion();
             draw_report();
         } else if (transition == ObjectiveTransition::landmark_discovered) {
-            presentation_ = Presentation::beacon_discovery;
+            presentation_ = Presentation::landmark_discovery;
             session.draw(renderer.render_discovery(state_.objective().name, session.size()));
         } else {
             presentation_ = Presentation::gameplay;
@@ -254,10 +254,10 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
             case Presentation::gameplay:
                 session.draw(renderer.render(make_input(false), session.size()));
                 break;
-            case Presentation::beacon_discovery:
+            case Presentation::landmark_discovery:
                 session.draw(renderer.render_discovery(state_.objective().name, session.size()));
                 break;
-            case Presentation::expedition_complete:
+            case Presentation::level_complete:
                 draw_report();
                 break;
             case Presentation::journal:
@@ -328,7 +328,7 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
                 }
                 break;
 
-            case Presentation::beacon_discovery:
+            case Presentation::landmark_discovery:
                 switch (event.key) {
                     case Key::end_of_input:
                         hud_.set_message("End of input. Goodbye.");
@@ -372,7 +372,7 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
                 }
                 break;
 
-            case Presentation::expedition_complete:
+            case Presentation::level_complete:
                 switch (event.key) {
                     case Key::end_of_input:
                     case Key::interrupt:
@@ -426,14 +426,14 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
                         // completion when appropriate (REQ-038); a journal opened over
                         // gameplay or discovery keeps the existing EOF goodbye.
                         dismiss_journal();
-                        if (previous_presentation_ != Presentation::expedition_complete) {
+                        if (previous_presentation_ != Presentation::level_complete) {
                             hud_.set_message("End of input. Goodbye.");
                         }
                         running = false;
                         break;
                     case Key::interrupt:
                         dismiss_journal();
-                        if (previous_presentation_ != Presentation::expedition_complete) {
+                        if (previous_presentation_ != Presentation::level_complete) {
                             hud_.set_message("Interrupted. Goodbye.");
                         }
                         running = false;
@@ -472,7 +472,7 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
                             // so completion keeps its final message (REQ-038); other
                             // previous states keep the goodbye wording.
                             dismiss_journal();
-                            if (previous_presentation_ != Presentation::expedition_complete) {
+                            if (previous_presentation_ != Presentation::level_complete) {
                                 hud_.set_message("Goodbye.");
                             }
                             running = false;
@@ -507,7 +507,7 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
             return true;
         }
         if (transition == ObjectiveTransition::landmark_discovered) {
-            presentation_ = Presentation::beacon_discovery;
+            presentation_ = Presentation::landmark_discovery;
             output << renderer.render_discovery_plain(state_.objective().name);
         } else {
             presentation_ = Presentation::gameplay;
@@ -585,7 +585,7 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
                 }
                 break;
 
-            case Presentation::beacon_discovery:
+            case Presentation::landmark_discovery:
                 switch (parsed) {
                     case PlainCommand::journal:
                         break;  // Handled before the switch; unreachable here.
@@ -624,7 +624,7 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
                 }
                 break;
 
-            case Presentation::expedition_complete:
+            case Presentation::level_complete:
                 // Unreachable: completion returns 0 immediately above. The defensive
                 // return keeps the switch total and guarantees no post-ending command
                 // processing (REQ-035 / REQ-151).

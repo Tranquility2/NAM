@@ -206,7 +206,7 @@ TEST_CASE("every movement event carries the exact objective update in one contig
     // the exact before/after status and the typed transition for that command.
     GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n"));
     REQUIRE(state.objective().landmark == Coordinates{2, 0});
-    REQUIRE(state.objective().beacon == Coordinates{3, 0});
+    REQUIRE(state.objective().exit_cell == Coordinates{3, 0});
 
     std::uint64_t expected_sequence = 0;
     const auto check_move = [&](Direction direction, ObjectiveStatus before, ObjectiveStatus after,

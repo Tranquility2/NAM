@@ -113,13 +113,13 @@ Journal make_travel_journal(std::uint32_t count) {
         move.direction = (i % 2 == 0) ? Direction::right : Direction::left;
         move.outcome.terrain = terrains[i % 3];
         move.outcome.stamina_cost = 1;
-        journal.record_event(GameEvent{i, move}, "Beacon");
+        journal.record_event(GameEvent{i, move}, "Exit");
     }
     return journal;
 }
 
 // Build a completed expedition report over an open corridor of the given interior
-// width. The corridor is wall-bordered with an open middle row; the beacon sits at
+// width. The corridor is wall-bordered with an open middle row; the exit_cell sits at
 // a distant cell, so a route-map row is `width + 2` bytes wide - wide enough to
 // force horizontal scrolling in the viewport tests. The journal carries one travel
 // entry plus a completion entry so the report body is realistic.
@@ -133,7 +133,7 @@ ExpeditionReport build_test_report(std::size_t interior_width) {
     cells[width] = Terrain::open;                 // Spawn cell (0,1).
     cells[width + (width - 1)] = Terrain::open;   // Far cell.
     Map map(width, height, cells, Coordinates{0, 1});
-    const BeaconObjective objective = create_beacon_objective(map);
+    const LevelObjective objective = create_level_objective(map);
 
     VisibilityMap visibility(width, height);
     visibility.reveal_square(Coordinates{static_cast<int>(width) / 2, 1},
@@ -216,14 +216,14 @@ RenderInput fog_input(const FogScene& scene) {
 }
 
 // A fog scene on an 11x1 open map: after two reveals x0..3 are remembered,
-// x4..8 are visible, and x9..10 are unexplored. The beacon overlay can be probed
+// x4..8 are visible, and x9..10 are unexplored. The exit_cell overlay can be probed
 // against every visibility state without any distinctive terrain interfering.
-struct BeaconScene {
+struct ObjectiveScene {
     Map map;
     VisibilityMap visibility;
 };
 
-BeaconScene make_beacon_scene() {
+ObjectiveScene make_objective_scene() {
     Map map(11, 1, std::vector<Terrain>(11, Terrain::open), Coordinates{4, 0});
     VisibilityMap visibility(11, 1);
     visibility.reveal_square(Coordinates{2, 0}, 2);  // x0..4 visible.
@@ -231,8 +231,8 @@ BeaconScene make_beacon_scene() {
     return {std::move(map), std::move(visibility)};
 }
 
-RenderInput beacon_input(const BeaconScene& scene, Coordinates actor,
-                         const BeaconObjective& objective) {
+RenderInput objective_input(const ObjectiveScene& scene, Coordinates actor,
+                         const LevelObjective& objective) {
     RenderInput input;
     input.map = &scene.map;
     input.visibility = &scene.visibility;
@@ -243,11 +243,11 @@ RenderInput beacon_input(const BeaconScene& scene, Coordinates actor,
     return input;
 }
 
-BeaconObjective beacon_at(Coordinates cell, ObjectiveStatus status) {
-    BeaconObjective objective;
+LevelObjective exit_at(Coordinates cell, ObjectiveStatus status) {
+    LevelObjective objective;
     objective.landmark = cell;
-    objective.beacon = cell;
-    objective.name = "Glass River Beacon";
+    objective.exit_cell = cell;
+    objective.name = "Glass River Exit";
     objective.exit_bearing = Direction::right;
     objective.status = status;
     return objective;
@@ -542,94 +542,94 @@ TEST_CASE("recent history renders only upper-case successful direction letters")
     }
 }
 
-TEST_CASE("an unexplored beacon leaks no glyph, colour, or objective coordinate") {
-    // TASK-015 / TEST-013 / SEC-002: a beacon on an unexplored cell renders as a
+TEST_CASE("an unexplored exit_cell leaks no glyph, colour, or objective coordinate") {
+    // TASK-015 / TEST-013 / SEC-002: a exit_cell on an unexplored cell renders as a
     // blank exactly like any other unexplored cell. The map row (not the HUD
     // objective line, which legitimately names the '*' glyph) must carry no '*'.
-    const BeaconScene scene = make_beacon_scene();
-    const BeaconObjective objective = beacon_at(Coordinates{10, 0},  // unexplored.
-                                                ObjectiveStatus::seeking_beacon);
+    const ObjectiveScene scene = make_objective_scene();
+    const LevelObjective objective = exit_at(Coordinates{10, 0},  // unexplored.
+                                                ObjectiveStatus::seeking_landmark);
     const Renderer plain(plain_config());
-    const std::string text = plain.render_plain(beacon_input(scene, Coordinates{4, 0}, objective));
-    CHECK(first_line(text).find(beacon_glyph) == std::string::npos);  // no '*' in the map row.
+    const std::string text = plain.render_plain(objective_input(scene, Coordinates{4, 0}, objective));
+    CHECK(first_line(text).find(objective_glyph) == std::string::npos);  // no '*' in the map row.
 
     const Renderer colored(color_config());
-    const Frame frame = colored.render(beacon_input(scene, Coordinates{4, 0}, objective),
+    const Frame frame = colored.render(objective_input(scene, Coordinates{4, 0}, objective),
                                        TerminalSize{40, 24});
-    CHECK(join_raw(frame).find("\033[96m") == std::string::npos);  // no beacon colour.
+    CHECK(join_raw(frame).find("\033[96m") == std::string::npos);  // no exit_cell colour.
 }
 
-TEST_CASE("a visible beacon renders the glyph in bright cyan under colour") {
+TEST_CASE("a visible exit_cell renders the glyph in bright cyan under colour") {
     // TASK-015 / TEST-013.
-    const BeaconScene scene = make_beacon_scene();
-    const BeaconObjective objective = beacon_at(Coordinates{6, 0},  // visible.
-                                                ObjectiveStatus::seeking_beacon);
+    const ObjectiveScene scene = make_objective_scene();
+    const LevelObjective objective = exit_at(Coordinates{6, 0},  // visible.
+                                                ObjectiveStatus::seeking_landmark);
     const Renderer renderer(color_config());
-    const Frame frame = renderer.render(beacon_input(scene, Coordinates{4, 0}, objective),
+    const Frame frame = renderer.render(objective_input(scene, Coordinates{4, 0}, objective),
                                         TerminalSize{40, 24});
 
-    CHECK(contains_glyph(frame, beacon_glyph));               // '*' drawn,
+    CHECK(contains_glyph(frame, objective_glyph));               // '*' drawn,
     CHECK(join_raw(frame).find("\033[96m") != std::string::npos);  // in bright cyan,
     CHECK(join_raw(frame).find("\033[0m") != std::string::npos);   // and reset afterwards.
 }
 
-TEST_CASE("a remembered beacon uses the dim-memory style, never bright cyan") {
-    // TASK-015 / TEST-013: a remembered beacon reuses ESC[2m and emits no new
+TEST_CASE("a remembered exit_cell uses the dim-memory style, never bright cyan") {
+    // TASK-015 / TEST-013: a remembered exit_cell reuses ESC[2m and emits no new
     // colour, even under colour.
-    const BeaconScene scene = make_beacon_scene();
-    const BeaconObjective objective = beacon_at(Coordinates{1, 0},  // remembered.
-                                                ObjectiveStatus::returning_to_spawn);
+    const ObjectiveScene scene = make_objective_scene();
+    const LevelObjective objective = exit_at(Coordinates{1, 0},  // remembered.
+                                                ObjectiveStatus::seeking_exit);
     const Renderer renderer(color_config());
-    const Frame frame = renderer.render(beacon_input(scene, Coordinates{4, 0}, objective),
+    const Frame frame = renderer.render(objective_input(scene, Coordinates{4, 0}, objective),
                                         TerminalSize{40, 24});
 
-    CHECK(contains_glyph(frame, beacon_glyph));                     // '*' drawn,
+    CHECK(contains_glyph(frame, objective_glyph));                     // '*' drawn,
     CHECK(join_raw(frame).find("\033[2m") != std::string::npos);    // dimmed,
     CHECK(join_raw(frame).find("\033[96m") == std::string::npos);   // never bright cyan.
 }
 
-TEST_CASE("the actor glyph wins on the beacon and the glyph returns after leaving") {
+TEST_CASE("the actor glyph wins on the exit_cell and the glyph returns after leaving") {
     // TASK-015 / TEST-014.
-    const BeaconScene scene = make_beacon_scene();
-    const BeaconObjective objective = beacon_at(Coordinates{6, 0},  // visible cell.
-                                                ObjectiveStatus::seeking_beacon);
+    const ObjectiveScene scene = make_objective_scene();
+    const LevelObjective objective = exit_at(Coordinates{6, 0},  // visible cell.
+                                                ObjectiveStatus::seeking_landmark);
     const Renderer renderer(plain_config());
 
-    // Actor standing on the beacon: the actor glyph is shown and no '*' appears.
-    const std::string on_beacon =
-        renderer.render_plain(beacon_input(scene, Coordinates{6, 0}, objective));
-    CHECK(first_line(on_beacon).find(actor_glyph) != std::string::npos);
-    CHECK(first_line(on_beacon).find(beacon_glyph) == std::string::npos);
+    // Actor standing on the exit_cell: the actor glyph is shown and no '*' appears.
+    const std::string on_exit =
+        renderer.render_plain(objective_input(scene, Coordinates{6, 0}, objective));
+    CHECK(first_line(on_exit).find(actor_glyph) != std::string::npos);
+    CHECK(first_line(on_exit).find(objective_glyph) == std::string::npos);
 
-    // Actor elsewhere: the beacon glyph reappears on its visible cell.
-    const std::string off_beacon =
-        renderer.render_plain(beacon_input(scene, Coordinates{4, 0}, objective));
-    CHECK(first_line(off_beacon).find(beacon_glyph) != std::string::npos);
+    // Actor elsewhere: the exit_cell glyph reappears on its visible cell.
+    const std::string off_exit =
+        renderer.render_plain(objective_input(scene, Coordinates{4, 0}, objective));
+    CHECK(first_line(off_exit).find(objective_glyph) != std::string::npos);
 }
 
-TEST_CASE("plain and no-colour beacon rendering emit the glyph with no new escape") {
+TEST_CASE("plain and no-colour exit_cell rendering emit the glyph with no new escape") {
     // TASK-015 / REQ-028: plain mode shows only '*'; no-colour ANSI shows '*'
     // without the bright-cyan escape (remembered dim still applies elsewhere).
-    const BeaconScene scene = make_beacon_scene();
-    const BeaconObjective objective = beacon_at(Coordinates{6, 0},  // visible.
-                                                ObjectiveStatus::seeking_beacon);
+    const ObjectiveScene scene = make_objective_scene();
+    const LevelObjective objective = exit_at(Coordinates{6, 0},  // visible.
+                                                ObjectiveStatus::seeking_landmark);
 
     const Renderer plain(plain_config());
-    const std::string text = plain.render_plain(beacon_input(scene, Coordinates{4, 0}, objective));
-    CHECK(first_line(text).find(beacon_glyph) != std::string::npos);
+    const std::string text = plain.render_plain(objective_input(scene, Coordinates{4, 0}, objective));
+    CHECK(first_line(text).find(objective_glyph) != std::string::npos);
     CHECK(text.find('\x1b') == std::string::npos);
 
     const Renderer no_color(RenderConfig{false, true, false, false});
-    const Frame frame = no_color.render(beacon_input(scene, Coordinates{4, 0}, objective),
+    const Frame frame = no_color.render(objective_input(scene, Coordinates{4, 0}, objective),
                                         TerminalSize{40, 24});
-    CHECK(contains_glyph(frame, beacon_glyph));
+    CHECK(contains_glyph(frame, objective_glyph));
     CHECK(join_raw(frame).find("\033[96m") == std::string::npos);  // no bright cyan.
 }
 
 TEST_CASE("the standard layout shows the objective line after status and before the message") {
     // TASK-015 / TEST-015 / REQ-030.
     const Map map = open_map(8, 4);
-    const BeaconObjective objective = beacon_at(Coordinates{7, 3}, ObjectiveStatus::seeking_beacon);
+    const LevelObjective objective = exit_at(Coordinates{7, 3}, ObjectiveStatus::seeking_landmark);
     RenderInput input = make_input(map);
     input.objective = &objective;
     const Renderer renderer(plain_config());
@@ -638,7 +638,7 @@ TEST_CASE("the standard layout shows the objective line after status and before 
 
     const std::size_t status = visible.find("Stamina: 7/12");
     const std::size_t objline = visible.find(
-        "Objective: Reach Glass River Beacon (*).");
+        "Objective: Reach Glass River Exit (*).");
     const std::size_t message = visible.find("> Moved onto open ground");
     REQUIRE(status != std::string::npos);
     REQUIRE(objline != std::string::npos);
@@ -654,14 +654,14 @@ TEST_CASE("the standard layout shows the objective line after status and before 
 TEST_CASE("the compact layout adds a bounded Goal line") {
     // TASK-015 / TEST-015 / REQ-030.
     const Map map = open_map(8, 4);
-    const BeaconObjective objective = beacon_at(Coordinates{7, 3}, ObjectiveStatus::seeking_beacon);
+    const LevelObjective objective = exit_at(Coordinates{7, 3}, ObjectiveStatus::seeking_landmark);
     RenderInput input = make_input(map);
     input.objective = &objective;
     const Renderer renderer(plain_config());
     const Frame frame = renderer.render(input, TerminalSize{30, 10});
     const std::string visible = join_visible(frame);
 
-    CHECK(visible.find("Goal: reach Glass River Beacon") != std::string::npos);
+    CHECK(visible.find("Goal: reach Glass River Exit") != std::string::npos);
     CHECK(frame.size() == 10);
     for (const std::string& row : frame) {
         CHECK(strip_ansi(row).size() <= 30);
@@ -671,8 +671,8 @@ TEST_CASE("the compact layout adds a bounded Goal line") {
 TEST_CASE("plain rendering places the objective line after status and before the message") {
     // TASK-015 / TEST-015 / REQ-030.
     const Map map = open_map(8, 4);
-    const BeaconObjective objective =
-        beacon_at(Coordinates{7, 3}, ObjectiveStatus::returning_to_spawn);
+    const LevelObjective objective =
+        exit_at(Coordinates{7, 3}, ObjectiveStatus::seeking_exit);
     RenderInput input = make_input(map);
     input.objective = &objective;
     const Renderer renderer(plain_config());
@@ -693,7 +693,7 @@ TEST_CASE("the objective line keeps the frame bounded across a range of sizes") 
     // TASK-015 / TEST-015 / REQ-031: adding the objective row never overflows or
     // shortens the frame.
     const Map map = open_map(30, 12);
-    const BeaconObjective objective = beacon_at(Coordinates{29, 11}, ObjectiveStatus::seeking_beacon);
+    const LevelObjective objective = exit_at(Coordinates{29, 11}, ObjectiveStatus::seeking_landmark);
     const Renderer renderer(color_config());
     for (int rows = 6; rows <= 40; rows += 7) {
         for (int cols = 16; cols <= 100; cols += 21) {
@@ -745,7 +745,7 @@ TEST_CASE("the interactive discovery screen contains the exact ordered lines and
     // REQ-017 / REQ-031 / TEST-009: exactly the four discovery lines in order,
     // exactly `rows` rows, each within `columns`, and no ANSI escape byte.
     const Renderer renderer(color_config());
-    const Frame frame = renderer.render_discovery("Glass River Beacon", TerminalSize{60, 16});
+    const Frame frame = renderer.render_discovery("Glass River Exit", TerminalSize{60, 16});
     CHECK(frame.size() == 16);
     CHECK_FALSE(any_esc(frame));
     for (const std::string& row : frame) {
@@ -754,7 +754,7 @@ TEST_CASE("the interactive discovery screen contains the exact ordered lines and
     const std::vector<std::string> lines = panel_content_lines(frame);
     REQUIRE(lines.size() == 4);
     CHECK(lines[0] == "LANDMARK DISCOVERED");
-    CHECK(lines[1] == "Glass River Beacon");
+    CHECK(lines[1] == "Glass River Exit");
     CHECK(lines[2] == "The exit direction is now revealed.");
     CHECK(lines[3] == "Press Enter to continue, or use a movement key.");
 }
@@ -763,10 +763,10 @@ TEST_CASE("the plain discovery block is the exact lines with one trailing newlin
     // REQ-033 / TEST-009: the plain discovery block is the four logical lines, one
     // per line, with a single trailing newline and no escape byte.
     const Renderer renderer(plain_config());
-    const std::string block = renderer.render_discovery_plain("Glass River Beacon");
+    const std::string block = renderer.render_discovery_plain("Glass River Exit");
     CHECK(block ==
           "LANDMARK DISCOVERED\n"
-          "Glass River Beacon\n"
+          "Glass River Exit\n"
           "The exit direction is now revealed.\n"
           "Press Enter to continue, or use a movement key.\n");
     CHECK(block.find('\x1b') == std::string::npos);
@@ -909,7 +909,7 @@ TEST_CASE("the interactive discovery screen stays bounded across a range of size
     for (int rows = 6; rows <= 40; rows += 7) {
         for (int cols = 16; cols <= 100; cols += 21) {
             const Frame discovery =
-                renderer.render_discovery("Glass River Beacon", TerminalSize{cols, rows});
+                renderer.render_discovery("Glass River Exit", TerminalSize{cols, rows});
             const Frame frame =
                 renderer.render_report(report, ReportViewport{}, TerminalSize{cols, rows});
             CHECK(discovery.size() == static_cast<std::size_t>(rows));
@@ -927,7 +927,7 @@ TEST_CASE("the interactive discovery screen stays bounded across a range of size
 TEST_CASE("the discovery screen uses the 80x24 fallback for an unknown size") {
     // REQ-031: an invalid size falls back to 80x24, so the frame has 24 rows.
     const Renderer renderer(color_config());
-    const Frame discovery = renderer.render_discovery("Glass River Beacon", TerminalSize{0, 0});
+    const Frame discovery = renderer.render_discovery("Glass River Exit", TerminalSize{0, 0});
     CHECK(discovery.size() == 24);
     for (const std::string& row : discovery) {
         CHECK(strip_ansi(row).size() <= 80);
@@ -938,7 +938,7 @@ TEST_CASE("the discovery screen below the minimum reuses the bounded too-small p
     // REQ-032: a size below the absolute minimum shows the shared window-too-small
     // panel, bounded to the requested size.
     const Renderer renderer(color_config());
-    const Frame discovery = renderer.render_discovery("Glass River Beacon", TerminalSize{11, 5});
+    const Frame discovery = renderer.render_discovery("Glass River Exit", TerminalSize{11, 5});
     CHECK(discovery.size() == 5);
     bool mentions_small = false;
     for (const std::string& row : discovery) {

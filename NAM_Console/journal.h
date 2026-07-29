@@ -12,7 +12,7 @@
 namespace nam::console {
 
 // The frontend-owned expedition journal. It is derived entirely from the ordered
-// core GameEvent stream plus the core-owned beacon name, and it holds no terminal
+// core GameEvent stream plus the core-owned exit name, and it holds no terminal
 // dimensions or presentation state (REQ-001 / GUD-003).
 // Entries are structured value types rather than pre-rendered prose (REQ-004),
 // so a future narrator or export path can re-render them without re-deriving
@@ -31,22 +31,22 @@ struct TravelEntry {
     std::uint64_t stamina_spent = 0;
 };
 
-// The move that first entered the beacon cell (REQ-010).
+// The move that first entered the exit cell (REQ-010).
 struct DiscoveryEntry {
     std::uint64_t sequence = 0;
-    std::string beacon_name;
+    std::string landmark_name;
 };
 
 // The move that returned to spawn and completed the expedition (REQ-011).
 struct CompletionEntry {
     std::uint64_t sequence = 0;
-    std::string beacon_name;
+    std::string landmark_name;
 };
 
 // A single-reachable-cell game that started already completed (REQ-012). It is
 // created explicitly rather than from a command event because no command runs.
 struct InitialCompletionEntry {
-    std::string beacon_name;
+    std::string landmark_name;
 };
 
 // The payload of one journal entry. A variant so distinct entry kinds keep their
@@ -70,13 +70,13 @@ public:
     // entry) or starts a new travel entry. A discovering or completing move merges
     // normally and then appends its objective entry so the next movement starts a
     // fresh travel group (REQ-037). A blocked movement creates no visible entry but
-    // still breaks travel grouping (REQ-006). `beacon_name` is used only for
+    // still breaks travel grouping (REQ-006). `landmark_name` is used only for
     // objective entries; callers pass the core-owned deterministic name.
-    void record_event(const GameEvent& event, const std::string& beacon_name);
+    void record_event(const GameEvent& event, const std::string& landmark_name);
 
     // Record the explicit initial-completion entry for a game that started
     // already completed at spawn (REQ-012). Breaks any travel grouping.
-    void record_initial_completion(const std::string& beacon_name);
+    void record_initial_completion(const std::string& landmark_name);
 
     [[nodiscard]] const std::vector<JournalEntry>& entries() const noexcept { return entries_; }
     [[nodiscard]] bool empty() const noexcept { return entries_.empty(); }

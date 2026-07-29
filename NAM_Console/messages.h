@@ -44,17 +44,17 @@ namespace nam::console {
 
 // The latest-event message shown when a move first enters the landmark cell,
 // replacing the ordinary move wording for that command.
-[[nodiscard]] std::string describe_beacon_discovered(const std::string& name);
+[[nodiscard]] std::string describe_landmark_discovered(const std::string& name);
 
 // The latest-event message shown when a move reaches the exit,
 // replacing the ordinary move wording for that command.
-[[nodiscard]] std::string describe_expedition_completed(const std::string& name);
+[[nodiscard]] std::string describe_level_completed(const std::string& name);
 
 // The initial and final message for a single-reachable-cell map, where the
-// beacon coincides with spawn and the expedition is already complete.
-[[nodiscard]] std::string describe_spawn_beacon(const std::string& name);
+// exit coincides with spawn and the level is already complete.
+[[nodiscard]] std::string describe_spawn_landmark(const std::string& name);
 
-// The plain-mode reminder shown when the beacon-discovery screen is active and
+// The plain-mode reminder shown when the landmark-discovery screen is active and
 // the player enters a command that neither dismisses it nor moves.
 [[nodiscard]] std::string discovery_reminder();
 
@@ -63,7 +63,7 @@ namespace nam::console {
 [[nodiscard]] std::string completion_reminder();
 
 // The single line printed once on the restored normal screen after an
-// interactive run whose expedition completed, naming the finished beacon. While
+// interactive run whose level completed, naming the landmark it passed. While
 // completion is being acknowledged this replaces every goodbye/EOF/interrupt
 // line so the acknowledgement can never overwrite it.
 [[nodiscard]] std::string restored_completion_message(const std::string& name);

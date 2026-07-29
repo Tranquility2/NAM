@@ -18,17 +18,17 @@
 namespace nam::console {
 
 // The console's presentation state, kept deliberately independent of the core
-// ObjectiveStatus (GUD-003). `gameplay` shows the map/HUD frame; `beacon_discovery`
+// ObjectiveStatus (GUD-003). `gameplay` shows the map/HUD frame; `landmark_discovery`
 // is a temporary acknowledgement screen shown after a move first reaches the
-// landmark and is dismissed by the next input; `expedition_complete` is the
+// landmark and is dismissed by the next input; `level_complete` is the
 // scrollable final report shown after reaching the exit and stays active until the
 // player acknowledges it; `journal` is the bounded scrollable expedition-journal
 // screen, opened over any of the other states and dismissed back to the exact
 // state it was opened from.
 enum class Presentation {
     gameplay,
-    beacon_discovery,
-    expedition_complete,
+    landmark_discovery,
+    level_complete,
     journal,
 };
 

@@ -29,7 +29,7 @@ constexpr std::array<const char*, 16> kSecondWords{
     "Peak", "Reach", "River", "Spire", "Stone", "Vale", "Watch", "Way"};
 
 // The four cardinal neighbour offsets. Order does not affect the selected cell:
-// distances are uniform and the beacon is chosen from a separately collected
+// distances are uniform and the exit is chosen from a separately collected
 // row-major candidate pool, so breadth-first neighbour order is never the
 // tie-breaker.
 constexpr std::array<Coordinates, 4> kCardinalOffsets{
@@ -202,7 +202,7 @@ constexpr std::array<Coordinates, 4> kCardinalOffsets{
     return best[flat_index(target)];
 }
 
-// The canonical fingerprint hashed to select the beacon among distant scenic
+// The canonical fingerprint hashed to select the exit among distant scenic
 // candidates: the exact map text followed by the spawn coordinate. It contains
 // only canonical map terrain glyphs and decimal spawn coordinates, never a map
 // path, seed text, the original CLI seed text, the clock, environment state, or
@@ -216,8 +216,8 @@ constexpr std::array<Coordinates, 4> kCardinalOffsets{
     return input;
 }
 
-// The canonical fingerprint hashed into the beacon name: the exact map text, the
-// spawn coordinate, and the beacon coordinate. It contains only canonical map
+// The canonical fingerprint hashed into the exit name: the exact map text, the
+// spawn coordinate, and the exit coordinate. It contains only canonical map
 // terrain glyphs and decimal coordinates, never a map path, seed text, or any
 // mutable global state, so the name is a pure function of the placed objective.
 [[nodiscard]] std::string name_fingerprint(const Map& map, Coordinates spawn,
@@ -234,7 +234,7 @@ constexpr std::array<Coordinates, 4> kCardinalOffsets{
     return input;
 }
 
-[[nodiscard]] std::string generate_beacon_name(const Map& map, Coordinates spawn,
+[[nodiscard]] std::string generate_landmark_name(const Map& map, Coordinates spawn,
                                                Coordinates landmark) {
     const std::uint64_t hash = hash_seed_text(name_fingerprint(map, spawn, landmark));
     const std::size_t first = static_cast<std::size_t>(hash & 0x0FULL);
@@ -259,7 +259,7 @@ constexpr std::array<Coordinates, 4> kCardinalOffsets{
 
 }  // namespace
 
-LevelObjective create_beacon_objective(const Map& map) {
+LevelObjective create_level_objective(const Map& map) {
     const std::vector<int> distance = compute_distances(map);
     const Coordinates spawn = map.spawn();
     const int width = static_cast<int>(map.width());
@@ -279,9 +279,9 @@ LevelObjective create_beacon_objective(const Map& map) {
         }
     }
 
-    Coordinates beacon = spawn;
+    Coordinates exit_cell = spawn;
     // When no cell is farther than spawn, spawn is the only reachable walkable
-    // cell: the beacon stays at spawn and the expedition starts completed. This
+    // cell: the exit stays at spawn and the expedition starts completed. This
     // also avoids any threshold or modulo arithmetic in the trivial case.
     if (maximum_distance > 0) {
         // The minimum eligible distance is the exact integer ceiling of 75% of
@@ -324,17 +324,17 @@ LevelObjective create_beacon_objective(const Map& map) {
         if (!candidates.empty()) {
             const std::uint64_t placement_hash =
                 hash_seed_text(placement_fingerprint(map, spawn));
-            beacon = candidates[static_cast<std::size_t>(placement_hash % candidates.size())];
+            exit_cell = candidates[static_cast<std::size_t>(placement_hash % candidates.size())];
         }
     }
 
     LevelObjective objective;
-    objective.beacon = beacon;
-    const std::vector<Coordinates> path = shortest_path(map, spawn, beacon);
+    objective.exit_cell = exit_cell;
+    const std::vector<Coordinates> path = shortest_path(map, spawn, exit_cell);
     objective.landmark = path.size() <= 2u ? spawn : path[path.size() / 2u];
-    objective.name = generate_beacon_name(map, spawn, objective.landmark);
-    objective.exit_bearing = bearing_to(objective.landmark, beacon);
-    if (beacon == spawn) {
+    objective.name = generate_landmark_name(map, spawn, objective.landmark);
+    objective.exit_bearing = bearing_to(objective.landmark, exit_cell);
+    if (exit_cell == spawn) {
         objective.status = ObjectiveStatus::completed;
     } else if (objective.landmark == spawn) {
         objective.status = ObjectiveStatus::seeking_exit;
@@ -346,12 +346,12 @@ LevelObjective create_beacon_objective(const Map& map) {
     // stamina_cost_of as the sole terrain-entry cost, and they are summed
     // independently because entry costs are asymmetric. A level whose exit is at
     // spawn has a zero-cost route.
-    if (beacon == spawn) {
+    if (exit_cell == spawn) {
         objective.minimum_route_stamina_cost = 0;
     } else {
         constexpr std::uint64_t unreachable = std::numeric_limits<std::uint64_t>::max();
         const std::uint64_t to_landmark = minimum_travel_cost(map, spawn, objective.landmark);
-        const std::uint64_t to_exit = minimum_travel_cost(map, objective.landmark, beacon);
+        const std::uint64_t to_exit = minimum_travel_cost(map, objective.landmark, exit_cell);
         objective.minimum_route_stamina_cost =
             (to_landmark == unreachable || to_exit == unreachable) ? 0 : to_landmark + to_exit;
     }
@@ -371,7 +371,7 @@ ObjectiveTransition advance_objective(LevelObjective& objective, Coordinates act
         objective.status = ObjectiveStatus::seeking_exit;
         return ObjectiveTransition::landmark_discovered;
     }
-    if (objective.status == ObjectiveStatus::seeking_exit && actor == objective.beacon) {
+    if (objective.status == ObjectiveStatus::seeking_exit && actor == objective.exit_cell) {
         objective.status = ObjectiveStatus::completed;
         return ObjectiveTransition::level_completed;
     }
