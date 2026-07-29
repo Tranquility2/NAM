@@ -6,6 +6,7 @@
 #include <variant>
 
 #include "coordinates.h"
+#include "level_tier.h"
 #include "map.h"
 
 // Deterministic procedural world generation. This is the first NAM world recipe,
@@ -32,14 +33,16 @@
 // protection, and acceptance) is explicit and documented so later recipes can be
 // added without silently changing Tiny World's output.
 
-// The exact Tiny World dimensions. These are fixed for this recipe: golden maps,
-// the exact feature totals, and renderer expectations all depend on them, so they
-// are not configurable in this step.
-inline constexpr std::size_t tiny_world_width = 29;
-inline constexpr std::size_t tiny_world_height = 15;
+// Tiny World is retained as the V2 Medium profile. Its generator remains a
+// compatibility recipe while later work replaces whole-map randomization with a
+// fixed route skeleton and seeded internal content.
+inline constexpr LevelTier tiny_world_tier = LevelTier::medium;
+inline constexpr LevelDimensions tiny_world_dimensions = dimensions_of(tiny_world_tier);
+inline constexpr std::size_t tiny_world_width = tiny_world_dimensions.width;
+inline constexpr std::size_t tiny_world_height = tiny_world_dimensions.height;
 
 // The fixed spawn point and the centre of the protected 3x3 open region.
-inline constexpr Coordinates tiny_world_spawn{14, 7};
+inline constexpr Coordinates tiny_world_spawn = center_spawn_of(tiny_world_tier);
 
 // The maximum number of candidate maps grown for one seed before generation gives
 // up. Bounded feature growth, sparse barrier ridges, and the protected spawn make
@@ -55,6 +58,7 @@ struct GeneratedWorld {
     Map map;
     std::uint64_t numeric_seed = 0;
     std::uint32_t generation_attempt = 0;
+    LevelTier tier = tiny_world_tier;
 };
 
 // Why a seed failed to produce a world. Stable, non-localized values mirroring

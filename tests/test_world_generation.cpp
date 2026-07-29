@@ -331,6 +331,7 @@ TEST_CASE("the glass-river seed grows the exact clustered golden map on the firs
 
     CHECK(world.numeric_seed == kGlassRiverSeed);
     CHECK(world.generation_attempt == 0u);
+    CHECK(world.tier == LevelTier::medium);
     CHECK(world.map.width() == tiny_world_width);
     CHECK(world.map.height() == tiny_world_height);
     CHECK(world.map.spawn() == tiny_world_spawn);

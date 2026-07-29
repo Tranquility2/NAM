@@ -6,6 +6,8 @@ add_library(nam_core STATIC
     coordinates.h
     terrain.h
     direction.h
+    level_tier.h
+    expedition_progress.h
     move_outcome.h
     game_event.h
     map.h
