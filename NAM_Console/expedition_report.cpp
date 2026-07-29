@@ -24,16 +24,6 @@ constexpr char route_unexplored_glyph = '?';
     return count == 1 ? std::string(singular) : std::string(many);
 }
 
-// The score maximum for a report's result, used by the score line and the story.
-[[nodiscard]] std::uint64_t score_maximum_for(ExpeditionResult result) {
-    switch (result) {
-        case ExpeditionResult::completed: return completed_score_maximum;
-        case ExpeditionResult::rescued:   return rescued_score_maximum;
-        case ExpeditionResult::overdue:   return overdue_score_maximum;
-    }
-    return completed_score_maximum;
-}
-
 }  // namespace
 
 void RouteHistory::record_event(const GameEvent& event) {
@@ -42,7 +32,7 @@ void RouteHistory::record_event(const GameEvent& event) {
             cells_.push_back(move->outcome.to);
         }
     }
-    // A blocked movement, a rest, or any non-movement event appends nothing.
+    // A blocked movement or any non-movement event appends nothing.
 }
 
 bool RouteHistory::traveled(Coordinates position) const noexcept {
@@ -76,28 +66,15 @@ WorldIdentity world_identity_from(const Settings& settings) {
 }
 
 ExpeditionReport build_expedition_report(
-    ExpeditionResult result, const BeaconObjective& objective, const Map& map,
-    const VisibilityMap& visibility, const Journal& journal, const RouteHistory& route,
-    const WorldIdentity& identity, std::uint64_t move_count, std::uint64_t attempt_count,
-    std::uint32_t final_stamina, std::uint32_t max_stamina, std::uint32_t starting_provisions,
-    std::uint32_t provisions_remaining, ExpeditionTime final_time, std::uint32_t deadline_days) {
-    // Derive stamina spent from the completed structured journal only (REQ-143):
-    // sum travel stamina. The successful normal camps, emergency rests, and
-    // bivouacs are counted from the typed journal variants, never from prose
-    // (TASK-018).
+    const LevelObjective& objective, const Map& map, const VisibilityMap& visibility,
+    const Journal& journal, const RouteHistory& route, const WorldIdentity& identity,
+    std::uint64_t move_count, std::uint64_t attempt_count, std::uint32_t final_stamina,
+    std::uint32_t max_stamina) {
+    // Derive stamina spent from the completed structured journal only (REQ-143).
     std::uint64_t stamina_spent = 0;
-    std::uint64_t normal_camps = 0;
-    std::uint64_t emergency_rests = 0;
-    std::uint64_t bivouacs = 0;
     for (const JournalEntry& entry : journal.entries()) {
         if (const auto* travel = std::get_if<TravelEntry>(&entry.data)) {
             stamina_spent += travel->stamina_spent;
-        } else if (std::holds_alternative<RestEntry>(entry.data)) {
-            ++emergency_rests;
-        } else if (std::holds_alternative<CampEntry>(entry.data)) {
-            ++normal_camps;
-        } else if (std::holds_alternative<BivouacEntry>(entry.data)) {
-            ++bivouacs;
         }
     }
 
@@ -106,14 +83,9 @@ ExpeditionReport build_expedition_report(
     const std::uint64_t blocked_attempts =
         attempt_count > move_count ? attempt_count - move_count : 0;
 
-    // Provisions used are the starting stock minus what remains, guarded against a
-    // hypothetical inverted pair.
-    const std::uint32_t provisions_used =
-        starting_provisions > provisions_remaining ? starting_provisions - provisions_remaining : 0;
-
-    // Whether the beacon was reached: any non-seeking status means the actor
-    // entered the beacon at least once.
-    const bool beacon_discovered = objective.status != ObjectiveStatus::seeking_beacon;
+    // Whether the landmark was reached: any non-seeking status means the actor
+    // entered the landmark at least once.
+    const bool beacon_discovered = objective.status != ObjectiveStatus::seeking_landmark;
 
     // Core-owned exploration counts: explored from the map and fog snapshot, total
     // from the objective's reachable-cell property.
@@ -121,134 +93,59 @@ ExpeditionReport build_expedition_report(
         count_explored_reachable_walkable_cells(map, visibility);
     const std::uint64_t total = objective.total_reachable_walkable_cells;
 
-    ExpeditionScore score;
-    if (result == ExpeditionResult::completed) {
-        CompletedScoreInput score_input;
-        score_input.optimal_round_trip_cost = objective.minimum_round_trip_stamina_cost;
-        score_input.actual_stamina_spent = stamina_spent;
-        score_input.blocked_attempts = blocked_attempts;
-        score_input.provisions_remaining = provisions_remaining;
-        score_input.days_used = final_time.day;
-        score_input.minimum_completion_days = objective.minimum_completion_days;
-        score = compute_completed_score(score_input);
-    } else if (result == ExpeditionResult::rescued) {
-        RescuedScoreInput score_input;
-        score_input.explored_reachable_cells = explored;
-        score_input.total_reachable_cells = total;
-        score_input.beacon_discovered = beacon_discovered;
-        score_input.blocked_attempts = blocked_attempts;
-        score = compute_rescued_score(score_input);
-    } else {
-        OverdueScoreInput score_input;
-        score_input.explored_reachable_cells = explored;
-        score_input.total_reachable_cells = total;
-        score_input.beacon_discovered = beacon_discovered;
-        score_input.blocked_attempts = blocked_attempts;
-        score = compute_overdue_score(score_input);
-    }
+    CompletedScoreInput score_input;
+    score_input.optimal_route_cost = objective.minimum_route_stamina_cost;
+    score_input.actual_stamina_spent = stamina_spent;
+    score_input.blocked_attempts = blocked_attempts;
 
     ExpeditionReport report{map, visibility};
-    report.result = result;
     report.beacon_name = objective.name;
     report.spawn = map.spawn();
     report.beacon = objective.beacon;
     report.final_position = route.final_position();
     report.route = route.cells();
     report.identity = identity;
-    report.score = score;
+    report.score = compute_completed_score(score_input);
     report.journal = journal;
     report.move_count = move_count;
     report.attempt_count = attempt_count;
     report.blocked_attempts = blocked_attempts;
     report.actual_stamina_spent = stamina_spent;
-    report.optimal_round_trip_cost = objective.minimum_round_trip_stamina_cost;
+    report.optimal_route_cost = objective.minimum_route_stamina_cost;
     report.final_stamina = final_stamina;
     report.max_stamina = max_stamina;
-    report.provisions_starting = starting_provisions;
-    report.provisions_remaining = provisions_remaining;
-    report.provisions_used = provisions_used;
-    report.provisions_minimum_required = objective.minimum_required_provisions;
     report.explored_reachable_cells = explored;
     report.total_reachable_cells = total;
     report.beacon_discovered = beacon_discovered;
-    report.days_used = final_time.day;
-    report.minimum_completion_days = objective.minimum_completion_days;
-    report.deadline_days = deadline_days;
-    report.daylight_used_final = final_time.daylight_hours_used;
-    report.daylight_per_day = final_time.daylight_hours_per_day;
-    report.normal_camps = normal_camps;
-    report.emergency_rests = emergency_rests;
-    report.bivouacs = bivouacs;
     return report;
 }
 
-std::string format_report_result(const ExpeditionReport& report) {
-    switch (report.result) {
-        case ExpeditionResult::completed:
-            return "Result: expedition complete.";
-        case ExpeditionResult::rescued:
-            return "Result: rescued after running out of provisions.";
-        case ExpeditionResult::overdue:
-            return "Result: overdue; collected late after missing the level deadline.";
-    }
-    return "Result: expedition complete.";
+std::string format_report_result(const ExpeditionReport&) {
+    return "Result: level complete.";
 }
 
 std::string format_report_story(const ExpeditionReport& report) {
     const std::uint64_t moves = report.move_count;
     const std::uint64_t stamina = report.actual_stamina_spent;
     const std::uint64_t blocked = report.blocked_attempts;
-    const std::uint64_t used = report.provisions_used;
-    const std::uint64_t maximum = score_maximum_for(report.result);
-    if (report.result == ExpeditionResult::completed) {
-        return "The level beyond " + report.beacon_name + " is complete. The party made " +
-               std::to_string(moves) + " successful " + plural(moves, "move", "moves") +
-               ", spent " + std::to_string(stamina) + " stamina, used " + std::to_string(used) +
-               " " + plural(used, "provision", "provisions") + ", and hit " +
-               std::to_string(blocked) + " blocked " + plural(blocked, "move", "moves") +
-               ", earning a final score of " + std::to_string(report.score.value) + " out of " +
-               std::to_string(maximum) + ".";
-    }
-    if (report.result == ExpeditionResult::overdue) {
-        return "The " + report.beacon_name + " expedition ran overdue. After " +
-               std::to_string(moves) + " " + plural(moves, "move", "moves") + " across " +
-               std::to_string(report.days_used) + " " + plural(report.days_used, "day", "days") +
-               ", the level deadline passed and a late retrieval party collected the explorer, "
-               "earning an overdue score of " +
-               std::to_string(report.score.value) + " out of " + std::to_string(maximum) + ".";
-    }
-    return "The " + report.beacon_name + " expedition ended early. Out of provisions after " +
-           std::to_string(moves) + " " + plural(moves, "move", "moves") + " and " +
-           std::to_string(used) + " " + plural(used, "provision", "provisions") +
-           ", the party signaled for an embarrassingly early pickup, earning a rescued score of " +
-           std::to_string(report.score.value) + " out of " + std::to_string(maximum) + ".";
+    return "The level beyond " + report.beacon_name + " is complete. The party made " +
+           std::to_string(moves) + " successful " + plural(moves, "move", "moves") + ", spent " +
+           std::to_string(stamina) + " stamina, and hit " + std::to_string(blocked) + " blocked " +
+           plural(blocked, "move", "moves") + ", earning a final score of " +
+           std::to_string(report.score.value) + " out of " +
+           std::to_string(completed_score_maximum) + ".";
 }
 
 std::vector<std::string> format_report_statistics(const ExpeditionReport& report) {
-    const std::uint64_t maximum = score_maximum_for(report.result);
     std::vector<std::string> lines;
     lines.emplace_back("STATISTICS");
     lines.push_back("Score: " + std::to_string(report.score.value) + " / " +
-                    std::to_string(maximum));
-    lines.push_back("Days used: " + std::to_string(report.days_used));
-    lines.push_back("Minimum completion days: " + std::to_string(report.minimum_completion_days));
-    lines.push_back("Deadline day: " + std::to_string(report.deadline_days));
-    lines.push_back("Daylight used final day: " + std::to_string(report.daylight_used_final) + "/" +
-                    std::to_string(report.daylight_per_day));
+                    std::to_string(completed_score_maximum));
     lines.push_back("Moves: " + std::to_string(report.move_count));
     lines.push_back("Move attempts: " + std::to_string(report.attempt_count));
     lines.push_back("Blocked moves: " + std::to_string(report.blocked_attempts));
-    lines.push_back("Normal camps: " + std::to_string(report.normal_camps));
-    lines.push_back("Emergency rests: " + std::to_string(report.emergency_rests));
-    lines.push_back("Bivouacs: " + std::to_string(report.bivouacs));
-    lines.push_back("Provisions used: " + std::to_string(report.provisions_used));
-    lines.push_back("Provisions remaining: " + std::to_string(report.provisions_remaining));
-    lines.push_back("Provisions starting: " + std::to_string(report.provisions_starting));
-    lines.push_back("Minimum provisions required: " +
-                    std::to_string(report.provisions_minimum_required));
     lines.push_back("Stamina spent: " + std::to_string(report.actual_stamina_spent));
-    lines.push_back("Optimal round-trip cost: " +
-                    std::to_string(report.optimal_round_trip_cost));
+    lines.push_back("Optimal route cost: " + std::to_string(report.optimal_route_cost));
     lines.push_back("Final stamina: " + std::to_string(report.final_stamina) + "/" +
                     std::to_string(report.max_stamina));
     lines.push_back("Explored reachable terrain: " +
@@ -316,7 +213,7 @@ std::vector<std::string> format_report_route_map(const ExpeditionReport& report)
         row.reserve(static_cast<std::size_t>(width));
         for (int x = 0; x < width; ++x) {
             const Coordinates cell{x, y};
-            // Overlay priority: final position, beacon, spawn, any traveled cell,
+            // Overlay priority: final position, exit, spawn, any traveled cell,
             // then fog/terrain (REQ-153).
             if (cell == report.final_position) {
                 row.push_back(route_final_glyph);
@@ -341,7 +238,7 @@ std::vector<std::string> format_report_route_map(const ExpeditionReport& report)
 std::vector<std::string> format_report_legend() {
     return {std::string("ROUTE LEGEND"),
             std::string(1, route_final_glyph) + " = final position",
-            std::string(1, route_beacon_glyph) + " = beacon",
+            std::string(1, route_beacon_glyph) + " = exit",
             std::string(1, route_spawn_glyph) + " = spawn",
             std::string(1, route_traveled_glyph) + " = traveled cell",
             std::string(1, route_unexplored_glyph) + " = unexplored"};

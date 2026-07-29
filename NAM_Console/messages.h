@@ -25,24 +25,10 @@ namespace nam::console {
 [[nodiscard]] std::string direction_name(Direction direction);
 
 // A sentence describing the outcome of a move attempt, suitable for the HUD's
-// latest-event line. Successful and insufficient-stamina outcomes include the
-// rule-provided stamina cost carried in the MoveOutcome; boundary and
+// latest-event line. A successful move reports the rule-provided stamina cost
+// carried in the MoveOutcome and any passive recovery; boundary and
 // impassable-terrain outcomes have no cost and keep their existing wording.
 [[nodiscard]] std::string describe_move(const MoveOutcome& outcome);
-
-// A sentence describing a rest command for the HUD's latest-event line. A rest
-// that recovered stamina reports the terrain amount and remaining provisions; a
-// heroic rest at full stamina reports the exact fixed heroic line; a rest with
-// too little daylight left reports that dusk is too near; a rest with no
-// provisions left reports that no provisions remain.
-[[nodiscard]] std::string describe_rest(const RestedEvent& rested);
-
-// A sentence describing a camp command for the HUD's latest-event line. A
-// successful normal camp reports the new day and restored stamina; a successful
-// bivouac reports the rough overnight and the fixed stamina result; an ineligible
-// camp reports why camping is not yet allowed; a camp with too few provisions
-// reports the shortfall.
-[[nodiscard]] std::string describe_camp(const CampedEvent& camped);
 
 // A user-facing explanation of why a map failed to load, including the source
 // and line/column when the parser reported them.
@@ -50,11 +36,11 @@ namespace nam::console {
 
 // The HUD objective line for the current level phase: reach the landmark, then
 // follow the revealed broad direction to the exit.
-[[nodiscard]] std::string objective_line(const BeaconObjective& objective);
+[[nodiscard]] std::string objective_line(const LevelObjective& objective);
 
 // A single bounded "Goal:" line summarising the objective phase for the compact
 // layout, which has no room for the full objective sentence.
-[[nodiscard]] std::string goal_line(const BeaconObjective& objective);
+[[nodiscard]] std::string goal_line(const LevelObjective& objective);
 
 // The latest-event message shown when a move first enters the landmark cell,
 // replacing the ordinary move wording for that command.
@@ -81,17 +67,5 @@ namespace nam::console {
 // completion is being acknowledged this replaces every goodbye/EOF/interrupt
 // line so the acknowledgement can never overwrite it.
 [[nodiscard]] std::string restored_completion_message(const std::string& name);
-
-// The single line printed once on the restored normal screen after an
-// interactive run that ended in a rescue, naming the abandoned expedition. While
-// the rescue is being acknowledged this replaces every goodbye/EOF/interrupt line
-// so the acknowledgement can never overwrite it.
-[[nodiscard]] std::string restored_rescue_message(const std::string& name);
-
-// The single line printed once on the restored normal screen after an
-// interactive run that missed its return deadline, naming the overdue expedition.
-// While the overdue outcome is being acknowledged this replaces every
-// goodbye/EOF/interrupt line so the acknowledgement can never overwrite it.
-[[nodiscard]] std::string restored_overdue_message(const std::string& name);
 
 }  // namespace nam::console

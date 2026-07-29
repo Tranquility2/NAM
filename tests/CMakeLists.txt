@@ -67,7 +67,7 @@ nam_add_unit_test(nam_game_tests
     SOURCES test_movement.cpp test_rendering.cpp test_determinism.cpp
             test_pcg32.cpp test_game_events.cpp test_level_tier.cpp test_world_generation.cpp
             test_visibility.cpp test_stamina.cpp test_objective.cpp
-            test_expedition_score.cpp test_expedition_planning.cpp)
+            test_expedition_score.cpp)
 
 nam_add_unit_test(nam_input_tests
     SOURCES test_input_decoder.cpp)
@@ -140,7 +140,7 @@ if(TARGET nam_console)
     nam_add_cli_test(cli_run_beacon_complete
         "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_beacon_stdin}
         -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=EXPEDITION REPORT|ROUTE MAP|EXPEDITION JOURNAL|Score:|Move attempts:|Blocked moves:|Provisions starting:"
+        "-DEXPECT_CONTAINS=EXPEDITION REPORT|ROUTE MAP|EXPEDITION JOURNAL|Score:|Move attempts:|Blocked moves:|Optimal route cost:"
         -DFORBID_ESC=1)
     nam_add_cli_test(cli_run_beacon_deterministic
         "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_beacon_stdin}

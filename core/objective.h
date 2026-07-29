@@ -50,33 +50,16 @@ struct LevelObjective {
     std::string name;
     Direction exit_bearing = Direction::right;
     ObjectiveStatus status = ObjectiveStatus::seeking_landmark;
-    // The deterministic cheapest round-trip stamina cost for this expedition: the
-    // minimum terrain-entry stamina cost of a walkable cardinal path from spawn to
-    // the beacon plus the minimum terrain-entry stamina cost of a walkable
-    // cardinal path from the beacon back to spawn. Edge weights are
-    // stamina_cost_of(destination), the single terrain-cost/walkability source, so
-    // this scalar is a pure objective property every frontend can reuse to score a
-    // run. It is 0 when the beacon coincides with spawn (a single-cell map).
-    std::uint64_t minimum_round_trip_stamina_cost = 0;
-    // The deterministic minimum number of provisions that make this expedition
-    // feasible: the lexicographic (overnight transitions, provisions) planning
-    // search in expedition_planning selects the plan with the fewest overnight
-    // camps/bivouacs and, among those, the fewest provisions consumed. This field
-    // is that provisions component. It is 0 when the beacon coincides with spawn.
-    // Frontends start a run with this baseline plus one spare provision.
-    std::uint64_t minimum_required_provisions = 0;
-    // The deterministic minimum number of numbered days the expedition needs to
-    // complete the beacon round trip: one more than the fewest overnight
-    // transitions in the planning search (REQ-016). It is 1 when the beacon
-    // coincides with spawn (initial single-cell completion).
-    std::uint32_t minimum_completion_days = 1;
-    // The deterministic deadline day, two days beyond minimum_completion_days
-    // (REQ-019). An action that leaves the objective incomplete at hour 12 on this
-    // day, or with no continuation on this day, ends the expedition as overdue.
-    std::uint32_t deadline_days = 3;
+    // The deterministic cheapest stamina cost of the level route: the minimum
+    // terrain-entry cost from spawn to the landmark plus the minimum cost from the
+    // landmark to the exit. Edge weights are stamina_cost_of(destination), the
+    // single terrain-cost/walkability source, so this scalar is a pure objective
+    // property every frontend can reuse to score a run. It is 0 when the exit
+    // coincides with spawn (a single-cell map).
+    std::uint64_t minimum_route_stamina_cost = 0;
     // The number of walkable cells reachable from spawn over cardinal walkable
     // steps, including spawn itself. A pure map/objective property used as the
-    // denominator of the rescued exploration score, so every frontend agrees on
+    // denominator of the exploration statistic, so every frontend agrees on
     // the exploration fraction.
     std::uint64_t total_reachable_walkable_cells = 0;
 };
@@ -105,12 +88,7 @@ struct ObjectiveUpdate {
 // exit, with adjacent exits revealed from spawn. When spawn is the only reachable
 // walkable cell the objective starts completed.
 //
-// `max_stamina` is the stamina cap used by the deterministic minimum-provision
-// search; callers pass GameState::maximum_stamina so the objective and the game
-// share one cap. The default matches the current baseline for renderer-only and
-// objective-only fixtures that do not construct a GameState.
-[[nodiscard]] LevelObjective create_beacon_objective(const Map& map,
-                                                     std::uint32_t max_stamina = 20);
+[[nodiscard]] LevelObjective create_beacon_objective(const Map& map);
 
 // Advance the objective for a committed actor position and return the exact
 // transition it caused. Entering the landmark while seeking reveals the exit;

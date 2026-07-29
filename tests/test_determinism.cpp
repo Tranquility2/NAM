@@ -28,24 +28,19 @@ constexpr std::string_view kMap =
 // An 11x11 open field with a hill '^' and mountain '@' immediately right of the
 // spawn at (4,5), so a script can enter and leave both elevated terrains and
 // exercise radius growth (2 -> 3 -> 4) and shrink (4 -> 3 -> 2).
+// A scripted command is simply a movement direction: movement is the only
+// state-changing command in the core.
+using Command = Direction;
+
+Command move_cmd(Direction direction) { return direction; }
+
+GameEvent apply(GameState& state, Command command) { return state.move(command); }
+
 constexpr std::string_view kTerrainMap =
     "NAM-MAP 1\nwidth 11\nheight 11\nspawn 4 5\n---\n"
     "...........\n...........\n...........\n...........\n...........\n"
     ".....^@....\n...........\n...........\n...........\n...........\n"
     "...........\n";
-
-// A scripted command: either a movement in a direction, or a rest in place.
-struct Command {
-    bool is_rest = false;
-    Direction direction = Direction::up;
-};
-
-Command move_cmd(Direction direction) { return Command{false, direction}; }
-Command rest_cmd() { return Command{true, Direction::up}; }
-
-GameEvent apply(GameState& state, const Command& command) {
-    return command.is_rest ? state.rest() : state.move(command.direction);
-}
 
 // A flat, one-character-per-cell signature of visibility, so two games can be
 // compared byte-for-byte across a mixed script.
@@ -104,58 +99,6 @@ TEST_CASE("identical map and input produce identical event streams") {
     CHECK(a.render() == b.render());
 }
 
-TEST_CASE("identical mixed movement and rest scripts produce identical results") {
-    const std::vector<Command> script{
-        move_cmd(Direction::up),    rest_cmd(),
-        move_cmd(Direction::left),  move_cmd(Direction::down),
-        rest_cmd(),                 move_cmd(Direction::right),
-        move_cmd(Direction::right), rest_cmd()};
-
-    GameState a(make_map(kMap));
-    GameState b(make_map(kMap));
-
-    std::uint64_t expected_sequence = 0;
-    for (const Command& command : script) {
-        const GameEvent ea = apply(a, command);
-        const GameEvent eb = apply(b, command);
-
-        CHECK(ea.sequence == expected_sequence);
-        CHECK(eb.sequence == expected_sequence);
-        ++expected_sequence;
-
-        // The active variant alternative is identical on both games.
-        CHECK(ea.data.index() == eb.data.index());
-
-        if (command.is_rest) {
-            const RestedEvent& ra = std::get<RestedEvent>(ea.data);
-            const RestedEvent& rb = std::get<RestedEvent>(eb.data);
-            CHECK(ra.stamina_before == rb.stamina_before);
-            CHECK(ra.stamina_recovered == rb.stamina_recovered);
-            CHECK(ra.stamina_after == rb.stamina_after);
-        } else {
-            const MoveAttemptedEvent& pa = std::get<MoveAttemptedEvent>(ea.data);
-            const MoveAttemptedEvent& pb = std::get<MoveAttemptedEvent>(eb.data);
-            CHECK(pa.direction == pb.direction);
-            CHECK(pa.outcome.result == pb.outcome.result);
-            CHECK(pa.outcome.from == pb.outcome.from);
-            CHECK(pa.outcome.to == pb.outcome.to);
-            CHECK(pa.outcome.terrain == pb.outcome.terrain);
-            CHECK(pa.outcome.stamina_cost == pb.outcome.stamina_cost);
-            CHECK(pa.outcome.stamina_before == pb.outcome.stamina_before);
-            CHECK(pa.outcome.stamina_after == pb.outcome.stamina_after);
-        }
-
-        CHECK(a.stamina() == b.stamina());
-        CHECK(a.actor_position() == b.actor_position());
-        CHECK(visibility_signature(a) == visibility_signature(b));
-    }
-
-    CHECK(a.actor_position() == b.actor_position());
-    CHECK(a.stamina() == b.stamina());
-    CHECK(a.render() == b.render());
-    CHECK(visibility_signature(a) == visibility_signature(b));
-}
-
 TEST_CASE("terrain-transition scripts produce identical radius and visibility") {
     // TASK-014 / TEST-014: a script that enters and leaves hill and mountain
     // terrain must yield identical current radius and every visibility cell on
@@ -163,7 +106,6 @@ TEST_CASE("terrain-transition scripts produce identical radius and visibility") 
     const std::vector<Command> script{
         move_cmd(Direction::right),  // open (4,5) -> hill (5,5), radius 3
         move_cmd(Direction::right),  // hill (5,5) -> mountain (6,5), radius 4
-        rest_cmd(),                  // rest on the mountain, visibility unchanged
         move_cmd(Direction::left),   // mountain -> hill, radius 3
         move_cmd(Direction::left),   // hill -> open, radius 2
         move_cmd(Direction::down),   // open ground, radius 2
@@ -176,7 +118,7 @@ TEST_CASE("terrain-transition scripts produce identical radius and visibility") 
     CHECK(a.visibility_radius() == b.visibility_radius());
     CHECK(visibility_signature(a) == visibility_signature(b));
 
-    for (const Command& command : script) {
+    for (const Command command : script) {
         const GameEvent ea = apply(a, command);
         const GameEvent eb = apply(b, command);
         CHECK(ea.sequence == eb.sequence);
@@ -216,7 +158,7 @@ TEST_CASE("identical maps and scripts produce identical beacon objectives and up
     CHECK(a.objective().beacon == Coordinates{3, 0});
 
     std::uint64_t expected_sequence = 0;
-    for (const Command& command : script) {
+    for (const Command command : script) {
         const GameEvent ea = apply(a, command);
         const GameEvent eb = apply(b, command);
 

@@ -62,24 +62,22 @@ TEST_CASE("move outcomes map to distinct human-readable sentences") {
     CHECK(describe_move(terrain).find("Blocked") != std::string::npos);
 }
 
-TEST_CASE("successful move messages state the destination terrain cost and hours") {
-    // A singular one-point cost and one hour onto open ground, whose passive
-    // recovery is reported alongside the charge.
-    MoveOutcome one{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 1, 2, 12, 13, 1};
-    CHECK(describe_move(one) ==
-          "Moved onto open ground for 1 stamina and 1 hour. Recovered 2 stamina.");
+TEST_CASE("successful move messages state the destination terrain and cost") {
+    // A one-point cost onto open ground, whose passive recovery is reported
+    // alongside the charge.
+    MoveOutcome one{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 1, 2, 12, 13};
+    CHECK(describe_move(one) == "Moved onto open ground for 1 stamina. Recovered 2 stamina.");
 
-    // A multi-point cost and multi-hour step onto a mountain, which gives nothing
-    // back and therefore reports no recovery.
-    MoveOutcome four{MoveResult::moved, {0, 0}, {1, 0}, Terrain::mountain, 4, 0, 12, 8, 3};
-    CHECK(describe_move(four) == "Moved onto mountain for 4 stamina and 3 hours.");
+    // A multi-point step onto a mountain, which gives nothing back and therefore
+    // reports no recovery.
+    MoveOutcome four{MoveResult::moved, {0, 0}, {1, 0}, Terrain::mountain, 4, 0, 12, 8};
+    CHECK(describe_move(four) == "Moved onto mountain for 4 stamina.");
 }
 
 TEST_CASE("a fully restoring step reports the recovery it granted") {
     // Reaching the landmark refills the meter, so the recovery dwarfs the charge.
-    MoveOutcome landmark{MoveResult::moved, {3, 0}, {4, 0}, Terrain::hill, 2, 8, 14, 20, 2};
-    CHECK(describe_move(landmark) ==
-          "Moved onto hill for 2 stamina and 2 hours. Recovered 8 stamina.");
+    MoveOutcome landmark{MoveResult::moved, {3, 0}, {4, 0}, Terrain::hill, 2, 8, 14, 20};
+    CHECK(describe_move(landmark) == "Moved onto hill for 2 stamina. Recovered 8 stamina.");
 }
 
 TEST_CASE("boundary and impassable-terrain wording carries no stamina cost") {
@@ -90,53 +88,6 @@ TEST_CASE("boundary and impassable-terrain wording carries no stamina cost") {
     MoveOutcome wall{MoveResult::blocked_by_terrain, {0, 0}, {0, 0}, Terrain::wall_horizontal,
                     0, 0, 7, 7};
     CHECK(describe_move(wall) == "Blocked by wall.");
-}
-
-TEST_CASE("rest messages match the recovered full daylight-blocked and no-provisions wording") {
-    CHECK(describe_rest(RestedEvent{RestResult::recovered, Terrain::fields, 10, 12, 2, 3, 2}) ==
-          "Made emergency camp on fields and recovered 2 stamina. Provisions left: 2.");
-    CHECK(describe_rest(
-              RestedEvent{RestResult::already_full, Terrain::open, 20, 20, 0, 2, 2}) ==
-          "A heroic rest is attempted. Your stamina remains heroically full.");
-    CHECK(describe_rest(
-              RestedEvent{RestResult::blocked_by_daylight, Terrain::open, 7, 7, 0, 2, 2}) ==
-          "Too little daylight remains to rest. Make camp or press on.");
-    CHECK(describe_rest(
-              RestedEvent{RestResult::no_provisions, Terrain::mountain, 7, 7, 0, 0, 0}) ==
-          "No provisions left to rest. Stamina holds at 7.");
-}
-
-TEST_CASE("camp messages distinguish normal camp bivouac and failure wording") {
-    CampedEvent normal;
-    normal.result = CampResult::camped;
-    normal.kind = CampKind::normal;
-    normal.terrain = Terrain::fields;
-    normal.stamina_after = 20;
-    normal.provisions_after = 2;
-    normal.time.after.day = 3;
-    CHECK(describe_camp(normal) ==
-          "Made camp on fields. Stamina restored to 20, provisions 2. Day 3 begins.");
-
-    CampedEvent bivouac;
-    bivouac.result = CampResult::camped;
-    bivouac.kind = CampKind::bivouac;
-    bivouac.terrain = Terrain::water;
-    bivouac.stamina_after = 10;
-    bivouac.provisions_after = 1;
-    bivouac.time.after.day = 2;
-    CHECK(describe_camp(bivouac) ==
-          "Bivouacked on water. A rough night: stamina 10, provisions 1. Day 2 begins.");
-
-    CampedEvent ineligible;
-    ineligible.result = CampResult::ineligible;
-    CHECK(describe_camp(ineligible) == "Too early to camp. Travel a while or tire first.");
-
-    CampedEvent broke;
-    broke.result = CampResult::no_provisions;
-    broke.kind = CampKind::normal;
-    broke.provision_cost = 1;
-    broke.provisions_before = 0;
-    CHECK(describe_camp(broke) == "Not enough provisions to make camp: need 1, have 0.");
 }
 
 TEST_CASE("map errors describe the source and position when present") {
@@ -194,16 +145,12 @@ TEST_CASE("beacon transition messages match the exact required wording") {
 TEST_CASE("objective-screen reminders and restored completion wording are exact") {
     // REQ-020 / REQ-026 / REQ-028: the plain-mode reminders and the restored
     // normal-screen completion line use their exact fixed wording, and the
-    // restored line names the finished beacon.
+    // restored line names the finished level.
     CHECK(discovery_reminder() ==
           "Landmark discovered. Press Enter or use a movement command to continue.");
     CHECK(completion_reminder() == "Run complete. Press Enter or q to exit.");
     CHECK(restored_completion_message("Glass River Beacon") ==
           "Level complete beyond Glass River Beacon.");
-    CHECK(restored_rescue_message("Glass River Beacon") ==
-          "Rescued: the Glass River Beacon expedition ran out of provisions and ended early.");
-    CHECK(restored_overdue_message("Glass River Beacon") ==
-          "Overdue: the Glass River Beacon route missed its level deadline and was collected late.");
     // The restored completion line carries neither the pre-completion goodbye
     // wording nor any coordinate.
     CHECK(restored_completion_message("Glass River Beacon").find("Goodbye") == std::string::npos);

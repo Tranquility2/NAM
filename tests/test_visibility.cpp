@@ -510,23 +510,4 @@ TEST_CASE("failed moves apply no terrain radius on hill or mountain terrain") {
     }
 }
 
-TEST_CASE("peek and rest never change visibility on elevated terrain") {
-    // TASK-013 / TEST-013: repeated peeks and a rest are visibility-pure even on
-    // a mountain, where a premature reveal would leak the larger radius.
-    GameState state(filled_map(11, 11, Terrain::mountain, Coordinates{5, 5}));
-    const std::vector<CellVisibility> before = snapshot(state.visibility());
-
-    for (int i = 0; i < 5; ++i) {
-        (void)state.peek(Direction::up);
-        (void)state.peek(Direction::right);
-        (void)state.peek(Direction::down);
-        (void)state.peek(Direction::left);
-    }
-    CHECK(snapshot(state.visibility()) == before);
-
-    const GameEvent rested = state.rest();
-    CHECK(std::holds_alternative<RestedEvent>(rested.data));
-    CHECK(snapshot(state.visibility()) == before);
-}
-
 }  // TEST_SUITE("game")

@@ -38,22 +38,13 @@ public:
     [[nodiscard]] std::uint32_t stamina() const noexcept { return stamina_; }
     [[nodiscard]] std::uint32_t max_stamina() const noexcept { return maximum_stamina; }
 
-    // The finite, core-owned provisions this expedition holds. A run starts with
-    // objective().minimum_required_provisions + 1 (one spare); a successful
-    // provision-funded rest consumes exactly one. starting_provisions() is the
-    // immutable initial stock so frontends can show "current/starting".
-    [[nodiscard]] std::uint32_t provisions() const noexcept { return provisions_; }
-    [[nodiscard]] std::uint32_t starting_provisions() const noexcept {
-        return starting_provisions_;
-    }
-
     // The exploration/sight radius revealed around the actor is selected from
     // the actor's current terrain via visibility_radius_of, so terrain, replay,
     // SDL, and tests share one authoritative mapping instead of a fixed literal.
     // Base terrain (open/fields/water) uses radius 2 for the clipped 5x5 sight
     // square; hills use radius 3 (7x7) and mountains radius 4 (9x9). Later
-    // weather, daylight, or equipment modifiers can compose onto this baseline
-    // without moving visibility state into a frontend.
+    // weather or equipment modifiers can compose onto this baseline without
+    // moving visibility state into a frontend.
     static constexpr int base_visibility_radius = visibility_radius_of(Terrain::open);
     static constexpr int hill_visibility_radius = visibility_radius_of(Terrain::hill);
     static constexpr int mountain_visibility_radius = visibility_radius_of(Terrain::mountain);
@@ -80,76 +71,22 @@ public:
         return objective_.status == ObjectiveStatus::completed;
     }
 
-    // The current deterministic expedition time: the numbered day, the daylight
-    // hours used so far that day, and the fixed daylight hours per day. A new
-    // nontrivial expedition starts on day 1 with 0 daylight hours used. Only a
-    // successful move, emergency rest, or camp changes it.
-    [[nodiscard]] ExpeditionTime expedition_time() const noexcept { return time_; }
-
-    // The deadline day for this expedition: two days beyond the map-derived
-    // minimum completion day count. An action that leaves the objective incomplete
-    // at hour 12 on this day, or with no continuation on this day, ends the run as
-    // overdue.
-    [[nodiscard]] std::uint32_t deadline_day() const noexcept { return objective_.deadline_days; }
-
     // Compute the outcome of moving one step without changing any state.
     [[nodiscard]] MoveOutcome peek(Direction direction) const;
 
     // Attempt to move one step and emit exactly one ordered event describing the
     // attempt. The destination is validated for bounds and terrain passability
-    // only: a walkable in-bounds step always succeeds, because neither stamina
-    // nor remaining daylight can block movement. A blocked or out-of-bounds move
-    // leaves all state unchanged — but still emits an event and consumes a
-    // sequence number. The returned event carries the requested direction and the
-    // full MoveOutcome.
+    // only: a walkable in-bounds step always succeeds, because stamina can never
+    // block movement. A blocked or out-of-bounds move leaves all state unchanged —
+    // but still emits an event and consumes a sequence number. The returned event
+    // carries the requested direction and the full MoveOutcome.
     [[nodiscard]] GameEvent move(Direction direction);
-
-    // Rest in place and emit exactly one ordered event whose payload is a
-    // RestedEvent. Validation order is already-full, insufficient daylight, no
-    // provisions, then recovered. A successful rest consumes one provision and
-    // emergency_rest_hours of daylight and recovers rest_recovery_of(current
-    // terrain) capped at maximum_stamina; every failed rest changes no state. Rest
-    // never moves the actor, changes the map, refreshes visibility, or counts as a
-    // movement attempt, and always consumes exactly one sequence number.
-    [[nodiscard]] GameEvent rest();
-
-    // Camp in place and emit exactly one ordered event whose payload is a
-    // CampedEvent. On open, fields, or hill terrain a successful action is a normal
-    // camp (one provision, stamina restored to the cap); on water or mountain it is
-    // an emergency bivouac (two provisions, stamina set to 10). A camp is eligible
-    // only after at least one daylight hour has elapsed this day or stamina is
-    // below the cap; an ineligible or unaffordable camp changes no state. A
-    // successful camp ends the current day and begins the next at zero daylight
-    // used, except on the deadline day where the stored day stays at the deadline
-    // with daylight used set to the full day. Camp never moves the actor, changes
-    // the map, refreshes visibility, or counts as a movement attempt, and always
-    // consumes exactly one sequence number.
-    [[nodiscard]] GameEvent camp();
-
-    // The typed expedition-ending transition implied by the fully committed state,
-    // evaluated after every command. Precedence (GUD-003): a completed objective
-    // yields none; otherwise on the deadline day an exhausted day or no successful
-    // move/rest continuation yields overdue; on earlier days no successful move,
-    // rest, camp, or bivouac continuation yields rescued; otherwise none. peek()
-    // and the affordability checks are pure, so this leaves all state unchanged.
-    [[nodiscard]] ExpeditionEndingTransition evaluate_ending() const;
 
     // Render the map with the actor drawn as `actor_glyph`. The glyph is a
     // frontend choice; the core imposes no presentation of its own.
     [[nodiscard]] std::string render(char actor_glyph = '+') const;
 
 private:
-    // Whether at least one successful adjacent cardinal move currently exists.
-    // Because movement is never blocked by stamina or daylight, this is true
-    // whenever any cardinal neighbour is in bounds and walkable. Pure; used by
-    // the ending evaluator.
-    [[nodiscard]] bool has_move_continuation() const;
-    // Whether a successful emergency rest currently fits: stamina below the cap,
-    // enough daylight for emergency_rest_hours, and at least one provision. Pure.
-    [[nodiscard]] bool has_rest_continuation() const;
-    // Whether an eligible, affordable camp or bivouac currently fits. Pure.
-    [[nodiscard]] bool has_camp_continuation() const;
-
     Map map_;
     // Declared immediately after map_ and initialized from the constructed map_
     // (never the moved-from constructor argument), so beacon placement reads a
@@ -158,12 +95,5 @@ private:
     Coordinates actor_position_;
     VisibilityMap visibility_;
     std::uint32_t stamina_ = maximum_stamina;
-    // The current expedition time. A new nontrivial expedition starts on day 1
-    // with 0 daylight hours used.
-    ExpeditionTime time_{};
-    // Starting provisions are the objective's minimum required plus one spare,
-    // computed in the constructor once the objective is built.
-    std::uint32_t starting_provisions_ = 0;
-    std::uint32_t provisions_ = 0;
     std::uint64_t next_event_sequence_ = 0;
 };

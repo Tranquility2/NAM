@@ -20,9 +20,6 @@ add_library(nam_core STATIC
     game_state.cpp
     objective.h
     objective.cpp
-    expedition_time.h
-    expedition_planning.h
-    expedition_planning.cpp
     exploration.h
     exploration.cpp
     expedition_score.h

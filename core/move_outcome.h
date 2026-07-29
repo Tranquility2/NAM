@@ -3,7 +3,6 @@
 #include <cstdint>
 
 #include "coordinates.h"
-#include "expedition_time.h"
 #include "terrain.h"
 
 // The rule-level result of attempting to move the actor. Presentation text is
@@ -17,9 +16,9 @@ enum class MoveResult {
 
 // A structured description of a move attempt.
 //
-// Movement is fluid: a walkable in-bounds destination always succeeds. Neither
-// stamina nor remaining daylight can refuse a step, so the only two failures are
-// the map's edge and impassable terrain.
+// Movement is fluid: a walkable in-bounds destination always succeeds. Stamina
+// can never refuse a step, so the only two failures are the map's edge and
+// impassable terrain.
 //
 // - from:    the actor position before the attempt.
 // - to:      the actor position after the attempt. On `moved` this is the new
@@ -45,11 +44,6 @@ enum class MoveResult {
 //            this is the saturating charge of `stamina_cost` followed by
 //            `stamina_recovered`; on every blocked result it equals
 //            `stamina_before` because no stamina changes.
-// - travel_hours: the daylight hours entering the outcome's terrain requires. Set
-//            on `moved`; 0 on boundary and terrain blocks.
-// - time_before/time_after: the expedition time bracketing the attempt. On
-//            `moved`, after raises daylight_hours_used by travel_hours; on every
-//            blocked result they are equal because no daylight is spent.
 struct MoveOutcome {
     MoveResult result{};
     Coordinates from{};
@@ -59,7 +53,4 @@ struct MoveOutcome {
     std::uint32_t stamina_recovered{};
     std::uint32_t stamina_before{};
     std::uint32_t stamina_after{};
-    std::uint32_t travel_hours{};
-    ExpeditionTime time_before{};
-    ExpeditionTime time_after{};
 };

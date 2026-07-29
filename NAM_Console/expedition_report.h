@@ -7,7 +7,6 @@
 
 #include "coordinates.h"
 #include "expedition_score.h"
-#include "expedition_time.h"
 #include "game_event.h"
 #include "journal.h"
 #include "map.h"
@@ -19,8 +18,7 @@
 namespace nam::console {
 
 // The final expedition report: a frontend-owned, deterministic snapshot built once
-// after the beacon objective completes or the expedition ends in a rescue. It
-// keeps every input as a typed value - the terrain map, the fog snapshot, the
+// after the level objective completes. It keeps every input as a typed value - the terrain map, the fog snapshot, the
 // route coordinates, the world identity, the structured journal, and the core
 // score - so only formatter functions ever turn it into prose or report lines
 // (REQ-153). It holds no terminal dimensions, ANSI, or scrolling state.
@@ -50,8 +48,8 @@ struct WorldIdentity {
 [[nodiscard]] WorldIdentity world_identity_from(const Settings& settings);
 
 // The ordered route the actor traveled: the spawn cell followed by every
-// successful movement destination, in event order. Blocked movement and rest never
-// append a coordinate (REQ-153).
+// successful movement destination, in event order. A blocked movement never
+// appends a coordinate (REQ-153).
 class RouteHistory {
 public:
     // Seed the route at the spawn cell. The spawn is always the first coordinate,
@@ -59,7 +57,7 @@ public:
     explicit RouteHistory(Coordinates spawn) { cells_.push_back(spawn); }
 
     // Fold one ordered core event. A successful movement appends its destination;
-    // a blocked movement, a rest, or any non-movement event appends nothing.
+    // a blocked movement or any non-movement event appends nothing.
     void record_event(const GameEvent& event);
 
     [[nodiscard]] const std::vector<Coordinates>& cells() const noexcept { return cells_; }
@@ -83,7 +81,6 @@ struct ExpeditionReport {
 
     Map map;                    // Typed terrain snapshot for the route map.
     VisibilityMap visibility;   // Typed fog snapshot: unexplored/remembered/visible.
-    ExpeditionResult result = ExpeditionResult::completed;
     std::string beacon_name;
     Coordinates spawn{};
     Coordinates beacon{};
@@ -96,58 +93,36 @@ struct ExpeditionReport {
     std::uint64_t attempt_count = 0;
     std::uint64_t blocked_attempts = 0;
     std::uint64_t actual_stamina_spent = 0;
-    std::uint64_t optimal_round_trip_cost = 0;
+    std::uint64_t optimal_route_cost = 0;
     std::uint32_t final_stamina = 0;
     std::uint32_t max_stamina = 0;
-    std::uint32_t provisions_starting = 0;
-    std::uint32_t provisions_remaining = 0;
-    std::uint32_t provisions_used = 0;
-    std::uint64_t provisions_minimum_required = 0;
     std::uint64_t explored_reachable_cells = 0;
     std::uint64_t total_reachable_cells = 0;
     bool beacon_discovered = false;
-    // Time and camp statistics (REQ-037). days_used is the numbered day the run
-    // ended on; daylight_used_final is the daylight hours used on that final day;
-    // the successful-action counts derive from the typed journal variants, never
-    // from prose (TASK-018).
-    std::uint32_t days_used = 1;
-    std::uint32_t minimum_completion_days = 1;
-    std::uint32_t deadline_days = 3;
-    std::uint32_t daylight_used_final = 0;
-    std::uint32_t daylight_per_day = daylight_hours_per_day;
-    std::uint64_t normal_camps = 0;
-    std::uint64_t emergency_rests = 0;
-    std::uint64_t bivouacs = 0;
 };
 
-// Build the final report for either ending. `result` selects the completed,
-// rescued, or overdue score and prose. Stamina spent is the sum of
-// TravelEntry::stamina_spent across the completed journal (REQ-143). Blocked
-// attempts are attempt_count minus move_count via comparison-before-subtraction.
-// Provisions used are starting minus remaining. Explored reachable terrain is
+// Build the final report. Stamina spent is the sum of TravelEntry::stamina_spent
+// across the completed journal (REQ-143). Blocked attempts are attempt_count minus
+// move_count via comparison-before-subtraction. Explored reachable terrain is
 // computed from the map and visibility snapshot by the core, and the total comes
-// from the objective. Whether the beacon was reached is derived from the objective
-// status. `final_time` supplies the day, daylight, and per-day capacity; the
-// successful normal camps, emergency rests, and bivouacs are counted from the
-// structured journal. `map` and `visibility` are snapshotted for the route map.
+// from the objective. Whether the landmark was reached is derived from the
+// objective status. `map` and `visibility` are snapshotted for the route map.
 [[nodiscard]] ExpeditionReport build_expedition_report(
-    ExpeditionResult result, const BeaconObjective& objective, const Map& map,
-    const VisibilityMap& visibility, const Journal& journal, const RouteHistory& route,
-    const WorldIdentity& identity, std::uint64_t move_count, std::uint64_t attempt_count,
-    std::uint32_t final_stamina, std::uint32_t max_stamina, std::uint32_t starting_provisions,
-    std::uint32_t provisions_remaining, ExpeditionTime final_time, std::uint32_t deadline_days);
+    const LevelObjective& objective, const Map& map, const VisibilityMap& visibility,
+    const Journal& journal, const RouteHistory& route, const WorldIdentity& identity,
+    std::uint64_t move_count, std::uint64_t attempt_count, std::uint32_t final_stamina,
+    std::uint32_t max_stamina);
 
-// The single result/status line distinguishing completion from rescue (REQ-133).
+// The single result/status line (REQ-133).
 [[nodiscard]] std::string format_report_result(const ExpeditionReport& report);
 
-// The compact deterministic story paragraph, one logical line distinguishing
-// completion from rescue and derived only from typed report fields (REQ-133).
+// The compact deterministic story paragraph, one logical line derived only from
+// typed report fields (REQ-133).
 [[nodiscard]] std::string format_report_story(const ExpeditionReport& report);
 
 // The transparent statistics lines in order (REQ-143 / REQ-144): score, moves,
-// move attempts, blocked moves, provisions used/remaining/starting/minimum
-// required, stamina spent, optimal round-trip cost, final stamina, explored
-// reachable terrain and total, and whether the beacon was reached.
+// move attempts, blocked moves, stamina spent, optimal route cost, final stamina,
+// explored reachable terrain and total, and whether the landmark was reached.
 [[nodiscard]] std::vector<std::string> format_report_statistics(const ExpeditionReport& report);
 
 // The world-identity and replay/run-again lines (REQ-154). All user-controlled
@@ -155,7 +130,7 @@ struct ExpeditionReport {
 [[nodiscard]] std::vector<std::string> format_report_identity(const ExpeditionReport& report);
 
 // The full-dimension route map rows (REQ-153). Overlay priority per cell is final
-// position `F`, beacon `B`, spawn `S`, any traveled cell `*`, then fog/terrain: an
+// position `F`, exit `B`, spawn `S`, any traveled cell `*`, then fog/terrain: an
 // unexplored cell is `?` and a remembered or visible cell is its canonical
 // symbol_of glyph. Plain ASCII and deterministic.
 [[nodiscard]] std::vector<std::string> format_report_route_map(const ExpeditionReport& report);

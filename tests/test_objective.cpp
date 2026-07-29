@@ -380,6 +380,24 @@ TEST_CASE("advance_objective completes only at the exit after landmark discovery
     CHECK(objective.status == ObjectiveStatus::completed);
 }
 
+TEST_CASE("blocked moves and peek never advance the objective") {
+    GameState state(make_map("NAM-MAP 1\nwidth 2\nheight 2\nspawn 0 0\n---\n..\n..\n"));
+    REQUIRE(state.objective().status == ObjectiveStatus::seeking_landmark);
+
+    // A boundary-blocked move carries none with equal before/after and leaves
+    // status unchanged.
+    const GameEvent blocked = state.move(Direction::up);
+    CHECK(payload_of(blocked).outcome.result == MoveResult::blocked_by_boundary);
+    CHECK(payload_of(blocked).objective_update.transition == ObjectiveTransition::none);
+    CHECK(payload_of(blocked).objective_update.before ==
+          payload_of(blocked).objective_update.after);
+    CHECK(state.objective().status == ObjectiveStatus::seeking_landmark);
+
+    // Peek is pure and leaves the objective untouched.
+    static_cast<void>(state.peek(Direction::right));
+    CHECK(state.objective().status == ObjectiveStatus::seeking_landmark);
+}
+
 TEST_CASE("a GameState owns a seeking objective and exposes completion state") {
     GameState state(make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n"));
     CHECK(state.objective().status == ObjectiveStatus::seeking_landmark);
@@ -439,28 +457,6 @@ TEST_CASE("returning to spawn before the landmark does not transition") {
     CHECK(payload_of(back).objective_update.transition == ObjectiveTransition::none);
     CHECK(payload_of(back).objective_update.before == ObjectiveStatus::seeking_landmark);
     CHECK(payload_of(back).objective_update.after == ObjectiveStatus::seeking_landmark);
-    CHECK(state.objective().status == ObjectiveStatus::seeking_landmark);
-}
-
-TEST_CASE("blocked moves, rest, and peek never advance the objective") {
-    GameState state(make_map("NAM-MAP 1\nwidth 2\nheight 2\nspawn 0 0\n---\n..\n..\n"));
-    REQUIRE(state.objective().status == ObjectiveStatus::seeking_landmark);
-
-    // A boundary-blocked move carries none with equal before/after and leaves
-    // status unchanged.
-    const GameEvent blocked = state.move(Direction::up);
-    CHECK(payload_of(blocked).outcome.result == MoveResult::blocked_by_boundary);
-    CHECK(payload_of(blocked).objective_update.transition == ObjectiveTransition::none);
-    CHECK(payload_of(blocked).objective_update.before ==
-          payload_of(blocked).objective_update.after);
-    CHECK(state.objective().status == ObjectiveStatus::seeking_landmark);
-
-    // Rest never moves the actor, so it cannot advance the objective.
-    (void)state.rest();
-    CHECK(state.objective().status == ObjectiveStatus::seeking_landmark);
-
-    // Peek is pure and leaves the objective untouched.
-    (void)state.peek(Direction::right);
     CHECK(state.objective().status == ObjectiveStatus::seeking_landmark);
 }
 

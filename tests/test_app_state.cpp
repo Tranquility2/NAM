@@ -21,11 +21,11 @@ MoveOutcome moved_to(Coordinates from, Coordinates to, Terrain terrain) {
 }
 
 MoveOutcome blocked(Coordinates at, Terrain terrain) {
-    return MoveOutcome{MoveResult::blocked_by_terrain, at, at, terrain, 0, 0, 12, 12};
+    return MoveOutcome{MoveResult::blocked_by_terrain, at, at, terrain, 0, 0};
 }
 
 MoveOutcome boundary_blocked(Coordinates at, Terrain terrain) {
-    return MoveOutcome{MoveResult::blocked_by_boundary, at, at, terrain, 0, 0, 12, 12};
+    return MoveOutcome{MoveResult::blocked_by_boundary, at, at, terrain, 0, 0};
 }
 
 // Wrap a direction and outcome into the movement event the HUD now consumes. The
@@ -33,15 +33,6 @@ MoveOutcome boundary_blocked(Coordinates at, Terrain terrain) {
 // running counter keeps the events well-formed without the tests depending on it.
 GameEvent move_event(Direction direction, const MoveOutcome& outcome, std::uint64_t sequence = 0) {
     return GameEvent{sequence, MoveAttemptedEvent{direction, outcome}};
-}
-
-// Wrap a rest transition into the rest event the HUD now also consumes.
-GameEvent rest_event(RestResult result, Terrain terrain, std::uint32_t before, std::uint32_t after,
-                     std::uint32_t recovered, std::uint32_t provisions_before,
-                     std::uint32_t provisions_after, std::uint64_t sequence = 0) {
-    return GameEvent{sequence,
-                     RestedEvent{result, terrain, before, after, recovered, provisions_before,
-                                 provisions_after}};
 }
 
 }  // namespace
@@ -135,30 +126,6 @@ TEST_CASE("the recent history capacity counts successful moves only") {
     for (const RecentMove& entry : hud.recent()) {
         CHECK(entry.direction == Direction::right);
     }
-}
-
-TEST_CASE("a rest updates only the message and success flag, leaving counters and history") {
-    Hud hud;
-    hud.record_event(move_event(Direction::right, moved_to({0, 0}, {1, 0}, Terrain::open), 0));
-    const std::size_t moves = hud.move_count();
-    const std::size_t attempts = hud.attempt_count();
-    const std::size_t history = hud.recent().size();
-
-    hud.record_event(
-        rest_event(RestResult::recovered, Terrain::open, 4, 8, 4, 2, 1, 1));
-    CHECK(hud.move_count() == moves);
-    CHECK(hud.attempt_count() == attempts);
-    CHECK(hud.recent().size() == history);
-    CHECK_FALSE(hud.last_move_succeeded());
-    CHECK(hud.message() ==
-          "Made emergency camp on open ground and recovered 4 stamina. Provisions left: 1.");
-
-    hud.record_event(rest_event(RestResult::already_full, Terrain::open, 20, 20, 0, 1, 1, 2));
-    CHECK(hud.move_count() == moves);
-    CHECK(hud.attempt_count() == attempts);
-    CHECK(hud.recent().size() == history);
-    CHECK(hud.message() ==
-          "A heroic rest is attempted. Your stamina remains heroically full.");
 }
 
 TEST_CASE("a terrain block is an attempt, not a move, and records no history") {

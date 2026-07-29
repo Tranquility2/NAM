@@ -142,8 +142,8 @@ TEST_CASE("usage and version text are self-describing") {
     CHECK(usage.find("--seed") != std::string::npos);
     CHECK(usage.find("Tiny World") != std::string::npos);
     CHECK(usage.find("128") != std::string::npos);
-    // The interactive controls advertise the camp command (REQ-030).
-    CHECK(usage.find("c to camp") != std::string::npos);
+    // The interactive controls advertise the journal command.
+    CHECK(usage.find("j for the expedition journal") != std::string::npos);
 
     const std::string version = version_text();
     CHECK(version.find("nam_console") != std::string::npos);

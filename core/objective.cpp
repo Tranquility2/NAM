@@ -11,8 +11,6 @@
 #include <utility>
 #include <vector>
 
-#include "expedition_planning.h"
-#include "expedition_time.h"
 #include "terrain.h"
 #include "world_generation.h"
 
@@ -261,7 +259,7 @@ constexpr std::array<Coordinates, 4> kCardinalOffsets{
 
 }  // namespace
 
-LevelObjective create_beacon_objective(const Map& map, std::uint32_t max_stamina) {
+LevelObjective create_beacon_objective(const Map& map) {
     const std::vector<int> distance = compute_distances(map);
     const Coordinates spawn = map.spawn();
     const int width = static_cast<int>(map.width());
@@ -343,31 +341,20 @@ LevelObjective create_beacon_objective(const Map& map, std::uint32_t max_stamina
     } else {
         objective.status = ObjectiveStatus::seeking_landmark;
     }
-    // The cheapest round trip is computed only after the beacon coordinate is
-    // fixed, so it can never influence beacon selection or naming (RISK-001). Both
-    // legs use stamina_cost_of as the sole terrain-entry cost, and the two
-    // directions are summed independently because entry costs are asymmetric. A
-    // beacon at spawn has a zero-cost round trip.
+    // The cheapest route is computed only after the landmark and exit are fixed,
+    // so it can never influence selection or naming (RISK-001). Both legs use
+    // stamina_cost_of as the sole terrain-entry cost, and they are summed
+    // independently because entry costs are asymmetric. A level whose exit is at
+    // spawn has a zero-cost route.
     if (beacon == spawn) {
-        objective.minimum_round_trip_stamina_cost = 0;
+        objective.minimum_route_stamina_cost = 0;
     } else {
-        const std::uint64_t outbound = minimum_travel_cost(map, spawn, beacon);
-        const std::uint64_t inbound = minimum_travel_cost(map, beacon, spawn);
         constexpr std::uint64_t unreachable = std::numeric_limits<std::uint64_t>::max();
-        objective.minimum_round_trip_stamina_cost =
-            (outbound == unreachable || inbound == unreachable) ? 0 : outbound + inbound;
+        const std::uint64_t to_landmark = minimum_travel_cost(map, spawn, objective.landmark);
+        const std::uint64_t to_exit = minimum_travel_cost(map, objective.landmark, beacon);
+        objective.minimum_route_stamina_cost =
+            (to_landmark == unreachable || to_exit == unreachable) ? 0 : to_landmark + to_exit;
     }
-
-    // The minimum provisions, the completion-day baseline, and the deadline are
-    // pure objective properties computed by the planning search only after the
-    // beacon is fixed, so none can influence selection or naming (RISK-100). The
-    // lexicographic (overnights, provisions) search shares the live movement,
-    // rest, camp, and bivouac rules, so the baseline can never drift from play.
-    const ExpeditionPlanBaseline baseline =
-        compute_expedition_plan_baseline(map, spawn, beacon, max_stamina);
-    objective.minimum_required_provisions = baseline.minimum_required_provisions;
-    objective.minimum_completion_days = baseline.minimum_completion_days;
-    objective.deadline_days = deadline_day_for(baseline.minimum_completion_days);
 
     std::uint64_t reachable = 0;
     for (const int cell_distance : distance) {

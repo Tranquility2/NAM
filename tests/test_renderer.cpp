@@ -52,8 +52,6 @@ RenderInput make_input(const Map& map) {
     input.attempt_count = 5;
     input.stamina = 7;
     input.max_stamina = 12;
-    input.provisions = 3;
-    input.starting_provisions = 4;
     input.message = "Moved onto open ground for 1 stamina.";
     input.recent = {RecentMove{Direction::up}, RecentMove{Direction::left}};
     return input;
@@ -152,47 +150,10 @@ ExpeditionReport build_test_report(std::size_t interior_width) {
 
     RouteHistory route(map.spawn());
     Settings settings;  // Built-in identity.
-    return build_expedition_report(ExpeditionResult::completed, objective, map, visibility,
-                                   journal, route, world_identity_from(settings),
-                                   /*move_count=*/1, /*attempt_count=*/1,
-                                   /*final_stamina=*/11, /*max_stamina=*/12,
-                                   /*starting_provisions=*/4,
-                                   /*provisions_remaining=*/3, ExpeditionTime{},
-                                   objective.deadline_days);
-}
-
-ExpeditionReport build_rescued_report() {
-    const Map map = Map(4, 1, std::vector<Terrain>(4, Terrain::open), Coordinates{0, 0});
-    BeaconObjective objective;
-    objective.beacon = Coordinates{3, 0};
-    objective.name = "Glass River Beacon";
-    objective.status = ObjectiveStatus::returning_to_spawn;
-    objective.minimum_round_trip_stamina_cost = 6;
-    objective.minimum_required_provisions = 1;
-    objective.total_reachable_walkable_cells = 4;
-
-    VisibilityMap visibility(4, 1);
-    visibility.reveal_square(Coordinates{1, 0}, 1);
-
-    Journal journal;
-    MoveAttemptedEvent move;
-    move.direction = Direction::right;
-    move.outcome.result = MoveResult::moved;
-    move.outcome.terrain = Terrain::open;
-    move.outcome.stamina_cost = 1;
-    move.outcome.to = Coordinates{1, 0};
-    journal.record_event(GameEvent{0, move}, objective.name);
-
-    RouteHistory route(map.spawn());
-    route.record_event(GameEvent{0, move});
-    Settings settings;
-    return build_expedition_report(ExpeditionResult::rescued, objective, map, visibility, journal,
-                                   route, world_identity_from(settings),
-                                   /*move_count=*/1, /*attempt_count=*/2,
-                                   /*final_stamina=*/0, /*max_stamina=*/20,
-                                   /*starting_provisions=*/2,
-                                   /*provisions_remaining=*/0, ExpeditionTime{},
-                                   objective.deadline_days);
+    return build_expedition_report(objective, map, visibility, journal, route,
+                                   world_identity_from(settings), /*move_count=*/1,
+                                   /*attempt_count=*/1, /*final_stamina=*/11,
+                                   /*max_stamina=*/12);
 }
 
 // Concatenate a frame's raw rows so escape sequences can be searched globally.
@@ -295,6 +256,23 @@ BeaconObjective beacon_at(Coordinates cell, ObjectiveStatus status) {
 }  // namespace
 
 TEST_SUITE("console") {
+
+TEST_CASE("standard status shows stamina terrain and moves in order") {
+    const Map map = open_map(8, 4);
+    const Renderer renderer(plain_config());
+    const Frame frame = renderer.render(make_input(map), TerminalSize{80, 24});
+    const std::string visible = join_visible(frame);
+    const std::size_t stam = visible.find("Stamina: 7/12");
+    const std::size_t terr = visible.find("Terrain:");
+    const std::size_t moves = visible.find("Moves:");
+    REQUIRE(stam != std::string::npos);
+    REQUIRE(terr != std::string::npos);
+    REQUIRE(moves != std::string::npos);
+    CHECK(stam < terr);
+    CHECK(terr < moves);
+    CHECK(frame.size() == 24);
+    CHECK_FALSE(any_esc(frame));
+}
 
 TEST_CASE("a standard terminal yields a full-height glyph-bearing frame") {
     const Map map = open_map(8, 4);
@@ -404,51 +382,6 @@ TEST_CASE("debug mode adds a diagnostics line in the standard layout") {
     CHECK(has_debug);
 }
 
-TEST_CASE("standard status shows stamina provisions terrain and moves in order") {
-    const Map map = open_map(8, 4);
-    const Renderer renderer(plain_config());
-    const Frame frame = renderer.render(make_input(map), TerminalSize{80, 24});
-    const std::string visible = join_visible(frame);
-    const std::size_t stam = visible.find("Stamina: 7/12");
-    const std::size_t prov = visible.find("Provisions: 3/4");
-    const std::size_t terr = visible.find("Terrain:");
-    const std::size_t moves = visible.find("Moves:");
-    REQUIRE(stam != std::string::npos);
-    REQUIRE(prov != std::string::npos);
-    REQUIRE(terr != std::string::npos);
-    REQUIRE(moves != std::string::npos);
-    CHECK(stam < prov);
-    CHECK(prov < terr);
-    CHECK(terr < moves);
-    CHECK(frame.size() == 24);
-    CHECK_FALSE(any_esc(frame));
-}
-
-TEST_CASE("compact status places stamina and provisions before terrain and moves") {
-    const Map map = open_map(8, 4);
-    const Renderer renderer(plain_config());
-    const Frame frame = renderer.render(make_input(map), TerminalSize{80, 6});
-    const std::string visible = join_visible(frame);
-    const std::size_t pos = visible.find("(0,0)");
-    const std::size_t stam = visible.find("S:7/12");
-    const std::size_t prov = visible.find("P:3/4");
-    const std::size_t terr = visible.find("open ground");
-    const std::size_t moves = visible.find("M:3");
-    REQUIRE(pos != std::string::npos);
-    REQUIRE(stam != std::string::npos);
-    REQUIRE(prov != std::string::npos);
-    REQUIRE(terr != std::string::npos);
-    REQUIRE(moves != std::string::npos);
-    CHECK(pos < stam);
-    CHECK(stam < prov);
-    CHECK(prov < terr);
-    CHECK(terr < moves);
-    CHECK(frame.size() == 6);
-    for (const std::string& row : frame) {
-        CHECK(strip_ansi(row).size() <= 80);
-    }
-}
-
 TEST_CASE("stamina stays visible at the minimum compact width") {
     const Map map = open_map(8, 4);
     const Renderer renderer(plain_config());
@@ -485,27 +418,6 @@ TEST_CASE("plain-mode text is self-contained and ANSI-free") {
     CHECK(text.find("Pos") != std::string::npos);
     CHECK(text.find("Moves:") != std::string::npos);
     CHECK(text.find(actor_glyph) != std::string::npos);
-}
-
-TEST_CASE("hud status includes provisions in standard compact and plain layouts") {
-    const Map map = open_map(8, 4);
-    const Renderer renderer(plain_config());
-
-    const Frame standard = renderer.render(make_input(map), TerminalSize{80, 24});
-    CHECK(join_visible(standard).find(
-              "Pos (0,0)   Stamina: 7/12   Provisions: 3/4   Terrain: open ground   Moves: 3") !=
-          std::string::npos);
-    // The standard layout adds the day/deadline/daylight line under the status.
-    CHECK(join_visible(standard).find("Day 1/3  Daylight: 0/12 used") != std::string::npos);
-
-    const Frame compact = renderer.render(make_input(map), TerminalSize{80, 6});
-    CHECK(join_visible(compact).find("(0,0) S:7/12 P:3/4 D1/3 H0/12 open ground  M:3") !=
-          std::string::npos);
-
-    const std::string plain = renderer.render_plain(make_input(map));
-    CHECK(plain.find("Pos (0,0)  Stamina: 7/12  Provisions: 3/4  Terrain: open ground  Moves: 3") !=
-          std::string::npos);
-    CHECK(plain.find("Day 1/3  Daylight: 0/12 used") != std::string::npos);
 }
 
 TEST_CASE("rendering is a pure function of its input") {
@@ -847,56 +759,6 @@ TEST_CASE("the interactive discovery screen contains the exact ordered lines and
     CHECK(lines[3] == "Press Enter to continue, or use a movement key.");
 }
 
-TEST_CASE("the interactive rescue screen contains exact lines and stays bounded") {
-    const Renderer renderer(color_config());
-    const Frame frame = renderer.render_rescue("Glass River Beacon", TerminalSize{80, 16});
-    CHECK(frame.size() == 16);
-    CHECK_FALSE(any_esc(frame));
-    for (const std::string& row : frame) {
-        CHECK(strip_ansi(row).size() <= 80);
-    }
-    const std::vector<std::string> lines = panel_content_lines(frame);
-    REQUIRE(lines.size() == 5);
-    CHECK(lines[0] == "RESCUE REQUESTED");
-    CHECK(lines[1] == "Glass River Beacon");
-    CHECK(lines[2] == "Provisions exhausted and no move remains.");
-    CHECK(lines[3] == "You light a flare and wait for an embarrassingly early pickup.");
-    CHECK(lines[4] == "Press Enter to read the expedition report.");
-
-    const std::string plain = renderer.render_rescue_plain("Glass River Beacon");
-    CHECK(plain ==
-          "RESCUE REQUESTED\n"
-          "Glass River Beacon\n"
-          "Provisions exhausted and no move remains.\n"
-          "You light a flare and wait for an embarrassingly early pickup.\n"
-          "Press Enter to read the expedition report.\n");
-}
-
-TEST_CASE("the interactive overdue screen contains exact lines and stays bounded") {
-    const Renderer renderer(color_config());
-    const Frame frame = renderer.render_overdue("Glass River Beacon", TerminalSize{80, 16});
-    CHECK(frame.size() == 16);
-    CHECK_FALSE(any_esc(frame));
-    for (const std::string& row : frame) {
-        CHECK(strip_ansi(row).size() <= 80);
-    }
-    const std::vector<std::string> lines = panel_content_lines(frame);
-    REQUIRE(lines.size() == 5);
-    CHECK(lines[0] == "EXPEDITION OVERDUE");
-    CHECK(lines[1] == "Glass River Beacon");
-    CHECK(lines[2] == "The return window closed while you were still out there.");
-    CHECK(lines[3] == "A late retrieval party trudges out and escorts you home.");
-    CHECK(lines[4] == "Press Enter to read the expedition report.");
-
-    const std::string plain = renderer.render_overdue_plain("Glass River Beacon");
-    CHECK(plain ==
-          "EXPEDITION OVERDUE\n"
-          "Glass River Beacon\n"
-          "The return window closed while you were still out there.\n"
-          "A late retrieval party trudges out and escorts you home.\n"
-          "Press Enter to read the expedition report.\n");
-}
-
 TEST_CASE("the plain discovery block is the exact lines with one trailing newline and no ANSI") {
     // REQ-033 / TEST-009: the plain discovery block is the four logical lines, one
     // per line, with a single trailing newline and no escape byte.
@@ -940,14 +802,6 @@ TEST_CASE("the plain report block is the full report with one trailing newline a
     REQUIRE(block.size() >= 2);
     CHECK(block.back() == '\n');
     CHECK(block[block.size() - 2] != '\n');
-}
-
-TEST_CASE("a rescued report renders rescued result text and a 750-point score line") {
-    const Renderer renderer(plain_config());
-    const ExpeditionReport report = build_rescued_report();
-    const std::string block = renderer.render_report_plain(report);
-    CHECK(block.find("Result: rescued after running out of provisions.") != std::string::npos);
-    CHECK(block.find("Score: 605 / 750") != std::string::npos);
 }
 
 TEST_CASE("the interactive report frame is exactly rows tall, ANSI-free, and column-bounded") {

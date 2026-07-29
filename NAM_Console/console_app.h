@@ -20,19 +20,15 @@ namespace nam::console {
 // The console's presentation state, kept deliberately independent of the core
 // ObjectiveStatus (GUD-003). `gameplay` shows the map/HUD frame; `beacon_discovery`
 // is a temporary acknowledgement screen shown after a move first reaches the
-// beacon and is dismissed by the next input; `expedition_complete` is the
-// scrollable final report shown after the return to spawn or a rescue and stays
-// active until the player acknowledges it; `expedition_rescue` is the humorous
-// rescue acknowledgement screen shown before the failed report and dismissed by
-// Enter; `journal` is the bounded scrollable expedition-journal screen, opened
-// over any of the other states and dismissed back to the exact state it was
-// opened from.
+// landmark and is dismissed by the next input; `expedition_complete` is the
+// scrollable final report shown after reaching the exit and stays active until the
+// player acknowledges it; `journal` is the bounded scrollable expedition-journal
+// screen, opened over any of the other states and dismissed back to the exact
+// state it was opened from.
 enum class Presentation {
     gameplay,
     beacon_discovery,
     expedition_complete,
-    expedition_rescue,
-    expedition_overdue,
     journal,
 };
 
@@ -74,30 +70,19 @@ public:
     // never touches raw mode or the cursor, and stays readable when redirected.
     [[nodiscard]] int run_plain(std::istream& input, std::ostream& output);
 
-    // The final line shown once after interactive teardown. A completed or rescued
-    // run shows its fixed restored message (naming the finished or abandoned
-    // beacon) so acknowledgement can never overwrite it; any other end (quit before
-    // an ending, end of input, interrupt) keeps its HUD goodbye wording.
+    // The final line shown once after interactive teardown. A completed run shows
+    // its fixed restored message (naming the finished level) so acknowledgement can
+    // never overwrite it; any other end (quit before an ending, end of input,
+    // interrupt) keeps its HUD goodbye wording.
     [[nodiscard]] const std::string& final_message() const noexcept {
         return final_report_active_ ? restored_message_ : hud_.message();
     }
 
 private:
     [[nodiscard]] RenderInput make_input(bool emphasize) const;
-    // The result of applying one command: the objective transition it caused (none
-    // for rest and camp) and the expedition-ending transition the core reported on
-    // the event (none, rescued, or overdue).
-    struct AppliedCommand {
-        ObjectiveTransition objective_transition = ObjectiveTransition::none;
-        ExpeditionEndingTransition ending = ExpeditionEndingTransition::none;
-    };
-    // Apply one movement command and return the transitions it caused so the
-    // caller can choose the resulting presentation state.
-    [[nodiscard]] AppliedCommand apply_move(Direction direction, bool& emphasize);
-    // Apply one rest command and return the ending transition it caused.
-    [[nodiscard]] ExpeditionEndingTransition apply_rest(bool& emphasize);
-    // Apply one camp command and return the ending transition it caused.
-    [[nodiscard]] ExpeditionEndingTransition apply_camp(bool& emphasize);
+    // Apply one movement command and return the objective transition it caused so
+    // the caller can choose the resulting presentation state.
+    [[nodiscard]] ObjectiveTransition apply_move(Direction direction, bool& emphasize);
 
     // Enter the completion presentation: build the completed final expedition
     // report from the fully-updated game, journal, route history, and objective
@@ -105,20 +90,6 @@ private:
     // message. Emits no core event. Called only after the completing event (or the
     // initial single-cell completion) has been fully recorded.
     void enter_completion();
-
-    // Enter the rescue presentation: record the structured rescue journal entry,
-    // build the rescued final report, reset the report viewport, and set the
-    // restored rescued final message. Emits no core event. Called after the
-    // command whose event reported a rescue has been fully recorded. Leaves the
-    // presentation on the rescue acknowledgement screen; the caller draws it.
-    void enter_rescue();
-
-    // Enter the overdue presentation: record the structured overdue journal entry,
-    // build the overdue final report, reset the report viewport, and set the
-    // restored overdue final message. Emits no core event. Called after the command
-    // whose event reported an overdue ending has been fully recorded. Leaves the
-    // presentation on the overdue acknowledgement screen; the caller draws it.
-    void enter_overdue();
 
     // Open the journal over the current presentation. Remembers the state it was
     // opened from and positions the scroll on the newest page for the given entry
@@ -145,14 +116,14 @@ private:
     Presentation previous_presentation_ = Presentation::gameplay;
     // Index of the topmost visible journal entry while the journal is open.
     int journal_scroll_ = 0;
-    // The completed or rescued final report, built once when the run ends. Absent
-    // until an ending is reached.
+    // The final report, built once when the run ends. Absent until the level is
+    // complete.
     std::optional<ExpeditionReport> report_;
     // The scroll offsets into the final report while it is presented.
     ReportViewport report_viewport_;
     std::string restored_message_;
-    // True once a completed or rescued ending has been reached, so final_message
-    // shows the restored message instead of the HUD goodbye.
+    // True once the level has been completed, so final_message shows the restored
+    // message instead of the HUD goodbye.
     bool final_report_active_ = false;
 };
 
@@ -162,16 +133,6 @@ private:
 
 // Whether an event asks to quit (Escape, or 'q'). Exposed for testing.
 [[nodiscard]] bool is_quit_event(const KeyEvent& event) noexcept;
-
-// Whether an event asks to rest in place (lower- or upper-case 'r'). Rest is a
-// distinct command family from movement, so it is mapped separately from
-// direction_for. Exposed for direct testing.
-[[nodiscard]] bool is_rest_event(const KeyEvent& event) noexcept;
-
-// Whether an event asks to camp in place (lower- or upper-case 'c'). Camp is a
-// distinct command family from movement and rest, so it is mapped separately.
-// Exposed for direct testing.
-[[nodiscard]] bool is_camp_event(const KeyEvent& event) noexcept;
 
 // Whether an event asks to open or dismiss the expedition journal (lower- or
 // upper-case 'j'). `j` is reserved for the journal and is no longer a movement
