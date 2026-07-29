@@ -66,7 +66,7 @@ GameState make_hill_state() {
 // and daylight, then entering it reveals the water.
 GameState make_mountain_reach_state() {
     return GameState(make_map(
-        "NAM-MAP 1\nwidth 14\nheight 3\nspawn 0 1\n---\n==============\n.xxxxxxxxxxx.~\n==============\n"));
+        "NAM-MAP 1\nwidth 14\nheight 4\nspawn 0 1\n---\n==============\n.xxxxxxxxxxx.~\n.=============\n..............\n"));
 }
 
 std::size_t count_char(const std::string& text, char needle) {
@@ -160,45 +160,20 @@ GameState make_overdue_mountain_state() {
 std::string overdue_plain_commands() {
     GameState probe = make_overdue_mountain_state();
     std::string commands;
-    Direction direction = Direction::right;
-    char command = 'd';
-    for (int guard = 0; guard < 200; ++guard) {
-        const GameEvent event = probe.move(direction);
-        commands.push_back(command);
-        commands.push_back('\n');
-        if (event.ending != ExpeditionEndingTransition::none) {
+    // Movement never fails now, so the run only ages by deliberately camping. A
+    // camp is eligible once an hour has elapsed or the meter is below the cap, so
+    // each day is a short there-and-back march followed by a camp.
+    for (int guard = 0; guard < 40; ++guard) {
+        (void)probe.move(Direction::right);
+        commands += "d\n";
+        (void)probe.move(Direction::left);
+        commands += "a\n";
+        const GameEvent camp_event = probe.camp();
+        commands += "c\n";
+        if (camp_event.ending != ExpeditionEndingTransition::none) {
             return commands;
         }
-        if (const auto* move = std::get_if<MoveAttemptedEvent>(&event.data);
-            move != nullptr && move->outcome.result == MoveResult::moved) {
-            if (direction == Direction::right) {
-                direction = Direction::left;
-                command = 'a';
-            } else {
-                direction = Direction::right;
-                command = 'd';
-            }
-        } else {
-            const GameEvent camp_event = probe.camp();
-            commands += "c\n";
-            if (camp_event.ending != ExpeditionEndingTransition::none) {
-                return commands;
-            }
-        }
     }
-    return commands;
-}
-
-std::string stranded_plain_commands() {
-    GameState probe = make_rescue_state();
-    std::string commands;
-    for (std::uint32_t i = 0; i < probe.starting_provisions(); ++i) {
-        commands += "d\na\nr\n";
-    }
-    for (std::uint32_t i = 0; i < GameState::maximum_stamina; ++i) {
-        commands += (i % 2 == 0) ? "d\n" : "a\n";
-    }
-    commands += "d\n";  // blocked at zero stamina with no provisions -> stranded.
     return commands;
 }
 
@@ -435,8 +410,12 @@ TEST_CASE("entering a hill reveals a far glyph that persists as memory after lea
     CHECK(remembered.find('\x1b') == std::string::npos);  // plain stays ANSI-free.
 }
 
-TEST_CASE("an unaffordable fields step keeps a far glyph hidden until camp lets the actor enter") {
-    const std::string ten_fields = R"(d
+TEST_CASE("a long fields march reveals a far glyph without ever needing to camp") {
+    // Fields charge two stamina and immediately return two, so a long march is
+    // stamina-neutral: the actor simply walks until the distant water is in sight,
+    // with no block and no camp in between.
+    const std::string eleven_fields = R"(d
+d
 d
 d
 d
@@ -448,25 +427,18 @@ d
 d
 )";
 
-    std::string blocked;
-    const int code_blocked = run_plain_state(make_mountain_reach_state(), ten_fields + "d\nq\n", blocked);
-    CHECK(code_blocked == 0);
-    CHECK(blocked.find("Stamina: 0/20") != std::string::npos);
-    CHECK(blocked.find("Not enough stamina for fields: need 2, have 0.") != std::string::npos);
-    CHECK(blocked.find('~') == std::string::npos);
-
     std::string reached;
-    const int code_reached = run_plain_state(make_mountain_reach_state(), ten_fields + "c\nd\nq\n", reached);
-    CHECK(code_reached == 0);
-    CHECK(reached.find("Made camp on fields. Stamina restored to 20, provisions ") !=
+    const int code = run_plain_state(make_mountain_reach_state(), eleven_fields + "q\n", reached);
+    CHECK(code == 0);
+    CHECK(reached.find("Moved onto fields for 2 stamina and 1 hour. Recovered 2 stamina.") !=
           std::string::npos);
-    CHECK(reached.find("Day 2 begins.") != std::string::npos);
-    CHECK(reached.find("Moved onto fields for 2 stamina and 1 hour.") != std::string::npos);
+    CHECK(reached.find("Stamina: 20/20") != std::string::npos);
+    CHECK(reached.find("Stamina: 18/20") == std::string::npos);
     CHECK(reached.find('~') != std::string::npos);
     CHECK(reached.find('\x1b') == std::string::npos);
 }
 
-TEST_CASE("a scripted fields route shows costs drains stamina and blocks deterministically") {
+TEST_CASE("a scripted fields route holds stamina steady and stays deterministic") {
     const std::string script = R"(d
 d
 d
@@ -484,16 +456,11 @@ q
     const int code = run_plain_state(make_cost_state(), script, output);
     CHECK(code == 0);
 
-    CHECK(output.find("Moved onto fields for 2 stamina and 1 hour.") != std::string::npos);
-    CHECK(output.find("Stamina: 18/20") != std::string::npos);
-    CHECK(output.find("Stamina: 16/20") != std::string::npos);
-    CHECK(output.find("Stamina: 12/20") != std::string::npos);
-    CHECK(output.find("Stamina: 8/20") != std::string::npos);
-    CHECK(output.find("Stamina: 4/20") != std::string::npos);
-    CHECK(output.find("Stamina: 0/20") != std::string::npos);
-    CHECK(output.find("Daylight: 10/12 used") != std::string::npos);
-    CHECK(output.find("Not enough stamina for fields: need 2, have 0.") != std::string::npos);
-    CHECK(output.find('~') == std::string::npos);
+    CHECK(output.find("Moved onto fields for 2 stamina and 1 hour. Recovered 2 stamina.") !=
+          std::string::npos);
+    CHECK(output.find("Stamina: 20/20") != std::string::npos);
+    CHECK(output.find("Stamina: 0/20") == std::string::npos);
+    CHECK(output.find("Daylight: 11/12 used") != std::string::npos);
     CHECK(output.find('\x1b') == std::string::npos);
 
     std::string second;
@@ -522,7 +489,7 @@ q
     CHECK(letter.find("Unknown command") == std::string::npos);
 }
 
-TEST_CASE("camping from zero lets the actor complete the next water move") {
+TEST_CASE("a water step is affordable straight after a long fields march") {
     const auto make_zero_water_state = [] {
         return GameState(make_map(R"(NAM-MAP 1
 width 14
@@ -546,21 +513,14 @@ d
 d
 )";
 
-    std::string blocked_first;
-    const int code_blocked = run_plain_state(make_zero_water_state(), ten_fields + "d\nq\n", blocked_first);
-    CHECK(code_blocked == 0);
-    CHECK(blocked_first.find("Stamina: 0/20") != std::string::npos);
-    CHECK(blocked_first.find("Not enough stamina for water: need 3, have 0.") !=
-          std::string::npos);
-
-    std::string recovered;
-    const int code = run_plain_state(make_zero_water_state(), ten_fields + "c\nd\nq\n", recovered);
+    std::string travelled;
+    const int code = run_plain_state(make_zero_water_state(), ten_fields + "d\nq\n", travelled);
     CHECK(code == 0);
-    CHECK(recovered.find("Made camp on fields. Stamina restored to 20, provisions ") !=
-          std::string::npos);
-    CHECK(recovered.find("Moved onto water for 3 stamina and 2 hours.") != std::string::npos);
-    CHECK(recovered.find("Stamina: 17/20") != std::string::npos);
-    CHECK(recovered.find('\x1b') == std::string::npos);
+    // The fields march is stamina-neutral, so the water step is charged from the
+    // cap and simply succeeds.
+    CHECK(travelled.find("Moved onto water for 3 stamina and 2 hours.") != std::string::npos);
+    CHECK(travelled.find("Stamina: 17/20") != std::string::npos);
+    CHECK(travelled.find('\x1b') == std::string::npos);
 }
 
 TEST_CASE("plain mode recognises camp command and reports camp eligibility") {
@@ -718,10 +678,10 @@ TEST_CASE("plain discovery prints the reminder for rest and unknown commands") {
 }
 
 TEST_CASE("plain completion prints the full report including the completing move") {
-    // REQ-009 / REQ-011 / TEST-006: walking out and back completes the expedition
-    // and prints the final report whose counts and final stamina include the
-    // completing move (six open-ground steps drain 12 -> 6). Optimal round trip is
-    // six, so the score is the maximum.
+    // REQ-009 / REQ-011 / TEST-006: walking to the landmark and on to the exit
+    // completes the level and prints the final report whose counts include the
+    // completing move. Open ground gives back more than it charges, so the meter
+    // is still at the cap.
     const std::string name = corridor_beacon_name();
     std::string output;
     const int code = run_plain_state(make_corridor_state(), "d\nd\nd\n", output);
@@ -732,7 +692,7 @@ TEST_CASE("plain completion prints the full report including the completing move
     CHECK(output.find("Move attempts: 3") != std::string::npos);
     CHECK(output.find("Blocked moves: 0") != std::string::npos);
     CHECK(output.find("Provisions used: 0") != std::string::npos);
-    CHECK(output.find("Final stamina: 17/20") != std::string::npos);
+    CHECK(output.find("Final stamina: 20/20") != std::string::npos);
     CHECK(output.find("Optimal round-trip cost: 6") != std::string::npos);
     CHECK(output.find("ROUTE MAP") != std::string::npos);
     CHECK(output.find("EXPEDITION JOURNAL") != std::string::npos);
@@ -766,21 +726,6 @@ TEST_CASE("plain completion exits without a goodbye on end of input") {
     CHECK(run_plain_state(make_corridor_state(), route + "q\n", quit_output) == 0);
     CHECK(quit_output.find("Goodbye") == std::string::npos);
     CHECK(eof_output == quit_output);  // the trailing q is unread, so output is identical.
-}
-
-TEST_CASE("plain mode rescue prints rescue block then rescued report and exits zero") {
-    std::string output;
-    const int code = run_plain_state(make_rescue_state(), stranded_plain_commands(), output);
-    CHECK(code == 0);
-
-    const std::size_t rescue = output.find("RESCUE REQUESTED\n");
-    const std::size_t report = output.find("EXPEDITION REPORT");
-    REQUIRE(rescue != std::string::npos);
-    REQUIRE(report != std::string::npos);
-    CHECK(rescue < report);
-    CHECK(output.find("Result: rescued after running out of provisions.") != std::string::npos);
-    CHECK(output.find("/ 750") != std::string::npos);
-    CHECK(output.find("Goodbye") == std::string::npos);
 }
 
 TEST_CASE("manual quit before any ending prints no report") {

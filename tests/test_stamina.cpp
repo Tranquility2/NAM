@@ -93,18 +93,22 @@ TEST_CASE("a new game starts at full stamina and never charges the spawn") {
     CHECK(state.actor_terrain() == Terrain::open);
 }
 
-TEST_CASE("successful movement onto each terrain spends its exact cost") {
+TEST_CASE("successful movement onto each terrain charges its cost then its recovery") {
     struct Case {
         char symbol;
         Terrain terrain;
         std::uint32_t cost;
+        std::uint32_t recovered;
+        std::uint32_t after;
     };
+    // From the cap, the passive recovery is clamped by the headroom the charge
+    // just opened, so easy ground is effectively free and rough ground drains.
     const Case cases[] = {
-        {'.', Terrain::open, 1u},
-        {'x', Terrain::fields, 2u},
-        {'^', Terrain::hill, 2u},
-        {'~', Terrain::water, 3u},
-        {'@', Terrain::mountain, 4u},
+        {'.', Terrain::open, 1u, 1u, 20u},
+        {'x', Terrain::fields, 2u, 2u, 20u},
+        {'^', Terrain::hill, 2u, 1u, 19u},
+        {'~', Terrain::water, 3u, 0u, 17u},
+        {'@', Terrain::mountain, 4u, 0u, 16u},
     };
 
     for (const Case& c : cases) {
@@ -113,86 +117,93 @@ TEST_CASE("successful movement onto each terrain spends its exact cost") {
         CHECK(outcome.result == MoveResult::moved);
         CHECK(outcome.terrain == c.terrain);
         CHECK(outcome.stamina_cost == c.cost);
+        CHECK(outcome.stamina_recovered == c.recovered);
         CHECK(outcome.stamina_before == 20u);
-        CHECK(outcome.stamina_after == 20u - c.cost);
+        CHECK(outcome.stamina_after == c.after);
         CHECK(outcome.to == Coordinates{1, 0});
         CHECK(state.actor_position() == Coordinates{1, 0});
-        CHECK(state.stamina() == 20u - c.cost);
+        CHECK(state.stamina() == c.after);
     }
 }
 
-TEST_CASE("a fields path can leave two stamina and then block a four-cost mountain") {
-    // Fields cost 2 stamina but only 1 daylight hour, so nine fields steps spend 18
-    // stamina over nine hours (within the 12-hour day) and leave stamina 2 before a
-    // mountain that then blocks by stamina rather than daylight.
-    GameState state(make_map("NAM-MAP 1\nwidth 11\nheight 1\nspawn 0 0\n---\n.xxxxxxxxx@\n"));
+TEST_CASE("open ground gives back more stamina than it charges") {
+    // Stepping onto the mountain drains four; stepping back onto open ground
+    // charges one and immediately returns two, so easy travel is restorative.
+    GameState state(make_map("NAM-MAP 1\nwidth 4\nheight 1\nspawn 0 0\n---\n.@..\n"));
 
-    for (int i = 0; i < 9; ++i) {
-        CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // -2 stamina
-    }
-    CHECK(state.stamina() == 2u);
-    CHECK(state.expedition_time().daylight_hours_used == 9u);
+    const MoveOutcome onto_mountain = outcome_of(state.move(Direction::right));
+    CHECK(onto_mountain.result == MoveResult::moved);
+    CHECK(onto_mountain.stamina_cost == 4u);
+    CHECK(onto_mountain.stamina_recovered == 0u);
+    CHECK(onto_mountain.stamina_after == 16u);
 
-    const Coordinates before_pos = state.actor_position();
-    const std::string before_render = state.render();
-    const std::string before_fog = visibility_signature(state);
-
-    const MoveOutcome blocked = outcome_of(state.move(Direction::right));  // mountain, need 4
-    CHECK(blocked.result == MoveResult::blocked_by_stamina);
-    CHECK(blocked.terrain == Terrain::mountain);
-    CHECK(blocked.stamina_cost == 4u);
-    CHECK(blocked.stamina_before == 2u);
-    CHECK(blocked.stamina_after == 2u);
-    CHECK(blocked.from == before_pos);
-    CHECK(blocked.to == before_pos);
-
-    // The block preserves actor position, stamina, visibility, and serialization.
-    CHECK(state.actor_position() == before_pos);
-    CHECK(state.stamina() == 2u);
-    CHECK(state.render() == before_render);
-    CHECK(visibility_signature(state) == before_fog);
+    const MoveOutcome back_to_open = outcome_of(state.move(Direction::left));
+    CHECK(back_to_open.result == MoveResult::moved);
+    CHECK(back_to_open.stamina_cost == 1u);
+    CHECK(back_to_open.stamina_recovered == 2u);
+    CHECK(back_to_open.stamina_after == 17u);
+    CHECK(state.stamina() == 17u);
 }
 
-TEST_CASE("an exact-cost path reaches zero and then blocks without underflow") {
-    // Ten fields steps spend all 20 stamina over ten daylight hours; the eleventh
-    // open step still fits the remaining daylight, so the block is by stamina.
-    GameState state(make_map("NAM-MAP 1\nwidth 12\nheight 1\nspawn 0 0\n---\n.xxxxxxxxxx.\n"));
+TEST_CASE("reaching the level landmark restores the meter completely") {
+    // The landmark is the safe waypoint of the level: entering it for the first
+    // time refills the meter no matter how drained the approach was.
+    GameState state(make_map("NAM-MAP 1\nwidth 4\nheight 1\nspawn 0 0\n---\n.@@.\n"));
+    REQUIRE(state.objective().landmark == Coordinates{2, 0});
 
-    for (int i = 0; i < 10; ++i) {
-        CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // -2 stamina
+    CHECK(outcome_of(state.move(Direction::right)).stamina_after == 16u);
+
+    const MoveOutcome onto_landmark = outcome_of(state.move(Direction::right));
+    CHECK(onto_landmark.result == MoveResult::moved);
+    CHECK(onto_landmark.stamina_cost == 4u);
+    CHECK(onto_landmark.stamina_before == 16u);
+    CHECK(onto_landmark.stamina_recovered == 8u);
+    CHECK(onto_landmark.stamina_after == 20u);
+    CHECK(state.stamina() == 20u);
+}
+
+TEST_CASE("the stamina charge saturates at zero instead of refusing a step") {
+    // A two-cell water channel charges three per step and recovers nothing, so
+    // the meter empties and then stays empty while travel continues.
+    GameState state(make_map("NAM-MAP 1\nwidth 2\nheight 1\nspawn 0 0\n---\n~~\n"));
+
+    Direction next = Direction::right;
+    for (int i = 0; i < 7; ++i) {
+        CHECK(outcome_of(state.move(next)).result == MoveResult::moved);
+        next = next == Direction::right ? Direction::left : Direction::right;
     }
     CHECK(state.stamina() == 0u);
-    CHECK(state.expedition_time().daylight_hours_used == 10u);
 
-    const MoveOutcome blocked = outcome_of(state.move(Direction::right));  // open, need 1
-    CHECK(blocked.result == MoveResult::blocked_by_stamina);
-    CHECK(blocked.terrain == Terrain::open);
-    CHECK(blocked.stamina_cost == 1u);
-    CHECK(blocked.stamina_before == 0u);
-    CHECK(blocked.stamina_after == 0u);
+    const MoveOutcome exhausted = outcome_of(state.move(next));
+    CHECK(exhausted.result == MoveResult::moved);
+    CHECK(exhausted.terrain == Terrain::water);
+    CHECK(exhausted.stamina_cost == 3u);
+    CHECK(exhausted.stamina_before == 0u);
+    CHECK(exhausted.stamina_recovered == 0u);
+    CHECK(exhausted.stamina_after == 0u);
     CHECK(state.stamina() == 0u);
-    CHECK(state.actor_position() == Coordinates{10, 0});
+    CHECK(state.actor_position() == Coordinates{0, 0});
 }
 
 TEST_CASE("boundary and wall blocks cost zero at non-full stamina") {
-    GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.x=\n"));
+    GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.@=\n"));
 
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // fields, 20->18
-    CHECK(state.stamina() == 18u);
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // mountain, 20->16
+    CHECK(state.stamina() == 16u);
 
     const MoveOutcome wall = outcome_of(state.move(Direction::right));  // wall
     CHECK(wall.result == MoveResult::blocked_by_terrain);
     CHECK(wall.stamina_cost == 0u);
-    CHECK(wall.stamina_before == 18u);
-    CHECK(wall.stamina_after == 18u);
+    CHECK(wall.stamina_before == 16u);
+    CHECK(wall.stamina_after == 16u);
 
     const MoveOutcome edge = outcome_of(state.move(Direction::up));  // off the top edge
     CHECK(edge.result == MoveResult::blocked_by_boundary);
     CHECK(edge.stamina_cost == 0u);
-    CHECK(edge.stamina_before == 18u);
-    CHECK(edge.stamina_after == 18u);
+    CHECK(edge.stamina_before == 16u);
+    CHECK(edge.stamina_after == 16u);
 
-    CHECK(state.stamina() == 18u);
+    CHECK(state.stamina() == 16u);
     CHECK(state.actor_position() == Coordinates{1, 0});
 }
 
@@ -241,7 +252,7 @@ TEST_CASE("resting at full stamina is a heroic no-op and still emits one event")
 }
 
 TEST_CASE("resting below full on mountain recovers two and spends one provision") {
-    GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.@.\n"));
+    GameState state(make_map("NAM-MAP 1\nwidth 4\nheight 1\nspawn 0 0\n---\n.@..\n"));
     CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 20->16
     REQUIRE(state.actor_terrain() == Terrain::mountain);
     const std::uint32_t provisions_before = state.provisions();
@@ -261,16 +272,20 @@ TEST_CASE("resting below full on mountain recovers two and spends one provision"
 }
 
 TEST_CASE("resting on fields is terrain based and capped at twenty") {
-    GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.x.\n"));
-    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 20->18
+    // Spawn on fields and drain onto the neighbouring mountain: the step back
+    // onto fields charges two and returns two, so the meter holds at 16.
+    GameState state(make_map("NAM-MAP 1\nwidth 4\nheight 1\nspawn 0 0\n---\nx@..\n"));
+    CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 20->16
+    CHECK(outcome_of(state.move(Direction::left)).result == MoveResult::moved);   // holds at 16
     REQUIRE(state.actor_terrain() == Terrain::fields);
+    REQUIRE(state.stamina() == 16u);
     const std::uint32_t provisions_before = state.provisions();
 
     const RestedEvent rested = rested_of(state.rest());
     CHECK(rested.result == RestResult::recovered);
     CHECK(rested.terrain == Terrain::fields);
-    CHECK(rested.stamina_before == 18u);
-    CHECK(rested.stamina_recovered == 2u);  // fields recover 6, but cap is 20.
+    CHECK(rested.stamina_before == 16u);
+    CHECK(rested.stamina_recovered == 4u);  // fields recover 6, but cap is 20.
     CHECK(rested.stamina_after == 20u);
     CHECK(rested.provisions_before == provisions_before);
     CHECK(rested.provisions_after + 1u == provisions_before);
@@ -280,17 +295,20 @@ TEST_CASE("resting on fields is terrain based and capped at twenty") {
 
 TEST_CASE("resting from seventeen eighteen and nineteen only tops up to the maximum") {
     struct Case {
+        std::uint32_t moves;
         std::uint32_t before;
         std::uint32_t recovered;
     };
-    const Case cases[] = {{17u, 3u}, {18u, 2u}, {19u, 1u}};
+    // The mountain at index 1 drains the meter to 16 and each following open step
+    // nets one back, so a short approach stands on open ground at 17, 18, or 19.
+    const Case cases[] = {{2u, 17u, 3u}, {3u, 18u, 2u}, {4u, 19u, 1u}};
     for (const Case& c : cases) {
         GameState state(
-            make_map("NAM-MAP 1\nwidth 25\nheight 1\nspawn 0 0\n---\n.........................\n"));
-        const std::uint32_t moves_needed = GameState::maximum_stamina - c.before;
-        for (std::uint32_t i = 0; i < moves_needed; ++i) {
+            make_map("NAM-MAP 1\nwidth 16\nheight 1\nspawn 0 0\n---\n.@..............\n"));
+        for (std::uint32_t i = 0; i < c.moves; ++i) {
             CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);
         }
+        REQUIRE(state.actor_terrain() == Terrain::open);
         REQUIRE(state.stamina() == c.before);
         const RestedEvent rested = rested_of(state.rest());
         CHECK(rested.result == RestResult::recovered);
@@ -302,7 +320,7 @@ TEST_CASE("resting from seventeen eighteen and nineteen only tops up to the maxi
 }
 
 TEST_CASE("resting below full with zero provisions is a no-op") {
-    GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.@.\n"));
+    GameState state(make_map("NAM-MAP 1\nwidth 4\nheight 1\nspawn 0 0\n---\n.@..\n"));
     REQUIRE(state.provisions() >= 1u);
 
     std::uint32_t safety = 0;
@@ -342,16 +360,18 @@ TEST_CASE("resting below full with zero provisions is a no-op") {
 }
 
 TEST_CASE("resting is blocked when too little daylight remains") {
-    // Eleven open steps spend eleven daylight hours, leaving one hour of daylight —
-    // fewer than the two an emergency rest needs. Stamina is below the cap and a
-    // provision remains, so the rest is blocked purely by daylight and changes no
-    // state, still emitting exactly one event.
-    GameState state(make_map("NAM-MAP 1\nwidth 13\nheight 1\nspawn 0 0\n---\n.............\n"));
-    for (int i = 0; i < 11; ++i) {
+    // Five water steps spend ten daylight hours and fifteen stamina; one open step
+    // spends the eleventh hour, leaving one hour of daylight — fewer than the two
+    // an emergency rest needs. Stamina is below the cap and a provision remains, so
+    // the rest is blocked purely by daylight and changes no state, still emitting
+    // exactly one event.
+    GameState state(
+        make_map("NAM-MAP 1\nwidth 20\nheight 1\nspawn 0 0\n---\n.~~~~~..............\n"));
+    for (int i = 0; i < 6; ++i) {
         REQUIRE(outcome_of(state.move(Direction::right)).result == MoveResult::moved);
     }
     CHECK(state.expedition_time().daylight_hours_used == 11u);
-    CHECK(state.stamina() == 9u);
+    CHECK(state.stamina() == 6u);
     REQUIRE(state.provisions() >= 1u);
 
     const std::uint32_t provisions_before = state.provisions();
@@ -372,23 +392,24 @@ TEST_CASE("resting is blocked when too little daylight remains") {
 }
 
 TEST_CASE("resting consumes two daylight hours") {
-    // A single fields step spends one daylight hour; a following rest recovers
-    // stamina, spends a provision, and consumes exactly two more daylight hours.
-    GameState state(make_map("NAM-MAP 1\nwidth 4\nheight 1\nspawn 0 0\n---\n.xxx\n"));
-    REQUIRE(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 20->18, 1 hour
-    REQUIRE(state.actor_terrain() == Terrain::fields);
-    CHECK(state.expedition_time().daylight_hours_used == 1u);
+    // A single water step spends two daylight hours and three stamina; a following
+    // rest recovers stamina, spends a provision, and consumes exactly two more
+    // daylight hours.
+    GameState state(make_map("NAM-MAP 1\nwidth 4\nheight 1\nspawn 0 0\n---\n.~..\n"));
+    REQUIRE(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 20->17
+    REQUIRE(state.actor_terrain() == Terrain::water);
+    CHECK(state.expedition_time().daylight_hours_used == 2u);
 
     const RestedEvent rested = rested_of(state.rest());
     CHECK(rested.result == RestResult::recovered);
-    CHECK(rested.stamina_after == 20u);  // fields recover 6, capped at the maximum.
-    CHECK(rested.time.before.daylight_hours_used == 1u);
-    CHECK(rested.time.after.daylight_hours_used == 3u);
-    CHECK(state.expedition_time().daylight_hours_used == 3u);
+    CHECK(rested.stamina_after == 18u);  // water recovers 1.
+    CHECK(rested.time.before.daylight_hours_used == 2u);
+    CHECK(rested.time.after.daylight_hours_used == 4u);
+    CHECK(state.expedition_time().daylight_hours_used == 4u);
 }
 
 TEST_CASE("resting preserves actor position map serialization and visibility") {
-    GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.@.\n"));
+    GameState state(make_map("NAM-MAP 1\nwidth 4\nheight 1\nspawn 0 0\n---\n.@..\n"));
     CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // 20->16
 
     const Coordinates before_pos = state.actor_position();

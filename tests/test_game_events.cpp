@@ -41,9 +41,9 @@ Map open_field() {
     return make_map("NAM-MAP 1\nwidth 3\nheight 3\nspawn 0 0\n---\n...\n...\n...\n");
 }
 
-// A one-row mountain corridor. From full stamina the four-cost mountains reduce
-// stamina 20 -> 16 -> 12 -> 8 -> 4 -> 0 over five moves, so the sixth step is a
-// typed stamina block that still emits one event.
+// A one-row mountain corridor. Mountains cost 4 stamina and 3 daylight hours to
+// enter and grant no passive recovery, so a march along it drains both meters
+// without ever refusing a step.
 Map mountain_corridor() {
     return make_map("NAM-MAP 1\nwidth 7\nheight 1\nspawn 0 0\n---\n.@@@@@@\n");
 }
@@ -128,61 +128,57 @@ TEST_CASE("an event preserves the destination cost and before after stamina") {
     CHECK(emitted.stamina_after == peeked.stamina_after);
 }
 
-TEST_CASE("an insufficient-stamina attempt consumes exactly one sequence number") {
-    // A fields corridor drains 2 stamina and 1 daylight hour per step, so ten steps
-    // reach zero stamina after ten daylight hours (still within the 12-hour day).
-    GameState state(make_map("NAM-MAP 1\nwidth 12\nheight 1\nspawn 0 0\n---\n.xxxxxxxxxxx\n"));
-    for (std::uint64_t i = 0; i < 10; ++i) {
-        const GameEvent step = state.move(Direction::right);
+TEST_CASE("stamina never blocks a walkable step") {
+    // A two-cell water channel drains 3 stamina per step and grants no passive
+    // recovery, so the meter saturates at zero. Movement stays fluid: the step
+    // taken at zero stamina still succeeds and still consumes exactly one
+    // contiguous sequence number.
+    GameState state(make_map("NAM-MAP 1\nwidth 2\nheight 1\nspawn 0 0\n---\n~~\n"));
+    Direction next = Direction::right;
+    for (std::uint64_t i = 0; i < 7; ++i) {
+        const GameEvent step = state.move(next);
         CHECK(step.sequence == i);
-        CHECK(payload_of(step).outcome.result == MoveResult::moved);
+        REQUIRE(payload_of(step).outcome.result == MoveResult::moved);
+        next = next == Direction::right ? Direction::left : Direction::right;
     }
     CHECK(state.stamina() == 0);
 
-    const Coordinates before = state.actor_position();
-    const MoveOutcome peeked = state.peek(Direction::right);
-    // Daylight still fits a one-hour fields step, so the block is by stamina.
-    REQUIRE(peeked.result == MoveResult::blocked_by_stamina);
-
-    // The unaffordable eleventh step still emits exactly one contiguous event.
-    const GameEvent blocked = state.move(Direction::right);
-    CHECK(blocked.sequence == 10);
-    const MoveOutcome& outcome = payload_of(blocked).outcome;
-    CHECK(outcome.result == MoveResult::blocked_by_stamina);
-    CHECK(outcome.terrain == Terrain::fields);
-    CHECK(outcome.stamina_cost == 2);
+    const GameEvent exhausted = state.move(next);
+    CHECK(exhausted.sequence == 7);
+    const MoveOutcome& outcome = payload_of(exhausted).outcome;
+    CHECK(outcome.result == MoveResult::moved);
+    CHECK(outcome.terrain == Terrain::water);
+    CHECK(outcome.stamina_cost == 3);
     CHECK(outcome.stamina_before == 0);
+    CHECK(outcome.stamina_recovered == 0);
     CHECK(outcome.stamina_after == 0);
-    CHECK(outcome.stamina_cost == peeked.stamina_cost);
-    CHECK(state.actor_position() == before);
-    CHECK(state.stamina() == 0);
+    CHECK(state.actor_position() == Coordinates{0, 0});
 
     // The next command continues the contiguous sequence with no gap.
-    const GameEvent next = state.move(Direction::left);
-    CHECK(next.sequence == 11);
+    const GameEvent following = state.move(Direction::right);
+    CHECK(following.sequence == 8);
 }
 
-TEST_CASE("a move blocked by insufficient daylight consumes one contiguous sequence number") {
-    // A mountain corridor: each mountain step costs 3 daylight hours, so four steps
-    // fill the 12-hour day. The fifth step is blocked by daylight, not stamina,
-    // because daylight is validated first (REQ-004).
+TEST_CASE("daylight never blocks a walkable step") {
+    // A mountain corridor spends 3 daylight hours per step so four steps fill the
+    // 12-hour day. The fifth step still succeeds: daylight is spent and tracked
+    // but no longer refuses a step.
     GameState state(mountain_corridor());
     for (std::uint64_t i = 0; i < 4; ++i) {
-        const GameEvent step = state.move(Direction::right);  // 3 hours, -4 stamina each
+        const GameEvent step = state.move(Direction::right);
         CHECK(step.sequence == i);
         REQUIRE(payload_of(step).outcome.result == MoveResult::moved);
     }
     CHECK(state.expedition_time().daylight_hours_used == 12u);
-    CHECK(state.stamina() == 4u);  // still enough stamina for one more mountain step
 
-    const GameEvent blocked = state.move(Direction::right);
-    CHECK(blocked.sequence == 4u);
-    const MoveOutcome& outcome = payload_of(blocked).outcome;
-    CHECK(outcome.result == MoveResult::blocked_by_daylight);
+    const GameEvent past_dusk = state.move(Direction::right);
+    CHECK(past_dusk.sequence == 4u);
+    const MoveOutcome& outcome = payload_of(past_dusk).outcome;
+    CHECK(outcome.result == MoveResult::moved);
     CHECK(outcome.terrain == Terrain::mountain);
     CHECK(outcome.travel_hours == 3u);
-    CHECK(outcome.stamina_before == outcome.stamina_after);
-    CHECK(outcome.time_before == outcome.time_after);
+    CHECK(outcome.time_after.daylight_hours_used == 15u);
+    CHECK(state.actor_position() == Coordinates{5, 0});
 }
 
 TEST_CASE("a successful event is committed before it is observed") {
@@ -268,54 +264,39 @@ TEST_CASE("a rest at full stamina still consumes exactly one sequence number") {
     CHECK(next.sequence == 1);
 }
 
-TEST_CASE("an incomplete run before the deadline ends in a rescue transition") {
-    // A wide open corridor: spawn (0,0), beacon (10,0), minimum 2 days, deadline
-    // day 4, starting provisions 2. Oscillating x in {0,1,2} without ever reaching
-    // the beacon, camping whenever the day is spent, eventually runs out of
-    // provisions on a day before the deadline with no move, rest, or camp
-    // continuation, so the core reports a rescue.
-    GameState state(make_map("NAM-MAP 1\nwidth 14\nheight 1\nspawn 0 0\n---\n..............\n"));
-    REQUIRE(state.deadline_day() == 4u);
+TEST_CASE("an exhausted expedition is never rescued because movement never fails") {
+    // Rescue was a resource failure. With fluid movement an actor that still has a
+    // walkable neighbour can always continue, so wandering a water channel down to
+    // an empty meter reports no ending at all.
+    GameState state(make_map("NAM-MAP 1\nwidth 14\nheight 1\nspawn 0 0\n---\n~~~~~~~~~~~~~~\n"));
 
-    ExpeditionEndingTransition ending = ExpeditionEndingTransition::none;
-    std::uint64_t expected_sequence = 0;
-    for (int step = 0; step < 200 && ending == ExpeditionEndingTransition::none; ++step) {
-        const Coordinates position = state.actor_position();
-        const Direction direction = position.x <= 0
-                                        ? Direction::right
-                                        : (position.x >= 2 ? Direction::left
-                                                           : (step % 2 == 0 ? Direction::right
-                                                                            : Direction::left));
-        GameEvent event = state.peek(direction).result == MoveResult::moved
-                              ? state.move(direction)
-                              : state.camp();
-        CHECK(event.sequence == expected_sequence);
-        ++expected_sequence;
-        ending = event.ending;
+    Direction next = Direction::right;
+    for (int step = 0; step < 40; ++step) {
+        const GameEvent event = state.move(next);
+        CHECK(payload_of(event).outcome.result == MoveResult::moved);
+        CHECK(event.ending == ExpeditionEndingTransition::none);
+        next = next == Direction::right ? Direction::left : Direction::right;
     }
-    CHECK(ending == ExpeditionEndingTransition::rescued);
+    CHECK(state.stamina() == 0u);
     CHECK_FALSE(state.objective_completed());
-    CHECK(state.expedition_time().day < state.deadline_day());
-    CHECK(state.evaluate_ending() == ExpeditionEndingTransition::rescued);
+    CHECK(state.evaluate_ending() == ExpeditionEndingTransition::none);
 }
 
-TEST_CASE("an incomplete run on the deadline day ends in an overdue transition") {
-    // A mountain corridor forces expensive bivouacs and rests, so the minimum plan
-    // needs many provisions (starting 10) and a deadline of day 7. Oscillating near
-    // spawn without reaching the beacon and camping when the day is spent burns
-    // through days until the deadline day is fully spent while the objective is
-    // still incomplete, so the core reports an overdue outcome, not a rescue.
+TEST_CASE("an incomplete run that camps to the deadline day ends overdue") {
+    // A mountain corridor needs many provisions, so the plan allows a deadline of
+    // day 7. Camping repeatedly without ever reaching the exit burns through the
+    // days until the deadline day is fully spent while the objective is still
+    // incomplete, so the core reports an overdue outcome.
     GameState state(make_map("NAM-MAP 1\nwidth 9\nheight 1\nspawn 0 0\n---\n.@@@@@@@@\n"));
     REQUIRE(state.deadline_day() == 7u);
 
     ExpeditionEndingTransition ending = ExpeditionEndingTransition::none;
-    for (int step = 0; step < 400 && ending == ExpeditionEndingTransition::none; ++step) {
-        const Direction direction =
-            state.actor_position().x <= 0 ? Direction::right : Direction::left;
-        GameEvent event = state.peek(direction).result == MoveResult::moved
-                              ? state.move(direction)
-                              : state.camp();
-        ending = event.ending;
+    for (int night = 0; night < 10 && ending == ExpeditionEndingTransition::none; ++night) {
+        // A camp is eligible only once an hour has elapsed or the meter is below
+        // the cap, so each day starts with a short there-and-back march.
+        (void)state.move(Direction::right);
+        (void)state.move(Direction::left);
+        ending = state.camp().ending;
     }
     CHECK(ending == ExpeditionEndingTransition::overdue);
     CHECK_FALSE(state.objective_completed());

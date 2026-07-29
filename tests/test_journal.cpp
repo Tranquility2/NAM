@@ -154,8 +154,8 @@ TEST_CASE("a blocked attempt creates no entry but breaks grouping") {
 }
 
 TEST_CASE("every blocked result kind breaks grouping without an entry") {
-    for (const MoveResult result : {MoveResult::blocked_by_boundary, MoveResult::blocked_by_terrain,
-                                    MoveResult::blocked_by_stamina}) {
+    for (const MoveResult result : {MoveResult::blocked_by_boundary,
+                                    MoveResult::blocked_by_terrain}) {
         Journal journal;
         journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Beacon");
         journal.record_event(blocked_event(1, Direction::right, result), "Beacon");

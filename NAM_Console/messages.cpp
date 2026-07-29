@@ -51,23 +51,20 @@ std::string direction_name(Direction direction) {
 
 std::string describe_move(const MoveOutcome& outcome) {
     switch (outcome.result) {
-        case MoveResult::moved:
-            return "Moved onto " + terrain_name(outcome.terrain) + " for " +
-                   std::to_string(outcome.stamina_cost) + " stamina and " +
-                   std::to_string(outcome.travel_hours) +
-                   (outcome.travel_hours == 1 ? " hour." : " hours.");
+        case MoveResult::moved: {
+            std::string line = "Moved onto " + terrain_name(outcome.terrain) + " for " +
+                               std::to_string(outcome.stamina_cost) + " stamina and " +
+                               std::to_string(outcome.travel_hours) +
+                               (outcome.travel_hours == 1 ? " hour." : " hours.");
+            if (outcome.stamina_recovered > 0) {
+                line += " Recovered " + std::to_string(outcome.stamina_recovered) + " stamina.";
+            }
+            return line;
+        }
         case MoveResult::blocked_by_boundary:
             return "Blocked by the edge of the map.";
         case MoveResult::blocked_by_terrain:
             return "Blocked by " + terrain_name(outcome.terrain) + ".";
-        case MoveResult::blocked_by_daylight:
-            return "Not enough daylight for " + terrain_name(outcome.terrain) + ": need " +
-                   std::to_string(outcome.travel_hours) + (outcome.travel_hours == 1 ? " hour" : " hours") +
-                   ", have " + std::to_string(outcome.time_before.remaining_daylight()) + ".";
-        case MoveResult::blocked_by_stamina:
-            return "Not enough stamina for " + terrain_name(outcome.terrain) + ": need " +
-                   std::to_string(outcome.stamina_cost) + ", have " +
-                   std::to_string(outcome.stamina_before) + ".";
     }
     return "Nothing happened.";
 }

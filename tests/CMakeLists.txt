@@ -87,7 +87,7 @@ if(TARGET nam_console)
     set(_quit_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_quit.txt)
     set(_moves_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_moves.txt)
     set(_beacon_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_beacon.txt)
-    set(_rescue_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_rescue.txt)
+    set(_wander_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_wander.txt)
 
     # add a CLI test: name plus driver options forwarded as -D definitions.
     function(nam_add_cli_test name)
@@ -146,17 +146,16 @@ if(TARGET nam_console)
         "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_beacon_stdin}
         -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
 
-    # A scripted run on the same corridor drains the single spare provision and then
-    # the stamina, stranding the explorer: the real executable prints the rescue
-    # block and the failed (rescued) expedition report once, exits 0, stays ANSI-free
-    # when redirected, and is deterministic across identical runs.
-    nam_add_cli_test(cli_run_beacon_rescue
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_rescue_stdin}
+    # The same corridor driven by a long wandering script: movement never fails for
+    # want of stamina, so the real executable keeps travelling, stays ANSI-free when
+    # redirected, and is deterministic across identical runs.
+    nam_add_cli_test(cli_run_beacon_wander
+        "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_wander_stdin}
         -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=RESCUE REQUESTED|Result: rescued|Blocked moves:|Provisions used:"
+        "-DEXPECT_CONTAINS=Moved onto|Stamina:|Objective:"
         -DFORBID_ESC=1)
-    nam_add_cli_test(cli_run_beacon_rescue_deterministic
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_rescue_stdin}
+    nam_add_cli_test(cli_run_beacon_wander_deterministic
+        "-DARGS=--map|${NAM_FIXTURES_DIR}/beacon-corridor.map" -DINPUT_FILE=${_wander_stdin}
         -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
 
     # --- seeded Tiny World integration -------------------------------------

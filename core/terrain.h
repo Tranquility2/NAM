@@ -98,6 +98,27 @@ enum class Terrain : unsigned char {
     return std::nullopt;
 }
 
+// The stamina an actor automatically regains for entering a cell of this
+// terrain. Movement never fails for want of stamina: a successful step charges
+// stamina_cost_of with a saturating subtraction and then adds this passive
+// recovery back, capped at the maximum. The two mappings together make stamina a
+// terrain-pressure meter rather than a gate — easy ground restores an expedition
+// (open nets +1, fields nets 0) while rough ground drains it (hill -1, water -3,
+// mountain -4). Both wall variants are unoccupiable, so they carry std::nullopt
+// exactly like stamina_cost_of and rest_recovery_of.
+[[nodiscard]] constexpr std::optional<std::uint32_t> passive_recovery_of(Terrain terrain) noexcept {
+    switch (terrain) {
+        case Terrain::open:            return 2;
+        case Terrain::fields:          return 2;
+        case Terrain::hill:            return 1;
+        case Terrain::water:           return 0;
+        case Terrain::mountain:        return 0;
+        case Terrain::wall_horizontal: return std::nullopt;
+        case Terrain::wall_vertical:   return std::nullopt;
+    }
+    return std::nullopt;
+}
+
 // Whether an actor may occupy a cell of this terrain. Defined in terms of
 // stamina_cost_of so walkability and movement cost can never drift apart.
 [[nodiscard]] constexpr bool is_walkable(Terrain terrain) noexcept {

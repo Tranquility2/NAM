@@ -29,10 +29,12 @@ public:
     // SDL, and tests share one authoritative maximum.
     static constexpr std::uint32_t maximum_stamina = 20;
 
-    // The actor's current stamina and the fixed maximum. A move charges the
-    // destination terrain's cost only when it succeeds; stamina is recovered only
-    // by resting, which spends a provision and restores the current terrain's
-    // rest_recovery_of amount capped at maximum_stamina.
+    // The actor's current stamina and the fixed maximum. Stamina never refuses a
+    // step: a successful move charges the destination terrain's cost with a
+    // saturating subtraction and immediately adds back that terrain's
+    // passive_recovery_of amount, so easy ground restores the meter and rough
+    // ground drains it. Reaching the level landmark for the first time restores
+    // it completely.
     [[nodiscard]] std::uint32_t stamina() const noexcept { return stamina_; }
     [[nodiscard]] std::uint32_t max_stamina() const noexcept { return maximum_stamina; }
 
@@ -94,11 +96,12 @@ public:
     [[nodiscard]] MoveOutcome peek(Direction direction) const;
 
     // Attempt to move one step and emit exactly one ordered event describing the
-    // attempt. The destination is validated for bounds, terrain passability,
-    // remaining daylight, then stamina before the actor position, stamina, and
-    // daylight are committed, so a blocked or out-of-bounds move leaves all state
-    // unchanged — but still emits an event and consumes a sequence number. The
-    // returned event carries the requested direction and the full MoveOutcome.
+    // attempt. The destination is validated for bounds and terrain passability
+    // only: a walkable in-bounds step always succeeds, because neither stamina
+    // nor remaining daylight can block movement. A blocked or out-of-bounds move
+    // leaves all state unchanged — but still emits an event and consumes a
+    // sequence number. The returned event carries the requested direction and the
+    // full MoveOutcome.
     [[nodiscard]] GameEvent move(Direction direction);
 
     // Rest in place and emit exactly one ordered event whose payload is a
@@ -136,8 +139,10 @@ public:
     [[nodiscard]] std::string render(char actor_glyph = '+') const;
 
 private:
-    // Whether at least one successful adjacent cardinal move currently fits both
-    // remaining daylight and stamina. Pure; used by the ending evaluator.
+    // Whether at least one successful adjacent cardinal move currently exists.
+    // Because movement is never blocked by stamina or daylight, this is true
+    // whenever any cardinal neighbour is in bounds and walkable. Pure; used by
+    // the ending evaluator.
     [[nodiscard]] bool has_move_continuation() const;
     // Whether a successful emergency rest currently fits: stamina below the cap,
     // enough daylight for emergency_rest_hours, and at least one provision. Pure.

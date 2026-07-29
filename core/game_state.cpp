@@ -30,7 +30,7 @@ MoveOutcome GameState::peek(Direction direction) const {
 
     if (!map_.contains(target)) {
         return {MoveResult::blocked_by_boundary, from, from, map_.terrain_at(from),
-                0, stamina_, stamina_, 0, time_, time_};
+                0, 0, stamina_, stamina_, 0, time_, time_};
     }
 
     const Terrain destination = map_.terrain_at(target);
@@ -38,29 +38,34 @@ MoveOutcome GameState::peek(Direction direction) const {
     const std::optional<std::uint32_t> hours = travel_hours_of(destination);
     if (!cost.has_value() || !hours.has_value()) {
         return {MoveResult::blocked_by_terrain, from, from, destination,
-                0, stamina_, stamina_, 0, time_, time_};
+                0, 0, stamina_, stamina_, 0, time_, time_};
     }
 
-    // Daylight is validated before stamina (REQ-004): when both are insufficient
-    // the result is blocked_by_daylight. The walkable-destination results carry the
-    // stamina cost and travel hours so a frontend never re-derives them.
-    if (!time_.fits(*hours)) {
-        return {MoveResult::blocked_by_daylight, from, from, destination,
-                *cost, stamina_, stamina_, *hours, time_, time_};
-    }
+    // Movement is fluid: an in-bounds walkable destination always succeeds.
+    // Stamina is a terrain-pressure meter, so the destination cost is charged
+    // with a saturating subtraction that can never refuse the step, and the
+    // terrain's passive recovery is then added back under the cap.
+    const std::uint32_t drained = stamina_ >= *cost ? stamina_ - *cost : 0u;
 
-    if (stamina_ < *cost) {
-        return {MoveResult::blocked_by_stamina, from, from, destination,
-                *cost, stamina_, stamina_, *hours, time_, time_};
-    }
+    // Reaching the level landmark for the first time is a safe waypoint that
+    // restores the meter completely. Deciding it here keeps peek() the single
+    // source of movement outcomes and keeps stamina_after equal to the stamina
+    // move() commits, even though the objective itself advances afterwards.
+    const bool reaches_landmark =
+        objective_.status == ObjectiveStatus::seeking_landmark && target == objective_.landmark;
+    const std::uint32_t stamina_after =
+        reaches_landmark
+            ? maximum_stamina
+            : std::min(maximum_stamina, drained + passive_recovery_of(destination).value_or(0u));
 
-    // Affordability is established, so the unsigned subtraction cannot underflow.
     // A successful move advances daylight by the destination terrain's travel
-    // hours before objective and ending transitions are evaluated (REQ-005).
+    // hours before objective and ending transitions are evaluated. Daylight is
+    // spent but, like stamina, never blocks a step.
     ExpeditionTime time_after = time_;
     time_after.daylight_hours_used += *hours;
-    return {MoveResult::moved, from, target, destination,
-            *cost, stamina_, stamina_ - *cost, *hours, time_, time_after};
+    return {MoveResult::moved,   from,        target,     destination, *cost,
+            stamina_after - drained, stamina_, stamina_after, *hours,  time_,
+            time_after};
 }
 
 GameEvent GameState::move(Direction direction) {

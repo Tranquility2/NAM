@@ -50,51 +50,45 @@ TEST_CASE("direction letters and names are consistent") {
 }
 
 TEST_CASE("move outcomes map to distinct human-readable sentences") {
-    MoveOutcome moved{MoveResult::moved, {0, 0}, {1, 0}, Terrain::water, 3, 12, 9};
+    MoveOutcome moved{MoveResult::moved, {0, 0}, {1, 0}, Terrain::water, 3, 0, 12, 9};
     CHECK(describe_move(moved).find("water") != std::string::npos);
 
-    MoveOutcome boundary{MoveResult::blocked_by_boundary, {0, 0}, {0, 0}, Terrain::open, 0, 12, 12};
+    MoveOutcome boundary{MoveResult::blocked_by_boundary, {0, 0}, {0, 0}, Terrain::open,
+                         0, 0, 12, 12};
     CHECK(describe_move(boundary).find("edge") != std::string::npos);
 
     MoveOutcome terrain{MoveResult::blocked_by_terrain, {0, 0}, {0, 0}, Terrain::wall_vertical,
-                        0, 12, 12};
+                        0, 0, 12, 12};
     CHECK(describe_move(terrain).find("Blocked") != std::string::npos);
 }
 
-TEST_CASE("successful move messages state the destination terrain, cost, and hours") {
-    // A singular one-point cost and one hour onto open ground.
-    MoveOutcome one{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 1, 12, 11, 1};
-    CHECK(describe_move(one) == "Moved onto open ground for 1 stamina and 1 hour.");
+TEST_CASE("successful move messages state the destination terrain cost and hours") {
+    // A singular one-point cost and one hour onto open ground, whose passive
+    // recovery is reported alongside the charge.
+    MoveOutcome one{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 1, 2, 12, 13, 1};
+    CHECK(describe_move(one) ==
+          "Moved onto open ground for 1 stamina and 1 hour. Recovered 2 stamina.");
 
-    // A multi-point cost and multi-hour step onto a mountain.
-    MoveOutcome four{MoveResult::moved, {0, 0}, {1, 0}, Terrain::mountain, 4, 12, 8, 3};
+    // A multi-point cost and multi-hour step onto a mountain, which gives nothing
+    // back and therefore reports no recovery.
+    MoveOutcome four{MoveResult::moved, {0, 0}, {1, 0}, Terrain::mountain, 4, 0, 12, 8, 3};
     CHECK(describe_move(four) == "Moved onto mountain for 4 stamina and 3 hours.");
 }
 
-TEST_CASE("insufficient-daylight messages state terrain, required hours, and remaining daylight") {
-    MoveOutcome block{MoveResult::blocked_by_daylight, {3, 0}, {3, 0}, Terrain::mountain, 4, 5, 5, 3};
-    block.time_before.daylight_hours_used = 11;  // only 1 hour of the 12-hour day remains
-    block.time_after = block.time_before;
-    CHECK(describe_move(block) == "Not enough daylight for mountain: need 3 hours, have 1.");
-}
-
-TEST_CASE("insufficient-stamina messages state terrain, required cost, and available stamina") {
-    // A singular one-point requirement the actor cannot meet at zero stamina.
-    MoveOutcome open_block{MoveResult::blocked_by_stamina, {3, 0}, {3, 0}, Terrain::open, 1, 0, 0};
-    CHECK(describe_move(open_block) == "Not enough stamina for open ground: need 1, have 0.");
-
-    // A multi-point requirement with a non-zero remaining stamina.
-    MoveOutcome mountain_block{MoveResult::blocked_by_stamina, {3, 0}, {3, 0}, Terrain::mountain,
-                              4, 2, 2};
-    CHECK(describe_move(mountain_block) == "Not enough stamina for mountain: need 4, have 2.");
+TEST_CASE("a fully restoring step reports the recovery it granted") {
+    // Reaching the landmark refills the meter, so the recovery dwarfs the charge.
+    MoveOutcome landmark{MoveResult::moved, {3, 0}, {4, 0}, Terrain::hill, 2, 8, 14, 20, 2};
+    CHECK(describe_move(landmark) ==
+          "Moved onto hill for 2 stamina and 2 hours. Recovered 8 stamina.");
 }
 
 TEST_CASE("boundary and impassable-terrain wording carries no stamina cost") {
-    MoveOutcome boundary{MoveResult::blocked_by_boundary, {0, 0}, {0, 0}, Terrain::open, 0, 7, 7};
+    MoveOutcome boundary{MoveResult::blocked_by_boundary, {0, 0}, {0, 0}, Terrain::open,
+                         0, 0, 7, 7};
     CHECK(describe_move(boundary) == "Blocked by the edge of the map.");
 
     MoveOutcome wall{MoveResult::blocked_by_terrain, {0, 0}, {0, 0}, Terrain::wall_horizontal,
-                    0, 7, 7};
+                    0, 0, 7, 7};
     CHECK(describe_move(wall) == "Blocked by wall.");
 }
 

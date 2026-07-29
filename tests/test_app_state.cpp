@@ -17,16 +17,15 @@ namespace {
 
 MoveOutcome moved_to(Coordinates from, Coordinates to, Terrain terrain) {
     const std::uint32_t cost = stamina_cost_of(terrain).value_or(0);
-    return MoveOutcome{MoveResult::moved, from, to, terrain, cost, 12, 12 - cost};
+    return MoveOutcome{MoveResult::moved, from, to, terrain, cost, 0, 12, 12 - cost};
 }
 
 MoveOutcome blocked(Coordinates at, Terrain terrain) {
-    return MoveOutcome{MoveResult::blocked_by_terrain, at, at, terrain, 0, 12, 12};
+    return MoveOutcome{MoveResult::blocked_by_terrain, at, at, terrain, 0, 0, 12, 12};
 }
 
-MoveOutcome stamina_blocked(Coordinates at, Terrain terrain, std::uint32_t cost,
-                            std::uint32_t stamina) {
-    return MoveOutcome{MoveResult::blocked_by_stamina, at, at, terrain, cost, stamina, stamina};
+MoveOutcome boundary_blocked(Coordinates at, Terrain terrain) {
+    return MoveOutcome{MoveResult::blocked_by_boundary, at, at, terrain, 0, 0, 12, 12};
 }
 
 // Wrap a direction and outcome into the movement event the HUD now consumes. The
@@ -107,15 +106,11 @@ TEST_CASE("set_message overrides the message without recording a move") {
     CHECK(hud.recent().empty());
 }
 
-TEST_CASE("boundary, wall, and stamina blocks count attempts but add no history") {
+TEST_CASE("boundary and wall blocks count attempts but add no history") {
     Hud hud;
-    hud.record_event(move_event(Direction::up,
-                                MoveOutcome{MoveResult::blocked_by_boundary, {0, 0}, {0, 0},
-                                            Terrain::open, 0, 12, 12},
-                                0));
+    hud.record_event(move_event(Direction::up, boundary_blocked({0, 0}, Terrain::open), 0));
     hud.record_event(move_event(Direction::left, blocked({0, 0}, Terrain::wall_vertical), 1));
-    hud.record_event(move_event(Direction::right, stamina_blocked({0, 0}, Terrain::mountain, 4, 1),
-                                2));
+    hud.record_event(move_event(Direction::right, blocked({0, 0}, Terrain::wall_horizontal), 2));
 
     CHECK(hud.attempt_count() == 3);
     CHECK(hud.move_count() == 0);
@@ -166,10 +161,10 @@ TEST_CASE("a rest updates only the message and success flag, leaving counters an
           "A heroic rest is attempted. Your stamina remains heroically full.");
 }
 
-TEST_CASE("a stamina block is an attempt, not a move, and records no history") {
+TEST_CASE("a terrain block is an attempt, not a move, and records no history") {
     Hud hud;
     hud.record_event(move_event(Direction::right, moved_to({0, 0}, {1, 0}, Terrain::open), 0));
-    const MoveOutcome outcome = stamina_blocked({1, 0}, Terrain::mountain, 4, 1);
+    const MoveOutcome outcome = blocked({1, 0}, Terrain::wall_vertical);
     hud.record_event(move_event(Direction::right, outcome, 1));
 
     // The block counts as an attempt but does not advance the move count.
@@ -179,9 +174,9 @@ TEST_CASE("a stamina block is an attempt, not a move, and records no history") {
     CHECK_FALSE(hud.last_move_succeeded());
     REQUIRE(hud.recent().size() == 1);
     CHECK(hud.recent().back().direction == Direction::right);
-    // The typed insufficient-stamina message is shown verbatim.
+    // The typed impassable-terrain message is shown verbatim.
     CHECK(hud.message() == describe_move(outcome));
-    CHECK(hud.message() == "Not enough stamina for mountain: need 4, have 1.");
+    CHECK(hud.message() == "Blocked by wall.");
 }
 
 }  // TEST_SUITE("console")
