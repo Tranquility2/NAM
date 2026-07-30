@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 
 #include "level_tier.h"
 
@@ -14,11 +15,19 @@ enum class LevelTransition {
 };
 
 // Core-owned progress through one Small -> Medium -> Large -> X-Large expedition.
-// Gameplay state will compose this value as the V2 objective and level-generation
-// work lands; keeping the transition here prevents frontends from re-deriving it.
+// Gameplay state composes this value; keeping the transition here prevents
+// frontends from re-deriving it.
+//
+// `final_tier` is the last tier the expedition plays. It exists so the prototype
+// can ship a shorter Small -> Medium expedition while the tier table already
+// describes all four scales; the full expedition is simply the default.
 class ExpeditionProgress {
 public:
+    ExpeditionProgress() = default;
+    explicit ExpeditionProgress(LevelTier final_tier) noexcept : final_tier_(final_tier) {}
+
     [[nodiscard]] LevelTier current_tier() const noexcept { return current_tier_; }
+    [[nodiscard]] LevelTier final_tier() const noexcept { return final_tier_; }
     [[nodiscard]] std::uint32_t completed_levels() const noexcept { return completed_levels_; }
     [[nodiscard]] bool completed() const noexcept { return completed_; }
 
@@ -28,7 +37,8 @@ public:
         }
 
         ++completed_levels_;
-        const std::optional<LevelTier> next = next_level_tier(current_tier_);
+        const std::optional<LevelTier> next =
+            current_tier_ == final_tier_ ? std::nullopt : next_level_tier(current_tier_);
         if (next.has_value()) {
             current_tier_ = *next;
             return LevelTransition::advanced;
@@ -40,6 +50,7 @@ public:
 
 private:
     LevelTier current_tier_ = LevelTier::small;
+    LevelTier final_tier_ = LevelTier::x_large;
     std::uint32_t completed_levels_ = 0;
     bool completed_ = false;
 };

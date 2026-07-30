@@ -67,7 +67,8 @@ nam_add_unit_test(nam_game_tests
     SOURCES test_movement.cpp test_rendering.cpp test_determinism.cpp
             test_pcg32.cpp test_game_events.cpp test_level_tier.cpp test_world_generation.cpp
             test_visibility.cpp test_stamina.cpp test_objective.cpp
-            test_expedition_score.cpp test_phase0_level.cpp test_level_feature.cpp)
+            test_expedition_score.cpp test_phase0_level.cpp test_level_feature.cpp
+            test_expedition.cpp)
 
 nam_add_unit_test(nam_input_tests
     SOURCES test_input_decoder.cpp)

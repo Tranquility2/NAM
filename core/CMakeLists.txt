@@ -31,6 +31,8 @@ add_library(nam_core STATIC
     pcg32.cpp
     world_generation.h
     world_generation.cpp
+    expedition.h
+    expedition.cpp
 )
 
 # The core uses C++17 (std::variant, std::string_view, std::optional). Requesting

@@ -54,6 +54,17 @@ ExpeditionScore compute_completed_score(const CompletedScoreInput& input) noexce
     penalty = saturating_add(
         penalty, saturating_mul(score.blocked_attempts, completed_penalty_per_blocked_attempt));
 
-    score.value = at_most(saturating_sub(completed_score_base, penalty), completed_score_maximum);
+    score.route_value =
+        at_most(saturating_sub(completed_score_base, penalty), completed_score_maximum);
+
+    // A zero multiplier would silently erase the exploration reward, so treat it
+    // as the neutral value rather than trusting the caller.
+    score.discoveries_found = input.discoveries_found;
+    score.discovery_multiplier = input.discovery_multiplier == 0 ? 1 : input.discovery_multiplier;
+    score.discovery_value =
+        saturating_mul(saturating_mul(score.discoveries_found, completed_score_per_discovery),
+                       score.discovery_multiplier);
+
+    score.value = saturating_add(score.route_value, score.discovery_value);
     return score;
 }
