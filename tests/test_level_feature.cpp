@@ -160,12 +160,12 @@ TEST_CASE("a blocked attempt reports no feature and resolves nothing") {
 
 TEST_CASE("every generated level places its whole content budget on reachable walkable cells") {
     for (const LevelTier tier : {LevelTier::small, LevelTier::medium}) {
-        const LevelTemplate level = template_of(tier);
         for (std::uint64_t index = 0; index < 48u; ++index) {
             const std::uint64_t seed = index * 0x9E3779B97F4A7C15ull + 0xFEEDull;
             const WorldGenerationResult result = generate_level(tier, seed);
             REQUIRE(std::holds_alternative<GeneratedWorld>(result));
             const GeneratedWorld& world = std::get<GeneratedWorld>(result);
+            const LevelTemplate level = template_of(tier, world.exit_corner);
 
             const std::vector<LevelFeature>& placed = world.map.layout().features;
             REQUIRE(placed.size() == level.content_slots.size());

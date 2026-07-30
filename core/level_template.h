@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+#include <string_view>
 #include <vector>
 
 #include "coordinates.h"
@@ -18,6 +20,40 @@
 // they contain no randomness, no I/O, and no presentation concern. Generation
 // carves the route described here before growing terrain, which is what makes a
 // generated level solvable by construction rather than by rejection sampling.
+
+// Which authored corner of the map holds the exit. The set of corners is fixed by
+// the template; which one a level uses is seeded, so the broad direction revealed
+// at the landmark actually carries information instead of naming the same corner
+// every run.
+enum class ExitCorner {
+    top_right,
+    top_left,
+    bottom_right,
+    bottom_left,
+};
+
+inline constexpr std::uint32_t exit_corner_count = 4u;
+
+// True when the corner lies on the right half of the map.
+[[nodiscard]] constexpr bool corner_is_right(ExitCorner corner) noexcept {
+    return corner == ExitCorner::top_right || corner == ExitCorner::bottom_right;
+}
+
+// True when the corner lies on the top half of the map.
+[[nodiscard]] constexpr bool corner_is_top(ExitCorner corner) noexcept {
+    return corner == ExitCorner::top_right || corner == ExitCorner::top_left;
+}
+
+// A stable, non-localized identifier.
+[[nodiscard]] constexpr std::string_view to_string(ExitCorner corner) noexcept {
+    switch (corner) {
+        case ExitCorner::top_right:    return "top_right";
+        case ExitCorner::top_left:     return "top_left";
+        case ExitCorner::bottom_right: return "bottom_right";
+        case ExitCorner::bottom_left:  return "bottom_left";
+    }
+    return "top_right";
+}
 
 // A closed, inclusive rectangle of interior cells.
 struct ZoneRect {
@@ -78,12 +114,18 @@ struct LevelTemplate {
     std::vector<ContentSlot> content_slots;
 };
 
-// The authored template for a tier. One shape formula serves all four tiers: the
-// route leaves the centre spawn downward, runs left along a low corridor, climbs
-// the left flank, then crosses the top toward the exit zone on the far right.
-// That produces a long, readable circuit whose two ends are far apart, so the
-// direct line between them is never the route.
-[[nodiscard]] LevelTemplate template_of(LevelTier tier);
+// The authored template for a tier and a seeded exit corner. One shape formula
+// serves all four tiers and all four corners: the route leaves the centre spawn
+// toward the vertical extreme *opposite* the exit, runs along that corridor to the
+// horizontal flank *opposite* the exit, climbs or drops that flank, then crosses
+// back toward the exit corner. That produces a long, readable circuit whose two
+// ends are far apart, so the direct line between them is never the route.
+//
+// Content follows the same mirroring: the hazard sits on the first corridor and
+// the safe landmark on the flank, while the discovery sits in the quadrant the
+// route never crosses, which is the exit's horizontal side and the opposite
+// vertical side.
+[[nodiscard]] LevelTemplate template_of(LevelTier tier, ExitCorner corner);
 
 // The ordered cells of the main route for one seeded exit: the spawn, every
 // waypoint segment, and the final legs into `exit_cell`. Adjacent duplicates are

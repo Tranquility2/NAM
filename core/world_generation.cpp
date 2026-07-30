@@ -737,7 +737,6 @@ std::uint64_t hash_seed_text(std::string_view text) noexcept {
 
 WorldGenerationResult generate_level(LevelTier tier, std::uint64_t numeric_seed) {
     const GenerationProfile profile = profile_of(tier);
-    const LevelTemplate level = template_of(tier);
 
     // A single engine grows every candidate sequentially; retries continue from
     // its current state rather than reseeding, so attempt numbers are stable.
@@ -745,6 +744,11 @@ WorldGenerationResult generate_level(LevelTier tier, std::uint64_t numeric_seed)
 
     std::vector<Terrain> cells;
     for (std::uint32_t attempt = 0; attempt < level_candidate_limit; ++attempt) {
+        // The exit corner is the first draw of every candidate, so a rejected
+        // candidate can land the exit somewhere else entirely.
+        const ExitCorner corner =
+            static_cast<ExitCorner>(engine.next_bounded(exit_corner_count));
+        const LevelTemplate level = template_of(tier, corner);
         const RouteLayout layout = draw_route(profile, level, engine);
         if (!grow_candidate(profile, layout.reserved, engine, cells) ||
             !is_valid_candidate(profile, layout, cells)) {
@@ -760,7 +764,8 @@ WorldGenerationResult generate_level(LevelTier tier, std::uint64_t numeric_seed)
         map_layout.exit = layout.exit_cell;
         map_layout.features = std::move(*features);
         Map map(profile.width, profile.height, cells, profile.spawn, std::move(map_layout));
-        return GeneratedWorld{std::move(map), numeric_seed, attempt, tier, layout.exit_cell};
+        return GeneratedWorld{std::move(map), numeric_seed, attempt, tier, layout.exit_cell,
+                              corner};
     }
 
     return WorldGenerationError{WorldGenerationErrorCode::candidate_limit_exhausted, numeric_seed};

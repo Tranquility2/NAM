@@ -43,6 +43,9 @@ struct LevelObjective {
     Coordinates landmark{};
     Coordinates exit_cell{};
     std::string name;
+    // The broad, truthful direction from the landmark to the exit, revealed when
+    // the landmark is discovered. It is deliberately coarse: it names the dominant
+    // cardinal component only, so it halves the search rather than solving it.
     Direction exit_bearing = Direction::right;
     ObjectiveStatus status = ObjectiveStatus::seeking_landmark;
     // The deterministic cheapest stamina cost of the level route: the minimum

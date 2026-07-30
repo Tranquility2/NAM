@@ -19,7 +19,7 @@ void append_segment(std::vector<Coordinates>& cells, Coordinates from, Coordinat
 
 }  // namespace
 
-LevelTemplate template_of(LevelTier tier) {
+LevelTemplate template_of(LevelTier tier, ExitCorner corner) {
     const LevelDimensions dimensions = dimensions_of(tier);
     const Coordinates spawn = center_spawn_of(tier);
     const int width = static_cast<int>(dimensions.width);
@@ -29,36 +29,62 @@ LevelTemplate template_of(LevelTier tier) {
     const int max_x = width - 2;
     const int max_y = height - 2;
 
-    // The three fixed corridors: a low return run, the left flank, and the top
-    // crossing. Each sits one cell inside the wall ring so the route never hugs
-    // the boundary, which keeps a walkable rim available for side content.
+    // The four candidate corridors: a low run, a top run, and the two flanks. Each
+    // sits one cell inside the wall ring so the route never hugs the boundary,
+    // which keeps a walkable rim available for side content.
     const int low_y = max_y - 1;
-    const int left_x = 3;
     const int top_y = 2;
+    const int left_x = 3;
+    const int right_x = max_x - 2;
+
+    const bool exit_right = corner_is_right(corner);
+    const bool exit_top = corner_is_top(corner);
+
+    // The route always sets out for the corridor and flank opposite the exit, so
+    // the circuit stays long no matter which corner the seed picked.
+    const int first_y = exit_top ? low_y : top_y;
+    const int approach_y = exit_top ? top_y : low_y;
+    const int flank_x = exit_right ? left_x : right_x;
+
+    const int spur_x = exit_right ? (spawn.x - 3) : (spawn.x + 3);
+    const Direction first_spur = exit_top ? Direction::down : Direction::up;
+    const Direction flank_spur = exit_right ? Direction::right : Direction::left;
+    const Direction approach_spur = exit_top ? Direction::up : Direction::down;
 
     LevelTemplate level;
     level.entry_zone = ZoneRect{spawn.x - 1, spawn.y - 1, spawn.x + 1, spawn.y + 1};
-    level.exit_zone = ZoneRect{max_x - 3, 1, max_x, top_y + 1};
+    const int exit_min_x = exit_right ? (max_x - 3) : 1;
+    const int exit_max_x = exit_right ? max_x : 4;
+    const int exit_min_y = exit_top ? 1 : (max_y - 2);
+    const int exit_max_y = exit_top ? (top_y + 1) : max_y;
+    level.exit_zone = ZoneRect{exit_min_x, exit_min_y, exit_max_x, exit_max_y};
     level.route_waypoints = {
-        Coordinates{spawn.x, low_y},
-        Coordinates{left_x, low_y},
-        Coordinates{left_x, top_y},
+        Coordinates{spawn.x, first_y},
+        Coordinates{flank_x, first_y},
+        Coordinates{flank_x, approach_y},
     };
     level.branch_spurs = {
-        BranchSpur{Coordinates{spawn.x - 3, low_y}, Direction::down, 1},
-        BranchSpur{Coordinates{left_x, spawn.y}, Direction::right, 3},
-        BranchSpur{Coordinates{spawn.x - 3, top_y}, Direction::up, 1},
+        BranchSpur{Coordinates{spur_x, first_y}, first_spur, 1},
+        BranchSpur{Coordinates{flank_x, spawn.y}, flank_spur, 3},
+        BranchSpur{Coordinates{spur_x, approach_y}, approach_spur, 1},
     };
-    // The hazard sits on the low corridor and the safe landmark on the left flank,
-    // so both are on the main route: the player meets the hazard decision early and
+    // The hazard sits on the first corridor and the safe landmark on the flank, so
+    // both are on the main route: the player meets the hazard decision early and
     // the recovery waypoint afterwards. The discovery sits in the quadrant the
-    // route never crosses, so finding it always costs a deliberate detour.
+    // route never crosses -- the exit's horizontal side, the opposite vertical
+    // side -- so finding it always costs a deliberate detour.
+    const ZoneRect hazard_zone = exit_right
+                                     ? ZoneRect{spawn.x - 6, first_y, spawn.x - 4, first_y}
+                                     : ZoneRect{spawn.x + 4, first_y, spawn.x + 6, first_y};
+    const int discovery_min_x = exit_right ? (spawn.x + 2) : 2;
+    const int discovery_max_x = exit_right ? (max_x - 1) : (spawn.x - 2);
+    const int discovery_min_y = exit_top ? (spawn.y + 2) : 1;
+    const int discovery_max_y = exit_top ? max_y : (spawn.y - 2);
     level.content_slots = {
-        ContentSlot{ZoneRect{spawn.x - 6, low_y, spawn.x - 4, low_y}, LevelFeatureKind::hazard,
-                    true},
-        ContentSlot{ZoneRect{left_x, spawn.y - 1, left_x, spawn.y + 1},
+        ContentSlot{hazard_zone, LevelFeatureKind::hazard, true},
+        ContentSlot{ZoneRect{flank_x, spawn.y - 1, flank_x, spawn.y + 1},
                     LevelFeatureKind::safe_landmark, true},
-        ContentSlot{ZoneRect{spawn.x + 2, spawn.y + 2, max_x - 1, max_y},
+        ContentSlot{ZoneRect{discovery_min_x, discovery_min_y, discovery_max_x, discovery_max_y},
                     LevelFeatureKind::discovery, false},
     };
     return level;
@@ -76,7 +102,7 @@ std::vector<Coordinates> route_cells(const LevelTemplate& level, Coordinates spa
     }
 
     // The final approach crosses to the exit column first, then drops or climbs to
-    // the exit row, so the route always enters the exit zone along the top
+    // the exit row, so the route always enters the exit zone along the approach
     // corridor rather than cutting diagonally out of the authored shape.
     const Coordinates corner{exit_cell.x, current.y};
     append_segment(cells, current, corner);

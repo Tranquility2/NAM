@@ -6,14 +6,18 @@
 #include <variant>
 
 #include "coordinates.h"
+#include "level_template.h"
 #include "level_tier.h"
 #include "map.h"
 
 // Deterministic procedural world generation. One shared recipe converts a stable
 // 64-bit seed and a level tier into a playable level: the tier's authored
-// LevelTemplate fixes the entry zone, the exit zone, the main route, and where
-// optional side routes may attach, and the seed fixes the exact exit inside the
-// exit zone, which side routes open, and every terrain feature grown around them.
+// LevelTemplate fixes the four candidate exit corners, the entry zone, the main
+// route, and where optional side routes may attach, and the seed fixes which
+// corner holds the exit, the exact exit inside that corner's zone, which side
+// routes open, and every terrain feature grown around them. Seeding the corner is
+// what keeps the broad exit direction revealed at the landmark informative instead
+// of naming the same side on every level.
 //
 // The carved route is reserved before terrain grows, so an accepted level is
 // solvable by construction and its exit is the authored one, carried on the map as
@@ -72,6 +76,9 @@ struct GeneratedWorld {
     // is carried by `map` as its authored exit, so the objective ends the level
     // exactly where the template intended.
     Coordinates exit_cell{};
+
+    // Which authored corner the seed chose for the exit.
+    ExitCorner exit_corner = ExitCorner::top_right;
 };
 
 // Why a seed failed to produce a world. Stable, non-localized values mirroring

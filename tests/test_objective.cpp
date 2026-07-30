@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <set>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -461,3 +462,63 @@ TEST_CASE("returning to spawn before the landmark does not transition") {
 }
 
 }  // TEST_SUITE("game")
+
+TEST_CASE("the revealed exit bearing is truthful on every generated level") {
+    for (const LevelTier tier : {LevelTier::small, LevelTier::medium}) {
+        for (std::uint64_t index = 0; index < 128u; ++index) {
+            const std::uint64_t seed = index * 0x9E3779B97F4A7C15ull + 0xB3A2ull;
+            const WorldGenerationResult result = generate_level(tier, seed);
+            REQUIRE(std::holds_alternative<GeneratedWorld>(result));
+            const GeneratedWorld& world = std::get<GeneratedWorld>(result);
+
+            const LevelObjective objective = create_level_objective(world.map);
+            const int dx = objective.exit_cell.x - objective.landmark.x;
+            const int dy = objective.exit_cell.y - objective.landmark.y;
+
+            bool truthful = false;
+            switch (objective.exit_bearing) {
+                case Direction::up:    truthful = dy < 0; break;
+                case Direction::down:  truthful = dy > 0; break;
+                case Direction::left:  truthful = dx < 0; break;
+                case Direction::right: truthful = dx > 0; break;
+            }
+            CHECK(truthful);
+
+            // A reveal that fires at spawn would give the player nothing to walk to.
+            CHECK(objective.landmark != world.map.spawn());
+        }
+    }
+}
+
+TEST_CASE("the revealed exit bearing is not the same on every level of a tier") {
+    for (const LevelTier tier : {LevelTier::small, LevelTier::medium}) {
+        std::set<Direction> bearings;
+        for (std::uint64_t index = 0; index < 64u; ++index) {
+            const std::uint64_t seed = index * 0x2545F4914F6CDD1Dull + 0x71ull;
+            const WorldGenerationResult result = generate_level(tier, seed);
+            REQUIRE(std::holds_alternative<GeneratedWorld>(result));
+            const GeneratedWorld& world = std::get<GeneratedWorld>(result);
+
+            bearings.insert(create_level_objective(world.map).exit_bearing);
+        }
+        CHECK(bearings.size() > 1u);
+    }
+}
+
+TEST_CASE("seeds spread the exit across every authored corner of a tier") {
+    for (const LevelTier tier : {LevelTier::small, LevelTier::medium}) {
+        std::set<ExitCorner> corners;
+        for (std::uint64_t index = 0; index < 64u; ++index) {
+            const std::uint64_t seed = index * 0x2545F4914F6CDD1Dull + 0x71ull;
+            const WorldGenerationResult result = generate_level(tier, seed);
+            REQUIRE(std::holds_alternative<GeneratedWorld>(result));
+            const GeneratedWorld& world = std::get<GeneratedWorld>(result);
+
+            corners.insert(world.exit_corner);
+            // The seeded corner and the authored exit always agree.
+            const LevelTemplate level = template_of(tier, world.exit_corner);
+            CHECK(level.exit_zone.contains(world.exit_cell));
+        }
+        CHECK(corners.size() == exit_corner_count);
+    }
+}

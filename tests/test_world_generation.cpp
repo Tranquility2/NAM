@@ -26,17 +26,17 @@ constexpr std::string_view kGlassRiverGolden =
     "=============================\n"
     "|...........................|\n"
     "|...........................|\n"
-    "|......xxxxx^^@@@^.xxxx.....|\n"
-    "|.......xxxx^@@@^^=.xxx.....|\n"
-    "|........xxx^^^^^=|xxxx.....|\n"
-    "|........xx~....=|..x.xx....|\n"
-    "|..........~~.....xxx.xx....|\n"
-    "|..........~~.....xxxxxxxx..|\n"
-    "|....=|....~~~..xxxxxxxxx...|\n"
-    "|....|=....~~~.^^^^xxx~~....|\n"
-    "|...|=.....~~~.@@@^~x~~~~...|\n"
-    "|..............@@@@~~~~~....|\n"
-    "|.............^@^^^~~~~~~...|\n"
+    "|...^^^^|=|=....^^^^x.xx....|\n"
+    "|...^@@^^|=....^^@@^xxxx....|\n"
+    "|...@@@@^.x....^@@@^xxx.....|\n"
+    "|...^^^^^xxx....@@@^..xxx...|\n"
+    "|.......xxxx....^^^^..x.....|\n"
+    "||=.....xxxxx...xxxxx.......|\n"
+    "|.|.....xxxxx..xxxxxx.......|\n"
+    "|.=.....xxx....xxxxx~~~~~~~.|\n"
+    "|.|.......x....x.x~~~~~.~~~.|\n"
+    "|................~~~~~~~~~~~|\n"
+    "|................~~.~...~~.~|\n"
     "=============================";
 
 // The numeric seed FNV-1a produces for "glass-river" (REQ-005).
@@ -483,11 +483,11 @@ TEST_CASE("the medium tier is exactly the released tiny world recipe") {
 TEST_CASE("every tier places its seeded exit inside the template exit zone") {
     for (const LevelTier tier : {LevelTier::small, LevelTier::medium, LevelTier::large,
                                  LevelTier::x_large}) {
-        const LevelTemplate level = template_of(tier);
         for (std::uint64_t index = 0; index < 64u; ++index) {
             const std::uint64_t seed = index * 0x9E3779B97F4A7C15ull + 0x51EDull;
             const WorldGenerationResult result = generate_level(tier, seed);
             const GeneratedWorld& world = require_world(result);
+            const LevelTemplate level = template_of(tier, world.exit_corner);
 
             CHECK(level.exit_zone.contains(world.exit_cell));
             REQUIRE(world.map.layout().exit.has_value());
@@ -499,11 +499,11 @@ TEST_CASE("every tier places its seeded exit inside the template exit zone") {
 
 TEST_CASE("the carved main route survives generation as an open walkable corridor") {
     for (const LevelTier tier : {LevelTier::small, LevelTier::medium}) {
-        const LevelTemplate level = template_of(tier);
         for (std::uint64_t index = 0; index < 64u; ++index) {
             const std::uint64_t seed = index * 0x2545F4914F6CDD1Dull + 0x0Bull;
             const WorldGenerationResult result = generate_level(tier, seed);
             const GeneratedWorld& world = require_world(result);
+            const LevelTemplate level = template_of(tier, world.exit_corner);
 
             const std::vector<Coordinates> route =
                 route_cells(level, world.map.spawn(), world.exit_cell);
@@ -549,22 +549,31 @@ TEST_CASE("the objective ends the level at the authored exit rather than a deriv
 TEST_CASE("a template exit zone never overlaps its entry zone") {
     for (const LevelTier tier : {LevelTier::small, LevelTier::medium, LevelTier::large,
                                  LevelTier::x_large}) {
-        const LevelTemplate level = template_of(tier);
-        const LevelDimensions dimensions = dimensions_of(tier);
+        for (const ExitCorner corner : {ExitCorner::top_right, ExitCorner::top_left,
+                                        ExitCorner::bottom_right, ExitCorner::bottom_left}) {
+            const LevelTemplate level = template_of(tier, corner);
+            const LevelDimensions dimensions = dimensions_of(tier);
 
-        CHECK(level.entry_zone.contains(center_spawn_of(tier)));
-        CHECK_FALSE(level.exit_zone.contains(center_spawn_of(tier)));
-        CHECK(level.exit_zone.min_x > level.entry_zone.max_x);
-        CHECK(level.exit_zone.min_x >= 1);
-        CHECK(level.exit_zone.max_x + 2 <= static_cast<int>(dimensions.width));
-        CHECK(level.exit_zone.min_y >= 1);
-        CHECK(level.exit_zone.max_y + 2 <= static_cast<int>(dimensions.height));
+            CHECK(level.entry_zone.contains(center_spawn_of(tier)));
+            CHECK_FALSE(level.exit_zone.contains(center_spawn_of(tier)));
+
+            const bool disjoint = level.exit_zone.min_x > level.entry_zone.max_x ||
+                                  level.exit_zone.max_x < level.entry_zone.min_x ||
+                                  level.exit_zone.min_y > level.entry_zone.max_y ||
+                                  level.exit_zone.max_y < level.entry_zone.min_y;
+            CHECK(disjoint);
+            CHECK(level.exit_zone.min_x >= 1);
+            CHECK(level.exit_zone.max_x + 2 <= static_cast<int>(dimensions.width));
+            CHECK(level.exit_zone.min_y >= 1);
+            CHECK(level.exit_zone.max_y + 2 <= static_cast<int>(dimensions.height));
+            CHECK(corner_is_right(corner) == (level.exit_zone.min_x > center_spawn_of(tier).x));
+            CHECK(corner_is_top(corner) == (level.exit_zone.max_y < center_spawn_of(tier).y));
+        }
     }
 }
 
 TEST_CASE("optional side routes open only for some seeds so content varies within one shape") {
-    const LevelTemplate level = template_of(LevelTier::medium);
-    REQUIRE_FALSE(level.branch_spurs.empty());
+    REQUIRE_FALSE(template_of(LevelTier::medium, ExitCorner::top_right).branch_spurs.empty());
 
     std::size_t opened = 0;
     std::size_t closed = 0;
@@ -575,6 +584,7 @@ TEST_CASE("optional side routes open only for some seeds so content varies withi
 
         // A spur that opened was reserved, so it is open; a spur that stayed closed
         // is ordinary ground and usually carries terrain.
+        const LevelTemplate level = template_of(LevelTier::medium, world.exit_corner);
         const Coordinates tip = spur_cells(level.branch_spurs[1]).back();
         if (world.map.terrain_at(tip) == Terrain::open) {
             ++opened;
