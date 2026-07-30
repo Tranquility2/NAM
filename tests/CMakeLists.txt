@@ -140,7 +140,7 @@ if(TARGET nam_console)
     nam_add_cli_test(cli_run_level_complete
         "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_level_stdin}
         -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=EXPEDITION REPORT|ROUTE MAP|EXPEDITION JOURNAL|Score:|Move attempts:|Blocked moves:|Optimal route cost:"
+        "-DEXPECT_CONTAINS=EXPEDITION REPORT|ROUTE MAP|EXPEDITION JOURNAL|Score:|Route:|Blocked moves:|Explored:"
         -DFORBID_ESC=1)
     nam_add_cli_test(cli_run_level_deterministic
         "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_level_stdin}

@@ -56,141 +56,67 @@ TEST_CASE("a new journal is empty") {
     CHECK(journal.entries().empty());
 }
 
-TEST_CASE("matching adjacent moves merge into one travel entry") {
+TEST_CASE("routine movement never becomes a journal entry") {
     Journal journal;
-    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Exit");
-    journal.record_event(move_event(1, Direction::right, Terrain::open, 1), "Exit");
-    journal.record_event(move_event(2, Direction::right, Terrain::open, 1), "Exit");
+    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "North Ridge");
+    journal.record_event(move_event(1, Direction::right, Terrain::open, 1), "North Ridge");
+    journal.record_event(move_event(2, Direction::up, Terrain::hill, 2), "North Ridge");
+    journal.record_event(move_event(3, Direction::down, Terrain::fields, 2), "North Ridge");
 
-    REQUIRE(journal.size() == 1);
-    const auto* travel = std::get_if<TravelEntry>(&journal.entries().front().data);
-    REQUIRE(travel != nullptr);
-    CHECK(travel->direction == Direction::right);
-    CHECK(travel->terrain == Terrain::open);
-    CHECK(travel->steps == 3);
-    CHECK(travel->first_sequence == 0);
-    CHECK(travel->last_sequence == 2);
-    CHECK(travel->stamina_spent == 3);
+    CHECK(journal.empty());
 }
 
-TEST_CASE("a travel entry accumulates stamina across mixed step costs of one terrain") {
+TEST_CASE("a blocked attempt never becomes a journal entry") {
     Journal journal;
-    journal.record_event(move_event(0, Direction::up, Terrain::hill, 2), "Exit");
-    journal.record_event(move_event(1, Direction::up, Terrain::hill, 2), "Exit");
-
-    REQUIRE(journal.size() == 1);
-    const auto* travel = std::get_if<TravelEntry>(&journal.entries().front().data);
-    REQUIRE(travel != nullptr);
-    CHECK(travel->steps == 2);
-    CHECK(travel->stamina_spent == 4);
-}
-
-TEST_CASE("a direction change starts a new travel entry") {
-    Journal journal;
-    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Exit");
-    journal.record_event(move_event(1, Direction::up, Terrain::open, 1), "Exit");
-
-    REQUIRE(journal.size() == 2);
-    const auto* first = std::get_if<TravelEntry>(&journal.entries()[0].data);
-    const auto* second = std::get_if<TravelEntry>(&journal.entries()[1].data);
-    REQUIRE(first != nullptr);
-    REQUIRE(second != nullptr);
-    CHECK(first->direction == Direction::right);
-    CHECK(second->direction == Direction::up);
-    CHECK(second->steps == 1);
-}
-
-TEST_CASE("a terrain change starts a new travel entry") {
-    Journal journal;
-    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Exit");
-    journal.record_event(move_event(1, Direction::right, Terrain::fields, 2), "Exit");
-
-    REQUIRE(journal.size() == 2);
-    const auto* first = std::get_if<TravelEntry>(&journal.entries()[0].data);
-    const auto* second = std::get_if<TravelEntry>(&journal.entries()[1].data);
-    REQUIRE(first != nullptr);
-    REQUIRE(second != nullptr);
-    CHECK(first->terrain == Terrain::open);
-    CHECK(second->terrain == Terrain::fields);
-}
-
-TEST_CASE("a blocked attempt creates no entry but breaks grouping") {
-    Journal journal;
-    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Exit");
-    journal.record_event(blocked_event(1, Direction::right), "Exit");
-    journal.record_event(move_event(2, Direction::right, Terrain::open, 1), "Exit");
-
-    REQUIRE(journal.size() == 2);
-    const auto* first = std::get_if<TravelEntry>(&journal.entries()[0].data);
-    const auto* second = std::get_if<TravelEntry>(&journal.entries()[1].data);
-    REQUIRE(first != nullptr);
-    REQUIRE(second != nullptr);
-    CHECK(first->steps == 1);
-    CHECK(first->last_sequence == 0);
-    CHECK(second->steps == 1);
-    CHECK(second->first_sequence == 2);
-}
-
-TEST_CASE("every blocked result kind breaks grouping without an entry") {
     for (const MoveResult result : {MoveResult::blocked_by_boundary,
                                     MoveResult::blocked_by_terrain}) {
-        Journal journal;
-        journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "Exit");
-        journal.record_event(blocked_event(1, Direction::right, result), "Exit");
-        journal.record_event(move_event(2, Direction::right, Terrain::open, 1), "Exit");
-        CHECK(journal.size() == 2);
+        journal.record_event(blocked_event(0, Direction::right, result), "North Ridge");
     }
+    CHECK(journal.empty());
 }
 
-TEST_CASE("a discovering move merges into travel then appends a discovery entry") {
+TEST_CASE("a discovering move appends exactly one discovery entry") {
     Journal journal;
     journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "North Ridge");
     journal.record_event(
         move_event(1, Direction::right, Terrain::open, 1, ObjectiveTransition::landmark_discovered),
         "North Ridge");
 
-    REQUIRE(journal.size() == 2);
-    const auto* travel = std::get_if<TravelEntry>(&journal.entries()[0].data);
-    const auto* discovery = std::get_if<DiscoveryEntry>(&journal.entries()[1].data);
-    REQUIRE(travel != nullptr);
+    REQUIRE(journal.size() == 1);
+    const auto* discovery = std::get_if<DiscoveryEntry>(&journal.entries().front().data);
     REQUIRE(discovery != nullptr);
-    CHECK(travel->steps == 2);
-    CHECK(travel->last_sequence == 1);
     CHECK(discovery->sequence == 1);
-    CHECK(discovery->landmark_name == "North Ridge");
+    CHECK(discovery->landmark_name == std::string("North Ridge"));
 }
 
-TEST_CASE("an objective entry breaks grouping so the next move starts a new travel entry") {
-    Journal journal;
-    journal.record_event(
-        move_event(0, Direction::right, Terrain::open, 1, ObjectiveTransition::landmark_discovered),
-        "North Ridge");
-    journal.record_event(move_event(1, Direction::right, Terrain::open, 1), "North Ridge");
-
-    REQUIRE(journal.size() == 3);
-    CHECK(std::holds_alternative<TravelEntry>(journal.entries()[0].data));
-    CHECK(std::holds_alternative<DiscoveryEntry>(journal.entries()[1].data));
-    const auto* travel = std::get_if<TravelEntry>(&journal.entries()[2].data);
-    REQUIRE(travel != nullptr);
-    CHECK(travel->steps == 1);
-    CHECK(travel->first_sequence == 1);
-}
-
-TEST_CASE("a completing move merges into travel then appends a completion entry") {
+TEST_CASE("a completing move appends exactly one completion entry") {
     Journal journal;
     journal.record_event(move_event(0, Direction::left, Terrain::open, 1), "North Ridge");
     journal.record_event(move_event(1, Direction::left, Terrain::open, 1,
                                     ObjectiveTransition::level_completed),
                          "North Ridge");
 
-    REQUIRE(journal.size() == 2);
-    const auto* travel = std::get_if<TravelEntry>(&journal.entries()[0].data);
-    const auto* completion = std::get_if<CompletionEntry>(&journal.entries()[1].data);
-    REQUIRE(travel != nullptr);
+    REQUIRE(journal.size() == 1);
+    const auto* completion = std::get_if<CompletionEntry>(&journal.entries().front().data);
     REQUIRE(completion != nullptr);
-    CHECK(travel->steps == 2);
     CHECK(completion->sequence == 1);
-    CHECK(completion->landmark_name == "North Ridge");
+    CHECK(completion->landmark_name == std::string("North Ridge"));
+}
+
+TEST_CASE("a full level produces exactly two milestone entries in order") {
+    Journal journal;
+    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), "North Ridge");
+    journal.record_event(
+        move_event(1, Direction::right, Terrain::open, 1, ObjectiveTransition::landmark_discovered),
+        "North Ridge");
+    journal.record_event(move_event(2, Direction::right, Terrain::open, 1), "North Ridge");
+    journal.record_event(
+        move_event(3, Direction::right, Terrain::open, 1, ObjectiveTransition::level_completed),
+        "North Ridge");
+
+    REQUIRE(journal.size() == 2);
+    CHECK(std::holds_alternative<DiscoveryEntry>(journal.entries()[0].data));
+    CHECK(std::holds_alternative<CompletionEntry>(journal.entries()[1].data));
 }
 
 TEST_CASE("initial completion creates exactly one special entry") {
@@ -200,39 +126,10 @@ TEST_CASE("initial completion creates exactly one special entry") {
     REQUIRE(journal.size() == 1);
     const auto* initial = std::get_if<InitialCompletionEntry>(&journal.entries()[0].data);
     REQUIRE(initial != nullptr);
-    CHECK(initial->landmark_name == "Spawn Cairn");
+    CHECK(initial->landmark_name == std::string("Spawn Cairn"));
 }
 
-TEST_CASE("travel prose uses exact singular and plural grammar") {
-    Journal one;
-    one.record_event(move_event(0, Direction::right, Terrain::open, 1), "Exit");
-    CHECK(format_entry(one.entries().front()) ==
-          std::string("Traveled east across open ground for 1 step."));
-
-    Journal many;
-    many.record_event(move_event(0, Direction::right, Terrain::open, 1), "Exit");
-    many.record_event(move_event(1, Direction::right, Terrain::open, 1), "Exit");
-    many.record_event(move_event(2, Direction::right, Terrain::open, 1), "Exit");
-    CHECK(format_entry(many.entries().front()) ==
-          std::string("Traveled east across open ground for 3 steps."));
-}
-
-TEST_CASE("travel prose maps every direction to a cardinal name") {
-    Journal journal;
-    journal.record_event(move_event(0, Direction::up, Terrain::open, 1), "Exit");
-    journal.record_event(move_event(1, Direction::down, Terrain::open, 1), "Exit");
-    journal.record_event(move_event(2, Direction::left, Terrain::open, 1), "Exit");
-    journal.record_event(move_event(3, Direction::right, Terrain::open, 1), "Exit");
-
-    const std::vector<std::string> lines = prose_of(journal);
-    REQUIRE(lines.size() == 4);
-    CHECK(lines[0] == std::string("Traveled north across open ground for 1 step."));
-    CHECK(lines[1] == std::string("Traveled south across open ground for 1 step."));
-    CHECK(lines[2] == std::string("Traveled west across open ground for 1 step."));
-    CHECK(lines[3] == std::string("Traveled east across open ground for 1 step."));
-}
-
-TEST_CASE("discovery and completion prose name the exit_cell exactly") {
+TEST_CASE("discovery and completion prose name the landmark exactly") {
     Journal discovery;
     discovery.record_event(
         move_event(0, Direction::right, Terrain::open, 1, ObjectiveTransition::landmark_discovered),
@@ -276,10 +173,7 @@ TEST_CASE("repeated identical scripts produce byte-identical prose and structure
     CHECK(prose_of(first) == prose_of(second));
 
     const std::vector<std::string> expected{
-        "Traveled east across open ground for 2 steps.",
-        "Traveled north across hill for 1 step.",
         "Discovered North Ridge; the exit direction was revealed.",
-        "Traveled south across hill for 1 step.",
         "Reached the exit after North Ridge; level complete.",
     };
     CHECK(prose_of(first) == expected);

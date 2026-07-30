@@ -73,11 +73,11 @@ std::string route_map_first_row(const ExpeditionReport& report) {
 ExpeditionReport build_report(const LevelObjective& objective, const Map& map,
                               const VisibilityMap& visibility, const Journal& journal,
                               const RouteHistory& route, std::uint64_t move_count,
-                              std::uint64_t attempt_count, std::uint32_t final_stamina,
-                              std::uint32_t max_stamina) {
+                              std::uint64_t attempt_count, std::uint64_t stamina_spent,
+                              std::uint32_t final_stamina, std::uint32_t max_stamina) {
     return build_expedition_report(objective, map, visibility, journal, route,
                                    world_identity_from(Settings{}), move_count, attempt_count,
-                                   final_stamina, max_stamina);
+                                   stamina_spent, final_stamina, max_stamina);
 }
 
 }  // namespace
@@ -100,7 +100,7 @@ TEST_CASE("route history starts at spawn and appends only successful destination
     CHECK_FALSE(route.traveled(Coordinates{3, 0}));
 }
 
-TEST_CASE("the route map applies F over B over S over star over fog terrain") {
+TEST_CASE("the route map applies F over X over S over star over fog terrain") {
     const Map map = row_map(".....", Coordinates{0, 0});
     const LevelObjective objective =
         make_objective(Coordinates{3, 0}, "Test Exit", ObjectiveStatus::completed, 6, 5);
@@ -113,9 +113,9 @@ TEST_CASE("the route map applies F over B over S over star over fog terrain") {
     route.record_event(moved_event(1, Direction::right, Terrain::open, 1, Coordinates{2, 0}));
 
     const ExpeditionReport report =
-        build_report(objective, map, visibility, journal, route, 2, 2, 18, 20);
+        build_report(objective, map, visibility, journal, route, 2, 2, 2, 18, 20);
     CHECK(report.final_position == Coordinates{2, 0});
-    CHECK(route_map_first_row(report) == "S*FB?");
+    CHECK(route_map_first_row(report) == "S*FX?");
 }
 
 TEST_CASE("completed report shows result story statistics and legend wording") {
@@ -136,25 +136,21 @@ TEST_CASE("completed report shows result story statistics and legend wording") {
 
     const ExpeditionReport report =
         build_report(objective, map, visibility, journal, route, /*move_count=*/3,
-                     /*attempt_count=*/4, /*final_stamina=*/17, /*max_stamina=*/20);
+                     /*attempt_count=*/4, /*stamina_spent=*/3, /*final_stamina=*/17,
+                     /*max_stamina=*/20);
 
     CHECK(format_report_result(report) == "Result: level complete.");
     CHECK(format_report_story(report) ==
-          "The level beyond Glass River Exit is complete. The party made 3 successful moves, "
-          "spent 3 stamina, and hit 1 blocked move, earning a final score of 980 out of 1000.");
+          "The party found Glass River Exit and reached the exit in 3 moves.");
 
     const std::vector<std::string> stats = format_report_statistics(report);
-    REQUIRE(stats.size() == 10);
+    REQUIRE(stats.size() == 6);
     CHECK(stats[0] == "STATISTICS");
     CHECK(stats[1] == "Score: 980 / 1000");
-    CHECK(stats[2] == "Moves: 3");
-    CHECK(stats[3] == "Move attempts: 4");
-    CHECK(stats[4] == "Blocked moves: 1");
-    CHECK(stats[5] == "Stamina spent: 3");
-    CHECK(stats[6] == "Optimal route cost: 3");
-    CHECK(stats[7] == "Final stamina: 17/20");
-    CHECK(stats[8] == "Explored reachable terrain: 4 / 4");
-    CHECK(stats[9] == "Landmark reached: yes");
+    CHECK(stats[2] == "Route: 3 moves, 3 stamina (optimal 3)");
+    CHECK(stats[3] == "Blocked moves: 1");
+    CHECK(stats[4] == "Stamina: 17/20");
+    CHECK(stats[5] == "Explored: 4 / 4 cells");
 
     const std::vector<std::string> legend = format_report_legend();
     REQUIRE(legend.size() == 6);
@@ -179,15 +175,15 @@ TEST_CASE("a wandering route loses five points per excess stamina point") {
 
     // Three stamina spent against a one-point optimal route is two excess points.
     const ExpeditionReport report =
-        build_report(objective, map, visibility, journal, route, 3, 3, 17, 20);
+        build_report(objective, map, visibility, journal, route, 3, 3, 3, 17, 20);
     CHECK(report.score.excess_stamina == 2);
     CHECK(report.score.value == 990);
 }
 
-TEST_CASE("a report marks the landmark unreached while the objective is still seeking") {
+TEST_CASE("the route line uses singular grammar for a single move") {
     const Map map = row_map("....", Coordinates{0, 0});
-    const LevelObjective objective = make_objective(Coordinates{3, 0}, "North Ridge",
-                                                    ObjectiveStatus::seeking_landmark, 3, 4);
+    const LevelObjective objective =
+        make_objective(Coordinates{3, 0}, "North Ridge", ObjectiveStatus::completed, 1, 4);
     VisibilityMap visibility(4, 1);
     visibility.reveal_square(Coordinates{0, 0}, 1);
 
@@ -198,11 +194,11 @@ TEST_CASE("a report marks the landmark unreached while the objective is still se
     route.record_event(first);
 
     const ExpeditionReport report =
-        build_report(objective, map, visibility, journal, route, 1, 1, 19, 20);
+        build_report(objective, map, visibility, journal, route, 1, 1, 1, 19, 20);
 
     const std::vector<std::string> stats = format_report_statistics(report);
-    REQUIRE(stats.size() == 10);
-    CHECK(stats[9] == "Landmark reached: no");
+    REQUIRE(stats.size() == 6);
+    CHECK(stats[2] == "Route: 1 move, 1 stamina (optimal 1)");
 }
 
 TEST_CASE("report line sections appear in the required order") {
@@ -216,7 +212,7 @@ TEST_CASE("report line sections appear in the required order") {
     RouteHistory route(Coordinates{0, 0});
 
     const ExpeditionReport report =
-        build_report(objective, map, visibility, journal, route, 0, 0, 20, 20);
+        build_report(objective, map, visibility, journal, route, 0, 0, 0, 20, 20);
     const std::vector<std::string> lines = format_report_lines(report);
 
     const auto index_of = [&lines](const std::string& header) -> int {
@@ -251,7 +247,7 @@ TEST_CASE("plain report block ends with one newline has no ansi and is determini
     RouteHistory route(Coordinates{0, 0});
 
     const ExpeditionReport report =
-        build_report(objective, map, visibility, journal, route, 0, 0, 20, 20);
+        build_report(objective, map, visibility, journal, route, 0, 0, 0, 20, 20);
 
     const Renderer renderer(RenderConfig{false, false, false, false});
     const std::string first = renderer.render_report_plain(report);

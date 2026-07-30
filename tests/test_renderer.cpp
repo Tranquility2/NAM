@@ -102,18 +102,18 @@ RenderConfig color_config() { return RenderConfig{true, true, false, true}; }
 
 // Build a journal of `count` distinct eastward single-step travel entries, each
 // on its own terrain change so no merging occurs and numbering is 1..count.
-Journal make_travel_journal(std::uint32_t count) {
+// A journal of `count` milestone entries. Routine movement never reaches the
+// journal, so scrolling fixtures use discovery milestones with distinct names.
+Journal make_milestone_journal(std::uint32_t count) {
     Journal journal;
-    const Terrain terrains[] = {Terrain::open, Terrain::fields, Terrain::hill};
     for (std::uint32_t i = 0; i < count; ++i) {
         MoveAttemptedEvent move;
         move.direction = Direction::right;
         move.outcome.result = MoveResult::moved;
-        // Alternate terrain and direction so consecutive entries never merge.
-        move.direction = (i % 2 == 0) ? Direction::right : Direction::left;
-        move.outcome.terrain = terrains[i % 3];
+        move.outcome.terrain = Terrain::open;
         move.outcome.stamina_cost = 1;
-        journal.record_event(GameEvent{i, move}, "Exit");
+        move.objective_update.transition = ObjectiveTransition::landmark_discovered;
+        journal.record_event(GameEvent{i, move}, "Landmark " + std::to_string(i + 1));
     }
     return journal;
 }
@@ -152,8 +152,8 @@ ExpeditionReport build_test_report(std::size_t interior_width) {
     Settings settings;  // Built-in identity.
     return build_expedition_report(objective, map, visibility, journal, route,
                                    world_identity_from(settings), /*move_count=*/1,
-                                   /*attempt_count=*/1, /*final_stamina=*/11,
-                                   /*max_stamina=*/12);
+                                   /*attempt_count=*/1, /*stamina_spent=*/1,
+                                   /*final_stamina=*/11, /*max_stamina=*/12);
 }
 
 // Concatenate a frame's raw rows so escape sequences can be searched globally.
@@ -952,7 +952,7 @@ TEST_CASE("the discovery screen below the minimum reuses the bounded too-small p
 
 TEST_CASE("the plain journal block is ANSI-free with a header and one trailing newline") {
     const Renderer renderer(RenderConfig{false, false, false, false});
-    const Journal journal = make_travel_journal(3);
+    const Journal journal = make_milestone_journal(3);
     const std::string block = renderer.render_journal_plain(journal);
 
     CHECK(block.find('\x1b') == std::string::npos);
@@ -974,7 +974,7 @@ TEST_CASE("the empty plain journal block shows the placeholder") {
 
 TEST_CASE("the interactive journal frame is exactly row and column bounded across sizes") {
     const Renderer renderer(color_config());
-    const Journal journal = make_travel_journal(40);
+    const Journal journal = make_milestone_journal(40);
     for (int rows = 6; rows <= 40; rows += 7) {
         for (int cols = 16; cols <= 100; cols += 21) {
             const TerminalSize size{cols, rows};
@@ -990,7 +990,7 @@ TEST_CASE("the interactive journal frame is exactly row and column bounded acros
 
 TEST_CASE("the interactive journal frame shows header and controls") {
     const Renderer renderer(color_config());
-    const Journal journal = make_travel_journal(5);
+    const Journal journal = make_milestone_journal(5);
     const Frame frame = renderer.render_journal(journal, 0, TerminalSize{60, 12});
     const std::string visible = join_visible(frame);
     CHECK(visible.find("EXPEDITION JOURNAL") != std::string::npos);
@@ -1019,7 +1019,7 @@ TEST_CASE("journal page capacity matches the header and controls reservation") {
 
 TEST_CASE("the interactive journal scrolls chronologically and clamps at both ends") {
     const Renderer renderer(color_config());
-    const Journal journal = make_travel_journal(20);
+    const Journal journal = make_milestone_journal(20);
     const TerminalSize size{60, 7};  // capacity 5 entry rows.
     const int capacity = renderer.journal_page_capacity(size);
     REQUIRE(capacity == 5);
@@ -1046,7 +1046,7 @@ TEST_CASE("the interactive journal scrolls chronologically and clamps at both en
 
 TEST_CASE("the interactive journal reuses the too-small panel below the minimum") {
     const Renderer renderer(color_config());
-    const Journal journal = make_travel_journal(5);
+    const Journal journal = make_milestone_journal(5);
     const Frame frame = renderer.render_journal(journal, 0, TerminalSize{11, 5});
     const std::string visible = join_visible(frame);
     CHECK(visible.find("Window") != std::string::npos);
@@ -1054,7 +1054,7 @@ TEST_CASE("the interactive journal reuses the too-small panel below the minimum"
 
 TEST_CASE("journal rendering is deterministic for identical inputs") {
     const Renderer renderer(color_config());
-    const Journal journal = make_travel_journal(12);
+    const Journal journal = make_milestone_journal(12);
     const TerminalSize size{72, 15};
     CHECK(join_raw(renderer.render_journal(journal, 3, size)) ==
           join_raw(renderer.render_journal(journal, 3, size)));

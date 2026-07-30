@@ -526,10 +526,11 @@ TEST_CASE("plain single-cell map prints the report once and exits immediately") 
     const int code = run_plain_state(make_single_cell_state(), "d\nq\n", output);
     CHECK(code == 0);
     CHECK(count_substr(output, "EXPEDITION REPORT") == 1);
-    CHECK(output.find("The level beyond " + name + " is complete.") != std::string::npos);
+    CHECK(output.find("The party found " + name + " and reached the exit in 0 moves.") !=
+          std::string::npos);
     CHECK(output.find("Score: 1000 / 1000") != std::string::npos);
-    CHECK(output.find("Moves: 0") != std::string::npos);
-    CHECK(output.find("Final stamina: 20/20") != std::string::npos);
+    CHECK(output.find("Route: 0 moves, 0 stamina (optimal 0)") != std::string::npos);
+    CHECK(output.find("Stamina: 20/20") != std::string::npos);
     CHECK(output.find("Goodbye") == std::string::npos);  // immediate quiet exit.
 }
 
@@ -821,14 +822,13 @@ TEST_CASE("plain j prints the journal once and immediately resumes gameplay") {
 
 TEST_CASE("plain j records prior moves and does not dismiss discovery") {
     // TASK-016 / REQ-028: on the discovery screen a plain journal command prints the
-    // block (including the recorded travel and discovery entries) without dismissing
+    // block (including the recorded discovery milestone) without dismissing
     // discovery, acknowledging, or emitting an event.
     const std::string name = corridor_landmark_name();
     std::string output;
     const int code = run_plain_state(make_corridor_state(), "d\nd\nj\nq\n", output);
     CHECK(code == 0);
     CHECK(output.find("EXPEDITION JOURNAL") != std::string::npos);
-    CHECK(output.find("Traveled east across open ground for 2 steps.") != std::string::npos);
     CHECK(output.find("Discovered " + name + "; the exit direction was revealed.") !=
           std::string::npos);
 }

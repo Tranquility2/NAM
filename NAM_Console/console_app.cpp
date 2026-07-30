@@ -155,8 +155,8 @@ void ConsoleApp::enter_completion() {
     report_.emplace(build_expedition_report(
         state_.objective(), state_.map(), state_.visibility(), journal_, route_history_,
         world_identity_from(settings_), static_cast<std::uint64_t>(hud_.move_count()),
-        static_cast<std::uint64_t>(hud_.attempt_count()), state_.stamina(),
-        state_.max_stamina()));
+        static_cast<std::uint64_t>(hud_.attempt_count()), hud_.stamina_spent(),
+        state_.stamina(), state_.max_stamina()));
     report_viewport_ = ReportViewport{};  // Open at (0, 0) (REQ-150).
     restored_message_ = restored_completion_message(state_.objective().name);
 }

@@ -90,7 +90,6 @@ struct ExpeditionReport {
     ExpeditionScore score{};
     Journal journal;            // Structured journal snapshot for the journal section.
     std::uint64_t move_count = 0;
-    std::uint64_t attempt_count = 0;
     std::uint64_t blocked_attempts = 0;
     std::uint64_t actual_stamina_spent = 0;
     std::uint64_t optimal_route_cost = 0;
@@ -98,31 +97,31 @@ struct ExpeditionReport {
     std::uint32_t max_stamina = 0;
     std::uint64_t explored_reachable_cells = 0;
     std::uint64_t total_reachable_cells = 0;
-    bool landmark_reached = false;
 };
 
-// Build the final report. Stamina spent is the sum of TravelEntry::stamina_spent
-// across the completed journal (REQ-143). Blocked attempts are attempt_count minus
-// move_count via comparison-before-subtraction. Explored reachable terrain is
-// computed from the map and visibility snapshot by the core, and the total comes
-// from the objective. Whether the landmark was reached is derived from the
-// objective status. `map` and `visibility` are snapshotted for the route map.
+// Build the final report. Stamina spent is the HUD's cumulative movement cost,
+// since routine travel no longer reaches the journal (REQ-143). Blocked attempts
+// are attempt_count minus move_count via comparison-before-subtraction. Explored
+// reachable terrain is computed from the map and visibility snapshot by the core,
+// and the total comes from the objective. `map` and `visibility` are snapshotted
+// for the route map.
 [[nodiscard]] ExpeditionReport build_expedition_report(
     const LevelObjective& objective, const Map& map, const VisibilityMap& visibility,
     const Journal& journal, const RouteHistory& route, const WorldIdentity& identity,
-    std::uint64_t move_count, std::uint64_t attempt_count, std::uint32_t final_stamina,
-    std::uint32_t max_stamina);
+    std::uint64_t move_count, std::uint64_t attempt_count, std::uint64_t stamina_spent,
+    std::uint32_t final_stamina, std::uint32_t max_stamina);
 
 // The single result/status line (REQ-133).
 [[nodiscard]] std::string format_report_result(const ExpeditionReport& report);
 
-// The compact deterministic story paragraph, one logical line derived only from
-// typed report fields (REQ-133).
+// The compact deterministic story line, derived only from typed report fields
+// (REQ-133). It names the landmark and the move count; every other number belongs
+// to the statistics section so the report never states the same figure twice.
 [[nodiscard]] std::string format_report_story(const ExpeditionReport& report);
 
-// The transparent statistics lines in order (REQ-143 / REQ-144): score, moves,
-// move attempts, blocked moves, stamina spent, optimal route cost, final stamina,
-// explored reachable terrain and total, and whether the landmark was reached.
+// The transparent statistics lines in order (REQ-143 / REQ-144): score, the route
+// summary (moves, stamina spent, optimal route cost), blocked moves, final
+// stamina, and explored reachable terrain out of the total.
 [[nodiscard]] std::vector<std::string> format_report_statistics(const ExpeditionReport& report);
 
 // The world-identity and replay/run-again lines (REQ-154). All user-controlled
@@ -130,7 +129,7 @@ struct ExpeditionReport {
 [[nodiscard]] std::vector<std::string> format_report_identity(const ExpeditionReport& report);
 
 // The full-dimension route map rows (REQ-153). Overlay priority per cell is final
-// position `F`, exit `B`, spawn `S`, any traveled cell `*`, then fog/terrain: an
+// position `F`, exit `X`, spawn `S`, any traveled cell `*`, then fog/terrain: an
 // unexplored cell is `?` and a remembered or visible cell is its canonical
 // symbol_of glyph. Plain ASCII and deterministic.
 [[nodiscard]] std::vector<std::string> format_report_route_map(const ExpeditionReport& report);

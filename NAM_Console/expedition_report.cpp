@@ -13,7 +13,7 @@ namespace {
 // The overlay glyphs used on the route map and named in the legend. Kept together
 // so the map builder and the legend can never disagree.
 constexpr char route_final_glyph = 'F';
-constexpr char route_exit_glyph = 'B';
+constexpr char route_exit_glyph = 'X';
 constexpr char route_spawn_glyph = 'S';
 constexpr char route_traveled_glyph = '*';
 constexpr char route_unexplored_glyph = '?';
@@ -68,24 +68,12 @@ WorldIdentity world_identity_from(const Settings& settings) {
 ExpeditionReport build_expedition_report(
     const LevelObjective& objective, const Map& map, const VisibilityMap& visibility,
     const Journal& journal, const RouteHistory& route, const WorldIdentity& identity,
-    std::uint64_t move_count, std::uint64_t attempt_count, std::uint32_t final_stamina,
-    std::uint32_t max_stamina) {
-    // Derive stamina spent from the completed structured journal only (REQ-143).
-    std::uint64_t stamina_spent = 0;
-    for (const JournalEntry& entry : journal.entries()) {
-        if (const auto* travel = std::get_if<TravelEntry>(&entry.data)) {
-            stamina_spent += travel->stamina_spent;
-        }
-    }
-
+    std::uint64_t move_count, std::uint64_t attempt_count, std::uint64_t stamina_spent,
+    std::uint32_t final_stamina, std::uint32_t max_stamina) {
     // Blocked attempts are total movement attempts minus successful moves, via
     // comparison-before-subtraction so the count never underflows.
     const std::uint64_t blocked_attempts =
         attempt_count > move_count ? attempt_count - move_count : 0;
-
-    // Whether the landmark was reached: any non-seeking status means the actor
-    // entered the landmark at least once.
-    const bool landmark_reached = objective.status != ObjectiveStatus::seeking_landmark;
 
     // Core-owned exploration counts: explored from the map and fog snapshot, total
     // from the objective's reachable-cell property.
@@ -108,7 +96,6 @@ ExpeditionReport build_expedition_report(
     report.score = compute_completed_score(score_input);
     report.journal = journal;
     report.move_count = move_count;
-    report.attempt_count = attempt_count;
     report.blocked_attempts = blocked_attempts;
     report.actual_stamina_spent = stamina_spent;
     report.optimal_route_cost = objective.minimum_route_stamina_cost;
@@ -116,7 +103,6 @@ ExpeditionReport build_expedition_report(
     report.max_stamina = max_stamina;
     report.explored_reachable_cells = explored;
     report.total_reachable_cells = total;
-    report.landmark_reached = landmark_reached;
     return report;
 }
 
@@ -126,14 +112,8 @@ std::string format_report_result(const ExpeditionReport&) {
 
 std::string format_report_story(const ExpeditionReport& report) {
     const std::uint64_t moves = report.move_count;
-    const std::uint64_t stamina = report.actual_stamina_spent;
-    const std::uint64_t blocked = report.blocked_attempts;
-    return "The level beyond " + report.landmark_name + " is complete. The party made " +
-           std::to_string(moves) + " successful " + plural(moves, "move", "moves") + ", spent " +
-           std::to_string(stamina) + " stamina, and hit " + std::to_string(blocked) + " blocked " +
-           plural(blocked, "move", "moves") + ", earning a final score of " +
-           std::to_string(report.score.value) + " out of " +
-           std::to_string(completed_score_maximum) + ".";
+    return "The party found " + report.landmark_name + " and reached the exit in " +
+           std::to_string(moves) + " " + plural(moves, "move", "moves") + ".";
 }
 
 std::vector<std::string> format_report_statistics(const ExpeditionReport& report) {
@@ -141,17 +121,15 @@ std::vector<std::string> format_report_statistics(const ExpeditionReport& report
     lines.emplace_back("STATISTICS");
     lines.push_back("Score: " + std::to_string(report.score.value) + " / " +
                     std::to_string(completed_score_maximum));
-    lines.push_back("Moves: " + std::to_string(report.move_count));
-    lines.push_back("Move attempts: " + std::to_string(report.attempt_count));
+    lines.push_back("Route: " + std::to_string(report.move_count) + " " +
+                    plural(report.move_count, "move", "moves") + ", " +
+                    std::to_string(report.actual_stamina_spent) + " stamina (optimal " +
+                    std::to_string(report.optimal_route_cost) + ")");
     lines.push_back("Blocked moves: " + std::to_string(report.blocked_attempts));
-    lines.push_back("Stamina spent: " + std::to_string(report.actual_stamina_spent));
-    lines.push_back("Optimal route cost: " + std::to_string(report.optimal_route_cost));
-    lines.push_back("Final stamina: " + std::to_string(report.final_stamina) + "/" +
+    lines.push_back("Stamina: " + std::to_string(report.final_stamina) + "/" +
                     std::to_string(report.max_stamina));
-    lines.push_back("Explored reachable terrain: " +
-                    std::to_string(report.explored_reachable_cells) + " / " +
-                    std::to_string(report.total_reachable_cells));
-    lines.push_back(std::string("Landmark reached: ") + (report.landmark_reached ? "yes" : "no"));
+    lines.push_back("Explored: " + std::to_string(report.explored_reachable_cells) + " / " +
+                    std::to_string(report.total_reachable_cells) + " cells");
     return lines;
 }
 

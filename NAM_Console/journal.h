@@ -5,39 +5,29 @@
 #include <variant>
 #include <vector>
 
-#include "direction.h"
 #include "game_event.h"
-#include "terrain.h"
 
 namespace nam::console {
 
 // The frontend-owned expedition journal. It is derived entirely from the ordered
-// core GameEvent stream plus the core-owned exit name, and it holds no terminal
-// dimensions or presentation state (REQ-001 / GUD-003).
+// core GameEvent stream plus the core-owned landmark name, and it holds no
+// terminal dimensions or presentation state (REQ-001 / GUD-003).
 // Entries are structured value types rather than pre-rendered prose (REQ-004),
 // so a future narrator or export path can re-render them without re-deriving
 // anything from the map.
+//
+// The journal is a collection of memorable moments, not an event log. Routine
+// movement, stamina changes, passive recovery, and blocked input are reported
+// through the immediate HUD message and the final statistics; only durable
+// milestones become entries, so a full run stays readable end to end.
 
-// A run of adjacent successful movements grouped by direction and destination
-// terrain (REQ-007 / REQ-008). `steps` counts the merged moves; the sequence
-// pair brackets the first and last merged move; `stamina_spent` is the total
-// stamina the merged moves cost.
-struct TravelEntry {
-    Direction direction{};
-    Terrain terrain{};
-    std::uint64_t steps = 0;
-    std::uint64_t first_sequence = 0;
-    std::uint64_t last_sequence = 0;
-    std::uint64_t stamina_spent = 0;
-};
-
-// The move that first entered the exit cell (REQ-010).
+// The move that first entered the landmark cell and revealed the exit bearing.
 struct DiscoveryEntry {
     std::uint64_t sequence = 0;
     std::string landmark_name;
 };
 
-// The move that returned to spawn and completed the expedition (REQ-011).
+// The move that entered the exit cell and completed the level.
 struct CompletionEntry {
     std::uint64_t sequence = 0;
     std::string landmark_name;
@@ -51,8 +41,7 @@ struct InitialCompletionEntry {
 
 // The payload of one journal entry. A variant so distinct entry kinds keep their
 // own typed fields and prose is rendered through one total visitor (GUD-002).
-using JournalEntryData = std::variant<TravelEntry, DiscoveryEntry, CompletionEntry,
-                                      InitialCompletionEntry>;
+using JournalEntryData = std::variant<DiscoveryEntry, CompletionEntry, InitialCompletionEntry>;
 
 // One journal entry: a structured payload with no rendered text of its own.
 struct JournalEntry {
@@ -64,18 +53,14 @@ struct JournalEntry {
 // format_entry so the same entries can feed any future narrator or export.
 class Journal {
 public:
-    // Fold one ordered core event into the journal. A successful movement merges
-    // into an immediately preceding compatible travel entry (matching direction
-    // and destination terrain with no intervening blocked attempt or objective
-    // entry) or starts a new travel entry. A discovering or completing move merges
-    // normally and then appends its objective entry so the next movement starts a
-    // fresh travel group (REQ-037). A blocked movement creates no visible entry but
-    // still breaks travel grouping (REQ-006). `landmark_name` is used only for
-    // objective entries; callers pass the core-owned deterministic name.
+    // Fold one ordered core event into the journal. Only a successful movement
+    // that carries an objective transition appends an entry; every other event,
+    // including a blocked attempt, leaves the journal unchanged. `landmark_name`
+    // is the core-owned deterministic name used by those entries.
     void record_event(const GameEvent& event, const std::string& landmark_name);
 
     // Record the explicit initial-completion entry for a game that started
-    // already completed at spawn (REQ-012). Breaks any travel grouping.
+    // already completed at spawn (REQ-012).
     void record_initial_completion(const std::string& landmark_name);
 
     [[nodiscard]] const std::vector<JournalEntry>& entries() const noexcept { return entries_; }
@@ -84,10 +69,6 @@ public:
 
 private:
     std::vector<JournalEntry> entries_;
-    // True only when the newest entry is a travel entry still eligible to absorb
-    // a compatible next move. Any blocked attempt or objective entry sets this
-    // false so grouping can never span those boundaries (REQ-006).
-    bool travel_open_ = false;
 };
 
 // Render one journal entry as concise cartographer prose without coordinates
