@@ -9,11 +9,14 @@
 #include "level_tier.h"
 #include "map.h"
 
-// Deterministic procedural world generation. This is the first NAM world recipe,
-// "Tiny World": a compact, fixed-size map that converts a stable 64-bit seed into
-// a fully connected terrain grid whose water, mountain, hill, and field regions
-// form coherent spatial clusters, plus short interior barrier ridges and a
-// protected central spawn.
+// Deterministic procedural world generation. One shared recipe converts a stable
+// 64-bit seed and a level tier into a fully connected terrain grid whose water,
+// mountain, hill, and field regions form coherent spatial clusters, plus short
+// interior barrier ridges and a protected central spawn. Each tier supplies its
+// own dimensions, spawn, RNG stream, and content budgets, so the same seed yields
+// unrelated Small and Medium levels within one expedition.
+//
+// The Medium tier is the released "Tiny World" recipe, retained byte-for-byte.
 //
 // Terrain is not sampled independently per cell. Instead each feature is grown as
 // a connected blob: a seeded start cell is chosen, then neighbours are repeatedly
@@ -47,8 +50,9 @@ inline constexpr Coordinates tiny_world_spawn = center_spawn_of(tiny_world_tier)
 // The maximum number of candidate maps grown for one seed before generation gives
 // up. Bounded feature growth, sparse barrier ridges, and the protected spawn make
 // valid candidates common, so this limit is a safety bound rather than an expected
-// code path.
-inline constexpr std::uint32_t tiny_world_candidate_limit = 64;
+// code path. It is shared by every tier.
+inline constexpr std::uint32_t level_candidate_limit = 64;
+inline constexpr std::uint32_t tiny_world_candidate_limit = level_candidate_limit;
 
 // A successfully generated world: the map plus the deterministic metadata a
 // frontend needs to identify and reproduce it. `generation_attempt` is the
@@ -86,12 +90,22 @@ using WorldGenerationResult = std::variant<GeneratedWorld, WorldGenerationError>
 // hashed like any other byte.
 [[nodiscard]] std::uint64_t hash_seed_text(std::string_view text) noexcept;
 
-// Generate the Tiny World for a numeric seed. Candidates are grown from a single
-// Pcg32 seeded from `numeric_seed`; retries continue from the current RNG state
-// rather than reseeding, so the returned attempt number is meaningful and
-// reproducible. Returns the first valid candidate and its zero-based attempt, or
-// a typed error if the candidate limit is exhausted. The function never prints,
-// reads environment state, or uses global mutable state.
+// Generate the level for a tier and numeric seed. Candidates are grown from a
+// single Pcg32 seeded from `numeric_seed` on the tier's own stream; retries
+// continue from the current RNG state rather than reseeding, so the returned
+// attempt number is meaningful and reproducible. Returns the first valid candidate
+// and its zero-based attempt, or a typed error if the candidate limit is
+// exhausted. The function never prints, reads environment state, or uses global
+// mutable state.
+//
+// Small and Medium are authored tiers with their own released budgets. Large and
+// X-Large currently reuse the Medium budgets on their own dimensions, which is a
+// Phase 2 placeholder rather than a compatibility contract.
+[[nodiscard]] WorldGenerationResult generate_level(LevelTier tier, std::uint64_t numeric_seed);
+
+// Generate the Medium-tier Tiny World for a numeric seed: exactly
+// generate_level(LevelTier::medium, numeric_seed), kept because the console's
+// seeded path and the released determinism fixtures are written against it.
 [[nodiscard]] WorldGenerationResult generate_tiny_world(std::uint64_t numeric_seed);
 
 // A stable identifier string for an error code (for example

@@ -7,6 +7,7 @@
 #include <variant>
 #include <vector>
 
+#include "level_tier.h"
 #include "map.h"
 #include "terrain.h"
 #include "world_generation.h"
@@ -198,9 +199,11 @@ MapInvariants inspect(const Map& map) {
     }
 
     // The whole protected 3x3 spawn square must be open, not just the spawn cell.
+    const std::size_t spawn_x = static_cast<std::size_t>(map.spawn().x);
+    const std::size_t spawn_y = static_cast<std::size_t>(map.spawn().y);
     result.spawn_protected_open = true;
-    for (std::size_t y = 6; y <= 8; ++y) {
-        for (std::size_t x = 13; x <= 15; ++x) {
+    for (std::size_t y = spawn_y - 1u; y <= spawn_y + 1u; ++y) {
+        for (std::size_t x = spawn_x - 1u; x <= spawn_x + 1u; ++x) {
             if (rows[y][x] != '.') {
                 result.spawn_protected_open = false;
             }
@@ -281,6 +284,14 @@ bool components_within(const std::vector<std::size_t>& sizes, std::size_t min_co
         }
     }
     return true;
+}
+
+// The tier-independent half of the acceptance predicate: shape and reachability
+// rules every tier must satisfy regardless of its content budgets.
+bool satisfies_structural_invariants(const Map& map) {
+    const MapInvariants inv = inspect(map);
+    return inv.boundary_intact && inv.spawn_protected_open && inv.fully_connected &&
+           inv.hills_touch_mountains;
 }
 
 // The full REQ-016 acceptance predicate, re-derived independently of the generator.
@@ -414,6 +425,57 @@ TEST_CASE("each generation owns its RNG so interleaving cannot change output") {
     const WorldGenerationResult again = generate_tiny_world(kGlassRiverSeed);
     const std::string repeat = std::string(require_world(again).map.to_string());
     CHECK(repeat == baseline);
+}
+
+TEST_CASE("the small tier generates its own dimensions and centred spawn") {
+    const WorldGenerationResult result = generate_level(LevelTier::small, kGlassRiverSeed);
+    const GeneratedWorld& world = require_world(result);
+
+    CHECK(world.tier == LevelTier::small);
+    CHECK(world.map.width() == dimensions_of(LevelTier::small).width);
+    CHECK(world.map.height() == dimensions_of(LevelTier::small).height);
+    CHECK(world.map.spawn() == center_spawn_of(LevelTier::small));
+    CHECK(world.numeric_seed == kGlassRiverSeed);
+}
+
+TEST_CASE("a representative sample of small-tier seeds satisfies the structural invariants") {
+    for (std::uint64_t index = 0; index < 200u; ++index) {
+        const std::uint64_t seed = index * 0x9E3779B97F4A7C15ull + 0x1234ull;
+        const WorldGenerationResult result = generate_level(LevelTier::small, seed);
+        const GeneratedWorld& world = require_world(result);
+        CHECK_MESSAGE(satisfies_structural_invariants(world.map), "small seed index ", index);
+    }
+}
+
+TEST_CASE("generating the same tier and seed twice yields identical maps") {
+    for (const LevelTier tier : {LevelTier::small, LevelTier::medium}) {
+        const WorldGenerationResult first_result = generate_level(tier, kGlassRiverSeed);
+        const WorldGenerationResult second_result = generate_level(tier, kGlassRiverSeed);
+        const GeneratedWorld& first = require_world(first_result);
+        const GeneratedWorld& second = require_world(second_result);
+        CHECK(first.map.to_string() == second.map.to_string());
+        CHECK(first.generation_attempt == second.generation_attempt);
+    }
+}
+
+TEST_CASE("one seed drives unrelated maps on each tier because tiers own RNG streams") {
+    const WorldGenerationResult small_result = generate_level(LevelTier::small, kGlassRiverSeed);
+    const WorldGenerationResult medium_result = generate_level(LevelTier::medium, kGlassRiverSeed);
+    const GeneratedWorld& small = require_world(small_result);
+    const GeneratedWorld& medium = require_world(medium_result);
+
+    CHECK(small.map.to_string() != medium.map.to_string());
+}
+
+TEST_CASE("the medium tier is exactly the released tiny world recipe") {
+    const WorldGenerationResult tiny_result = generate_tiny_world(kGlassRiverSeed);
+    const WorldGenerationResult medium_result = generate_level(LevelTier::medium, kGlassRiverSeed);
+    const GeneratedWorld& tiny = require_world(tiny_result);
+    const GeneratedWorld& medium = require_world(medium_result);
+
+    CHECK(tiny.tier == LevelTier::medium);
+    CHECK(tiny.map.to_string() == medium.map.to_string());
+    CHECK(tiny.map.to_string() == std::string(kGlassRiverGolden));
 }
 
 TEST_CASE("the generation error code maps to a stable identifier string") {

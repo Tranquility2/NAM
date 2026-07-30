@@ -8,13 +8,17 @@
 #include "pcg32.h"
 #include "terrain.h"
 
-// IMPORTANT: every constant and pass below is part of Tiny World's compatibility
+// IMPORTANT: every constant and pass below is part of a tier's compatibility
 // contract. Any change to the FNV constants, the stream selector, the eligible-cell
 // traversal order, the feature target sizes, the pass order, the cardinal
 // direction order, the growth proposal limit, the barrier-orientation rule, the
 // hill-halo construction, or the acceptance rules changes every generated world
 // for every seed. Such a change must later be gated behind an explicit recipe
 // version rather than silently altering existing output.
+//
+// The recipe is shared by every tier and parameterised by GenerationProfile. The
+// Medium profile reproduces the released Tiny World numbers exactly, so widening
+// the recipe to other tiers cannot move a single Medium cell.
 
 namespace {
 
@@ -23,71 +27,154 @@ namespace {
 constexpr std::uint64_t kFnvOffsetBasis = 14695981039346656037ULL;
 constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
 
-// The Pcg32 stream selector for Tiny World. The bytes spell "TINY", giving this
-// recipe its own independent stream so future recipes can share a seed without
-// colliding. It is a released compatibility constant and must not change.
-constexpr std::uint64_t kTinyWorldStream = 0x54494E59ULL;
-
-// The inclusive bounds of the protected 3x3 open square around the spawn. These
-// cells are never eligible for feature placement, so the spawn and its immediate
-// neighbourhood always stay open.
-constexpr std::size_t kSpawnProtectMinX = 13u;
-constexpr std::size_t kSpawnProtectMaxX = 15u;
-constexpr std::size_t kSpawnProtectMinY = 6u;
-constexpr std::size_t kSpawnProtectMaxY = 8u;
-
-// Exact interior terrain totals every accepted candidate must contain. They are
-// the sums of the per-pass target sizes below: water 18+14, fields 22+18+14,
-// mountains 8+6, barriers 6+5.
-constexpr std::size_t kWaterCells = 32u;
-constexpr std::size_t kFieldCells = 54u;
-constexpr std::size_t kMountainCells = 14u;
-constexpr std::size_t kBarrierCells = 11u;
-
-// The hill halo is deterministic but its size varies with mountain shape, so it
-// is bounded below rather than fixed exactly.
-constexpr std::size_t kMinHillCells = 20u;
-
-// Cardinal component limits and minimum sizes for each clustered feature.
-constexpr std::size_t kWaterMinComponents = 1u;
-constexpr std::size_t kWaterMaxComponents = 2u;
-constexpr std::size_t kWaterMinComponentSize = 14u;
-constexpr std::size_t kFieldMinComponents = 1u;
-constexpr std::size_t kFieldMaxComponents = 3u;
-constexpr std::size_t kFieldMinComponentSize = 14u;
-constexpr std::size_t kMountainMinComponents = 1u;
-constexpr std::size_t kMountainMaxComponents = 2u;
-constexpr std::size_t kMountainMinComponentSize = 6u;
-constexpr std::size_t kBarrierMinComponents = 1u;
-constexpr std::size_t kBarrierMaxComponents = 2u;
-constexpr std::size_t kBarrierMinComponentSize = 5u;
-
 // The bounded-growth proposal budget: a blob that has not reached its target size
 // after target_size * this many proposals fails the whole candidate.
 constexpr std::size_t kProposalBudgetFactor = 64u;
 
-// Row-major flat index into a tiny_world_width * tiny_world_height buffer.
-[[nodiscard]] constexpr std::size_t cell_index(std::size_t x, std::size_t y) noexcept {
-    return y * tiny_world_width + x;
+// The count limits and minimum component size shared by one clustered feature.
+struct ComponentLimits {
+    std::size_t min_components = 1u;
+    std::size_t max_components = 1u;
+    std::size_t min_component_size = 1u;
+};
+
+// Everything one tier needs to grow and validate a candidate. Grouping the whole
+// recipe here is what lets Small and Medium share a single implementation while
+// each keeps its own released numbers.
+struct GenerationProfile {
+    std::size_t width = 0u;
+    std::size_t height = 0u;
+    Coordinates spawn{};
+    // The Pcg32 stream selector. Distinct per tier so one seed cannot correlate
+    // two tiers of the same expedition.
+    std::uint64_t stream = 0u;
+    // The ordered blob target sizes for each pass. Order and values are part of
+    // the tier's compatibility contract.
+    std::array<std::size_t, 2> water_blobs{};
+    std::array<std::size_t, 2> mountain_blobs{};
+    std::array<std::size_t, 3> field_blobs{};
+    std::array<std::size_t, 2> barrier_blobs{};
+    // Exact interior terrain totals every accepted candidate must contain: the
+    // sums of the blob targets above.
+    std::size_t water_cells = 0u;
+    std::size_t field_cells = 0u;
+    std::size_t mountain_cells = 0u;
+    std::size_t barrier_cells = 0u;
+    // The hill halo is deterministic but its size varies with mountain shape, so
+    // it is bounded below rather than fixed exactly.
+    std::size_t min_hill_cells = 0u;
+    ComponentLimits water{};
+    ComponentLimits fields{};
+    ComponentLimits mountain{};
+    ComponentLimits barrier{};
+};
+
+// The released Tiny World recipe, retained unchanged as the Medium tier. The
+// stream bytes spell "TINY" and are a released compatibility constant.
+[[nodiscard]] constexpr GenerationProfile medium_profile() noexcept {
+    GenerationProfile profile;
+    profile.width = dimensions_of(LevelTier::medium).width;
+    profile.height = dimensions_of(LevelTier::medium).height;
+    profile.spawn = center_spawn_of(LevelTier::medium);
+    profile.stream = 0x54494E59ULL;
+    profile.water_blobs = {18u, 14u};
+    profile.mountain_blobs = {8u, 6u};
+    profile.field_blobs = {22u, 18u, 14u};
+    profile.barrier_blobs = {6u, 5u};
+    profile.water_cells = 32u;
+    profile.field_cells = 54u;
+    profile.mountain_cells = 14u;
+    profile.barrier_cells = 11u;
+    profile.min_hill_cells = 20u;
+    profile.water = ComponentLimits{1u, 2u, 14u};
+    profile.fields = ComponentLimits{1u, 3u, 14u};
+    profile.mountain = ComponentLimits{1u, 2u, 6u};
+    profile.barrier = ComponentLimits{1u, 2u, 5u};
+    return profile;
+}
+
+// The Small teaching tier. Its interior is 19x9 against Medium's 27x13, so every
+// budget is scaled to roughly half while keeping the same feature vocabulary: two
+// water bodies, two mountain cores, three field regions, and two barrier ridges.
+// The stream bytes spell "SMAL".
+[[nodiscard]] constexpr GenerationProfile small_profile() noexcept {
+    GenerationProfile profile;
+    profile.width = dimensions_of(LevelTier::small).width;
+    profile.height = dimensions_of(LevelTier::small).height;
+    profile.spawn = center_spawn_of(LevelTier::small);
+    profile.stream = 0x534D414CULL;
+    profile.water_blobs = {9u, 7u};
+    profile.mountain_blobs = {4u, 3u};
+    profile.field_blobs = {11u, 9u, 7u};
+    profile.barrier_blobs = {3u, 3u};
+    profile.water_cells = 16u;
+    profile.field_cells = 27u;
+    profile.mountain_cells = 7u;
+    profile.barrier_cells = 6u;
+    profile.min_hill_cells = 8u;
+    profile.water = ComponentLimits{1u, 2u, 7u};
+    profile.fields = ComponentLimits{1u, 3u, 7u};
+    profile.mountain = ComponentLimits{1u, 2u, 3u};
+    profile.barrier = ComponentLimits{1u, 2u, 3u};
+    return profile;
+}
+
+// The recipe for a tier. Large and X-Large are not authored yet (Phase 2), so
+// they reuse the Medium budgets on their own dimensions and streams; that is a
+// placeholder, not a released contract.
+[[nodiscard]] constexpr GenerationProfile profile_of(LevelTier tier) noexcept {
+    switch (tier) {
+        case LevelTier::small:  return small_profile();
+        case LevelTier::medium: return medium_profile();
+        case LevelTier::large: {
+            GenerationProfile profile = medium_profile();
+            profile.width = dimensions_of(LevelTier::large).width;
+            profile.height = dimensions_of(LevelTier::large).height;
+            profile.spawn = center_spawn_of(LevelTier::large);
+            profile.stream = 0x4C415247ULL;  // "LARG"
+            return profile;
+        }
+        case LevelTier::x_large: {
+            GenerationProfile profile = medium_profile();
+            profile.width = dimensions_of(LevelTier::x_large).width;
+            profile.height = dimensions_of(LevelTier::x_large).height;
+            profile.spawn = center_spawn_of(LevelTier::x_large);
+            profile.stream = 0x584C5247ULL;  // "XLRG"
+            return profile;
+        }
+    }
+    return medium_profile();
+}
+
+// Row-major flat index into a profile.width * profile.height buffer.
+[[nodiscard]] constexpr std::size_t cell_index(const GenerationProfile& profile, std::size_t x,
+                                               std::size_t y) noexcept {
+    return y * profile.width + x;
 }
 
 // True when (x, y) is an interior cell, i.e. not on the solid wall boundary.
-[[nodiscard]] constexpr bool is_interior(std::size_t x, std::size_t y) noexcept {
-    return x >= 1u && x + 1u < tiny_world_width && y >= 1u && y + 1u < tiny_world_height;
+[[nodiscard]] constexpr bool is_interior(const GenerationProfile& profile, std::size_t x,
+                                         std::size_t y) noexcept {
+    return x >= 1u && x + 1u < profile.width && y >= 1u && y + 1u < profile.height;
 }
 
-// True when (x, y) is inside the protected 3x3 spawn square.
-[[nodiscard]] constexpr bool is_protected_spawn(std::size_t x, std::size_t y) noexcept {
-    return x >= kSpawnProtectMinX && x <= kSpawnProtectMaxX &&
-           y >= kSpawnProtectMinY && y <= kSpawnProtectMaxY;
+// True when (x, y) is inside the protected 3x3 square centred on the spawn. These
+// cells are never eligible for feature placement, so the spawn and its immediate
+// neighbourhood always stay open.
+[[nodiscard]] constexpr bool is_protected_spawn(const GenerationProfile& profile, std::size_t x,
+                                                std::size_t y) noexcept {
+    const std::size_t sx = static_cast<std::size_t>(profile.spawn.x);
+    const std::size_t sy = static_cast<std::size_t>(profile.spawn.y);
+    return x + 1u >= sx && x <= sx + 1u && y + 1u >= sy && y <= sy + 1u;
 }
 
 // An eligible cell for feature placement: interior, outside the protected spawn
 // square, and currently open. Painted features and the boundary are never open,
 // so a cell is annexed at most once and no pass overwrites an earlier feature.
-[[nodiscard]] bool is_eligible(const std::vector<Terrain>& cells, std::size_t x, std::size_t y) {
-    return is_interior(x, y) && !is_protected_spawn(x, y) &&
-           cells[cell_index(x, y)] == Terrain::open;
+[[nodiscard]] bool is_eligible(const GenerationProfile& profile, const std::vector<Terrain>& cells,
+                               std::size_t x, std::size_t y) {
+    return is_interior(profile, x, y) && !is_protected_spawn(profile, x, y) &&
+           cells[cell_index(profile, x, y)] == Terrain::open;
 }
 
 // Paint a barrier glyph. Both wall variants are equally impassable; the parity
@@ -106,14 +193,14 @@ constexpr std::size_t kProposalBudgetFactor = 64u;
 // terrain for an annexed cell (it receives the cell coordinates so barriers can
 // derive their orientation).
 template <typename Paint>
-[[nodiscard]] bool grow_blob(Pcg32& engine, std::vector<Terrain>& cells,
-                             std::size_t target_size, Paint paint) {
+[[nodiscard]] bool grow_blob(const GenerationProfile& profile, Pcg32& engine,
+                             std::vector<Terrain>& cells, std::size_t target_size, Paint paint) {
     std::vector<std::size_t> eligible;
-    eligible.reserve(tiny_world_width * tiny_world_height);
-    for (std::size_t y = 1; y + 1 < tiny_world_height; ++y) {
-        for (std::size_t x = 1; x + 1 < tiny_world_width; ++x) {
-            if (is_eligible(cells, x, y)) {
-                eligible.push_back(cell_index(x, y));
+    eligible.reserve(profile.width * profile.height);
+    for (std::size_t y = 1; y + 1 < profile.height; ++y) {
+        for (std::size_t x = 1; x + 1 < profile.width; ++x) {
+            if (is_eligible(profile, cells, x, y)) {
+                eligible.push_back(cell_index(profile, x, y));
             }
         }
     }
@@ -123,7 +210,7 @@ template <typename Paint>
 
     const std::uint32_t start_pick = engine.next_bounded(static_cast<std::uint32_t>(eligible.size()));
     const std::size_t start = eligible[start_pick];
-    paint(cells, start % tiny_world_width, start / tiny_world_width);
+    paint(cells, start % profile.width, start / profile.width);
 
     std::vector<std::size_t> blob;
     blob.reserve(target_size);
@@ -139,8 +226,8 @@ template <typename Paint>
         const std::uint32_t direction = engine.next_bounded(4u);
         ++proposals;
 
-        const std::size_t cx = blob[blob_pick] % tiny_world_width;
-        const std::size_t cy = blob[blob_pick] / tiny_world_width;
+        const std::size_t cx = blob[blob_pick] % profile.width;
+        const std::size_t cy = blob[blob_pick] / profile.width;
         std::size_t nx = cx;
         std::size_t ny = cy;
         switch (direction) {
@@ -150,9 +237,9 @@ template <typename Paint>
             default: nx = cx - 1u; break;  // left  (direction == 3; cx >= 1)
         }
 
-        if (is_eligible(cells, nx, ny)) {
+        if (is_eligible(profile, cells, nx, ny)) {
             paint(cells, nx, ny);
-            blob.push_back(cell_index(nx, ny));
+            blob.push_back(cell_index(profile, nx, ny));
         }
     }
     return true;
@@ -163,12 +250,12 @@ template <typename Paint>
 // mask, then the interior is scanned in row-major order and each marked cell that
 // is still open becomes a hill. Because later passes paint only open cells, the
 // halo is never overwritten and every hill stays adjacent to a mountain.
-void add_hill_halo(std::vector<Terrain>& cells) {
-    std::vector<bool> hill_mask(tiny_world_width * tiny_world_height, false);
+void add_hill_halo(const GenerationProfile& profile, std::vector<Terrain>& cells) {
+    std::vector<bool> hill_mask(profile.width * profile.height, false);
 
-    for (std::size_t y = 1; y + 1 < tiny_world_height; ++y) {
-        for (std::size_t x = 1; x + 1 < tiny_world_width; ++x) {
-            if (cells[cell_index(x, y)] != Terrain::mountain) {
+    for (std::size_t y = 1; y + 1 < profile.height; ++y) {
+        for (std::size_t x = 1; x + 1 < profile.width; ++x) {
+            if (cells[cell_index(profile, x, y)] != Terrain::mountain) {
                 continue;
             }
             for (int dy = -1; dy <= 1; ++dy) {
@@ -178,17 +265,17 @@ void add_hill_halo(std::vector<Terrain>& cells) {
                     }
                     const std::size_t nx = static_cast<std::size_t>(static_cast<int>(x) + dx);
                     const std::size_t ny = static_cast<std::size_t>(static_cast<int>(y) + dy);
-                    if (is_eligible(cells, nx, ny)) {
-                        hill_mask[cell_index(nx, ny)] = true;
+                    if (is_eligible(profile, cells, nx, ny)) {
+                        hill_mask[cell_index(profile, nx, ny)] = true;
                     }
                 }
             }
         }
     }
 
-    for (std::size_t y = 1; y + 1 < tiny_world_height; ++y) {
-        for (std::size_t x = 1; x + 1 < tiny_world_width; ++x) {
-            const std::size_t idx = cell_index(x, y);
+    for (std::size_t y = 1; y + 1 < profile.height; ++y) {
+        for (std::size_t x = 1; x + 1 < profile.width; ++x) {
+            const std::size_t idx = cell_index(profile, x, y);
             if (hill_mask[idx] && cells[idx] == Terrain::open) {
                 cells[idx] = Terrain::hill;
             }
@@ -201,48 +288,49 @@ void add_hill_halo(std::vector<Terrain>& cells) {
 // the water bodies, the mountain cores, stamp the hill halo, grow the field
 // regions, then the barrier ridges. Returns false if any growth pass exhausts its
 // proposal budget, leaving the buffer for the caller to discard.
-[[nodiscard]] bool grow_candidate(Pcg32& engine, std::vector<Terrain>& cells) {
-    cells.assign(tiny_world_width * tiny_world_height, Terrain::open);
+[[nodiscard]] bool grow_candidate(const GenerationProfile& profile, Pcg32& engine,
+                                  std::vector<Terrain>& cells) {
+    cells.assign(profile.width * profile.height, Terrain::open);
 
     // Top and bottom rows (including all four corners) are horizontal walls.
-    for (std::size_t x = 0; x < tiny_world_width; ++x) {
-        cells[cell_index(x, 0)] = Terrain::wall_horizontal;
-        cells[cell_index(x, tiny_world_height - 1)] = Terrain::wall_horizontal;
+    for (std::size_t x = 0; x < profile.width; ++x) {
+        cells[cell_index(profile, x, 0)] = Terrain::wall_horizontal;
+        cells[cell_index(profile, x, profile.height - 1)] = Terrain::wall_horizontal;
     }
     // The remaining left and right boundary cells are vertical walls.
-    for (std::size_t y = 1; y + 1 < tiny_world_height; ++y) {
-        cells[cell_index(0, y)] = Terrain::wall_vertical;
-        cells[cell_index(tiny_world_width - 1, y)] = Terrain::wall_vertical;
+    for (std::size_t y = 1; y + 1 < profile.height; ++y) {
+        cells[cell_index(profile, 0, y)] = Terrain::wall_vertical;
+        cells[cell_index(profile, profile.width - 1, y)] = Terrain::wall_vertical;
     }
 
-    const auto paint_water = [](std::vector<Terrain>& buffer, std::size_t x, std::size_t y) {
-        buffer[cell_index(x, y)] = Terrain::water;
+    const auto paint = [&profile](Terrain terrain) {
+        return [&profile, terrain](std::vector<Terrain>& buffer, std::size_t x, std::size_t y) {
+            buffer[cell_index(profile, x, y)] = terrain;
+        };
     };
-    const auto paint_mountain = [](std::vector<Terrain>& buffer, std::size_t x, std::size_t y) {
-        buffer[cell_index(x, y)] = Terrain::mountain;
-    };
-    const auto paint_fields = [](std::vector<Terrain>& buffer, std::size_t x, std::size_t y) {
-        buffer[cell_index(x, y)] = Terrain::fields;
-    };
-    const auto paint_barrier = [](std::vector<Terrain>& buffer, std::size_t x, std::size_t y) {
-        buffer[cell_index(x, y)] = barrier_glyph(x, y);
+    const auto paint_barrier = [&profile](std::vector<Terrain>& buffer, std::size_t x,
+                                          std::size_t y) {
+        buffer[cell_index(profile, x, y)] = barrier_glyph(x, y);
     };
 
     // Water bodies, then mountain cores. Order and sizes are compatibility fixed.
-    if (!grow_blob(engine, cells, 18u, paint_water)) return false;
-    if (!grow_blob(engine, cells, 14u, paint_water)) return false;
-    if (!grow_blob(engine, cells, 8u, paint_mountain)) return false;
-    if (!grow_blob(engine, cells, 6u, paint_mountain)) return false;
+    for (const std::size_t target : profile.water_blobs) {
+        if (!grow_blob(profile, engine, cells, target, paint(Terrain::water))) return false;
+    }
+    for (const std::size_t target : profile.mountain_blobs) {
+        if (!grow_blob(profile, engine, cells, target, paint(Terrain::mountain))) return false;
+    }
 
-    // Deterministic hill halo immediately after both mountain blobs (no RNG).
-    add_hill_halo(cells);
+    // Deterministic hill halo immediately after every mountain blob (no RNG).
+    add_hill_halo(profile, cells);
 
     // Field regions, then short barrier ridges.
-    if (!grow_blob(engine, cells, 22u, paint_fields)) return false;
-    if (!grow_blob(engine, cells, 18u, paint_fields)) return false;
-    if (!grow_blob(engine, cells, 14u, paint_fields)) return false;
-    if (!grow_blob(engine, cells, 6u, paint_barrier)) return false;
-    if (!grow_blob(engine, cells, 5u, paint_barrier)) return false;
+    for (const std::size_t target : profile.field_blobs) {
+        if (!grow_blob(profile, engine, cells, target, paint(Terrain::fields))) return false;
+    }
+    for (const std::size_t target : profile.barrier_blobs) {
+        if (!grow_blob(profile, engine, cells, target, paint_barrier)) return false;
+    }
 
     return true;
 }
@@ -250,14 +338,15 @@ void add_hill_halo(std::vector<Terrain>& cells) {
 // Count all walkable cells reachable from the spawn using cardinal movement. The
 // search is iterative (an explicit stack plus a row-major visited buffer) so it
 // never recurses regardless of map size.
-[[nodiscard]] std::size_t count_reachable_from_spawn(const std::vector<Terrain>& cells) {
-    const std::size_t total_cells = tiny_world_width * tiny_world_height;
+[[nodiscard]] std::size_t count_reachable_from_spawn(const GenerationProfile& profile,
+                                                    const std::vector<Terrain>& cells) {
+    const std::size_t total_cells = profile.width * profile.height;
     std::vector<bool> visited(total_cells, false);
     std::vector<std::size_t> stack;
     stack.reserve(total_cells);
 
-    const std::size_t spawn = cell_index(static_cast<std::size_t>(tiny_world_spawn.x),
-                                         static_cast<std::size_t>(tiny_world_spawn.y));
+    const std::size_t spawn = cell_index(profile, static_cast<std::size_t>(profile.spawn.x),
+                                         static_cast<std::size_t>(profile.spawn.y));
     visited[spawn] = true;
     stack.push_back(spawn);
     std::size_t reached = 1u;
@@ -265,11 +354,11 @@ void add_hill_halo(std::vector<Terrain>& cells) {
     while (!stack.empty()) {
         const std::size_t current = stack.back();
         stack.pop_back();
-        const std::size_t x = current % tiny_world_width;
-        const std::size_t y = current / tiny_world_width;
+        const std::size_t x = current % profile.width;
+        const std::size_t y = current / profile.width;
 
         auto consider = [&](std::size_t nx, std::size_t ny) {
-            const std::size_t neighbour = cell_index(nx, ny);
+            const std::size_t neighbour = cell_index(profile, nx, ny);
             if (!visited[neighbour] && is_walkable(cells[neighbour])) {
                 visited[neighbour] = true;
                 ++reached;
@@ -279,13 +368,13 @@ void add_hill_halo(std::vector<Terrain>& cells) {
         if (x > 0u) {
             consider(x - 1u, y);
         }
-        if (x + 1u < tiny_world_width) {
+        if (x + 1u < profile.width) {
             consider(x + 1u, y);
         }
         if (y > 0u) {
             consider(x, y - 1u);
         }
-        if (y + 1u < tiny_world_height) {
+        if (y + 1u < profile.height) {
             consider(x, y + 1u);
         }
     }
@@ -298,15 +387,16 @@ void add_hill_halo(std::vector<Terrain>& cells) {
 // ridge touching the boundary wall is never merged with it. Row-major visited and
 // start ordering keep the result deterministic (only the sizes are inspected).
 template <typename Match>
-[[nodiscard]] std::vector<std::size_t> interior_component_sizes(const std::vector<Terrain>& cells,
+[[nodiscard]] std::vector<std::size_t> interior_component_sizes(const GenerationProfile& profile,
+                                                                const std::vector<Terrain>& cells,
                                                                 Match match) {
-    std::vector<bool> visited(tiny_world_width * tiny_world_height, false);
+    std::vector<bool> visited(profile.width * profile.height, false);
     std::vector<std::size_t> sizes;
     std::vector<std::size_t> stack;
 
-    for (std::size_t y = 1; y + 1 < tiny_world_height; ++y) {
-        for (std::size_t x = 1; x + 1 < tiny_world_width; ++x) {
-            const std::size_t start = cell_index(x, y);
+    for (std::size_t y = 1; y + 1 < profile.height; ++y) {
+        for (std::size_t x = 1; x + 1 < profile.width; ++x) {
+            const std::size_t start = cell_index(profile, x, y);
             if (visited[start] || !match(cells[start])) {
                 continue;
             }
@@ -318,13 +408,13 @@ template <typename Match>
                 const std::size_t current = stack.back();
                 stack.pop_back();
                 ++size;
-                const std::size_t cx = current % tiny_world_width;
-                const std::size_t cy = current / tiny_world_width;
+                const std::size_t cx = current % profile.width;
+                const std::size_t cy = current / profile.width;
                 auto consider = [&](std::size_t nx, std::size_t ny) {
-                    if (!is_interior(nx, ny)) {
+                    if (!is_interior(profile, nx, ny)) {
                         return;
                     }
-                    const std::size_t neighbour = cell_index(nx, ny);
+                    const std::size_t neighbour = cell_index(profile, nx, ny);
                     if (!visited[neighbour] && match(cells[neighbour])) {
                         visited[neighbour] = true;
                         stack.push_back(neighbour);
@@ -333,13 +423,13 @@ template <typename Match>
                 if (cx > 0u) {
                     consider(cx - 1u, cy);
                 }
-                if (cx + 1u < tiny_world_width) {
+                if (cx + 1u < profile.width) {
                     consider(cx + 1u, cy);
                 }
                 if (cy > 0u) {
                     consider(cx, cy - 1u);
                 }
-                if (cy + 1u < tiny_world_height) {
+                if (cy + 1u < profile.height) {
                     consider(cx, cy + 1u);
                 }
             }
@@ -352,13 +442,12 @@ template <typename Match>
 // True when the component count is within [min_components, max_components] and no
 // component is smaller than min_size.
 [[nodiscard]] bool components_within(const std::vector<std::size_t>& sizes,
-                                     std::size_t min_components, std::size_t max_components,
-                                     std::size_t min_size) {
-    if (sizes.size() < min_components || sizes.size() > max_components) {
+                                     const ComponentLimits& limits) {
+    if (sizes.size() < limits.min_components || sizes.size() > limits.max_components) {
         return false;
     }
     for (const std::size_t size : sizes) {
-        if (size < min_size) {
+        if (size < limits.min_component_size) {
             return false;
         }
     }
@@ -366,10 +455,11 @@ template <typename Match>
 }
 
 // True when every hill cell is an eight-neighbour of at least one mountain cell.
-[[nodiscard]] bool every_hill_touches_mountain(const std::vector<Terrain>& cells) {
-    for (std::size_t y = 1; y + 1 < tiny_world_height; ++y) {
-        for (std::size_t x = 1; x + 1 < tiny_world_width; ++x) {
-            if (cells[cell_index(x, y)] != Terrain::hill) {
+[[nodiscard]] bool every_hill_touches_mountain(const GenerationProfile& profile,
+                                              const std::vector<Terrain>& cells) {
+    for (std::size_t y = 1; y + 1 < profile.height; ++y) {
+        for (std::size_t x = 1; x + 1 < profile.width; ++x) {
+            if (cells[cell_index(profile, x, y)] != Terrain::hill) {
                 continue;
             }
             bool touches = false;
@@ -380,7 +470,8 @@ template <typename Match>
                     }
                     const std::size_t nx = static_cast<std::size_t>(static_cast<int>(x) + dx);
                     const std::size_t ny = static_cast<std::size_t>(static_cast<int>(y) + dy);
-                    if (is_interior(nx, ny) && cells[cell_index(nx, ny)] == Terrain::mountain) {
+                    if (is_interior(profile, nx, ny) &&
+                        cells[cell_index(profile, nx, ny)] == Terrain::mountain) {
                         touches = true;
                     }
                 }
@@ -396,30 +487,33 @@ template <typename Match>
 // Enforce every acceptance rule directly on the candidate buffer (REQ-016/017).
 // The validator inspects the buffer itself and re-derives connectivity and every
 // component invariant iteratively, so an invalid candidate is never returned.
-[[nodiscard]] bool is_valid_candidate(const std::vector<Terrain>& cells) {
-    if (cells.size() != tiny_world_width * tiny_world_height) {
+[[nodiscard]] bool is_valid_candidate(const GenerationProfile& profile,
+                                      const std::vector<Terrain>& cells) {
+    if (cells.size() != profile.width * profile.height) {
         return false;
     }
 
     // The protected 3x3 spawn square must be entirely open.
-    for (std::size_t y = kSpawnProtectMinY; y <= kSpawnProtectMaxY; ++y) {
-        for (std::size_t x = kSpawnProtectMinX; x <= kSpawnProtectMaxX; ++x) {
-            if (cells[cell_index(x, y)] != Terrain::open) {
+    const std::size_t sx = static_cast<std::size_t>(profile.spawn.x);
+    const std::size_t sy = static_cast<std::size_t>(profile.spawn.y);
+    for (std::size_t y = sy - 1u; y <= sy + 1u; ++y) {
+        for (std::size_t x = sx - 1u; x <= sx + 1u; ++x) {
+            if (cells[cell_index(profile, x, y)] != Terrain::open) {
                 return false;
             }
         }
     }
 
     // The full wall boundary must be intact.
-    for (std::size_t x = 0; x < tiny_world_width; ++x) {
-        if (cells[cell_index(x, 0)] != Terrain::wall_horizontal ||
-            cells[cell_index(x, tiny_world_height - 1)] != Terrain::wall_horizontal) {
+    for (std::size_t x = 0; x < profile.width; ++x) {
+        if (cells[cell_index(profile, x, 0)] != Terrain::wall_horizontal ||
+            cells[cell_index(profile, x, profile.height - 1)] != Terrain::wall_horizontal) {
             return false;
         }
     }
-    for (std::size_t y = 1; y + 1 < tiny_world_height; ++y) {
-        if (cells[cell_index(0, y)] != Terrain::wall_vertical ||
-            cells[cell_index(tiny_world_width - 1, y)] != Terrain::wall_vertical) {
+    for (std::size_t y = 1; y + 1 < profile.height; ++y) {
+        if (cells[cell_index(profile, 0, y)] != Terrain::wall_vertical ||
+            cells[cell_index(profile, profile.width - 1, y)] != Terrain::wall_vertical) {
             return false;
         }
     }
@@ -430,9 +524,9 @@ template <typename Match>
     std::size_t mountain = 0u;
     std::size_t hill = 0u;
     std::size_t barrier = 0u;
-    for (std::size_t y = 1; y + 1 < tiny_world_height; ++y) {
-        for (std::size_t x = 1; x + 1 < tiny_world_width; ++x) {
-            switch (cells[cell_index(x, y)]) {
+    for (std::size_t y = 1; y + 1 < profile.height; ++y) {
+        for (std::size_t x = 1; x + 1 < profile.width; ++x) {
+            switch (cells[cell_index(profile, x, y)]) {
                 case Terrain::water:    ++water; break;
                 case Terrain::fields:   ++fields; break;
                 case Terrain::mountain: ++mountain; break;
@@ -443,42 +537,44 @@ template <typename Match>
             }
         }
     }
-    if (water != kWaterCells || fields != kFieldCells || mountain != kMountainCells ||
-        barrier != kBarrierCells) {
+    if (water != profile.water_cells || fields != profile.field_cells ||
+        mountain != profile.mountain_cells || barrier != profile.barrier_cells) {
         return false;
     }
-    if (hill < kMinHillCells) {
+    if (hill < profile.min_hill_cells) {
         return false;
     }
 
     // Every hill must touch a mountain (guaranteed by construction; re-checked).
-    if (!every_hill_touches_mountain(cells)) {
+    if (!every_hill_touches_mountain(profile, cells)) {
         return false;
     }
 
     // Cardinal component limits and minimum sizes for each clustered feature.
     if (!components_within(
-            interior_component_sizes(cells, [](Terrain t) { return t == Terrain::water; }),
-            kWaterMinComponents, kWaterMaxComponents, kWaterMinComponentSize)) {
+            interior_component_sizes(profile, cells, [](Terrain t) { return t == Terrain::water; }),
+            profile.water)) {
         return false;
     }
     if (!components_within(
-            interior_component_sizes(cells, [](Terrain t) { return t == Terrain::fields; }),
-            kFieldMinComponents, kFieldMaxComponents, kFieldMinComponentSize)) {
+            interior_component_sizes(profile, cells,
+                                     [](Terrain t) { return t == Terrain::fields; }),
+            profile.fields)) {
         return false;
     }
     if (!components_within(
-            interior_component_sizes(cells, [](Terrain t) { return t == Terrain::mountain; }),
-            kMountainMinComponents, kMountainMaxComponents, kMountainMinComponentSize)) {
+            interior_component_sizes(profile, cells,
+                                     [](Terrain t) { return t == Terrain::mountain; }),
+            profile.mountain)) {
         return false;
     }
     if (!components_within(
-            interior_component_sizes(cells,
+            interior_component_sizes(profile, cells,
                                      [](Terrain t) {
                                          return t == Terrain::wall_horizontal ||
                                                 t == Terrain::wall_vertical;
                                      }),
-            kBarrierMinComponents, kBarrierMaxComponents, kBarrierMinComponentSize)) {
+            profile.barrier)) {
         return false;
     }
 
@@ -491,7 +587,7 @@ template <typename Match>
             ++total_walkable;
         }
     }
-    return count_reachable_from_spawn(cells) == total_walkable;
+    return count_reachable_from_spawn(profile, cells) == total_walkable;
 }
 
 }  // namespace
@@ -508,20 +604,26 @@ std::uint64_t hash_seed_text(std::string_view text) noexcept {
     return hash;
 }
 
-WorldGenerationResult generate_tiny_world(std::uint64_t numeric_seed) {
+WorldGenerationResult generate_level(LevelTier tier, std::uint64_t numeric_seed) {
+    const GenerationProfile profile = profile_of(tier);
+
     // A single engine grows every candidate sequentially; retries continue from
     // its current state rather than reseeding, so attempt numbers are stable.
-    Pcg32 engine(numeric_seed, kTinyWorldStream);
+    Pcg32 engine(numeric_seed, profile.stream);
 
     std::vector<Terrain> cells;
-    for (std::uint32_t attempt = 0; attempt < tiny_world_candidate_limit; ++attempt) {
-        if (grow_candidate(engine, cells) && is_valid_candidate(cells)) {
-            Map map(tiny_world_width, tiny_world_height, cells, tiny_world_spawn);
-            return GeneratedWorld{std::move(map), numeric_seed, attempt};
+    for (std::uint32_t attempt = 0; attempt < level_candidate_limit; ++attempt) {
+        if (grow_candidate(profile, engine, cells) && is_valid_candidate(profile, cells)) {
+            Map map(profile.width, profile.height, cells, profile.spawn);
+            return GeneratedWorld{std::move(map), numeric_seed, attempt, tier};
         }
     }
 
     return WorldGenerationError{WorldGenerationErrorCode::candidate_limit_exhausted, numeric_seed};
+}
+
+WorldGenerationResult generate_tiny_world(std::uint64_t numeric_seed) {
+    return generate_level(tiny_world_tier, numeric_seed);
 }
 
 std::string_view to_string(WorldGenerationErrorCode code) noexcept {
