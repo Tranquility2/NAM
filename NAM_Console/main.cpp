@@ -6,6 +6,7 @@
 #include <variant>
 
 #include "console_app.h"
+#include "expedition.h"
 #include "game_state.h"
 #include "map.h"
 #include "map_parser.h"
@@ -37,9 +38,37 @@ int main(int argc, char** argv) {
             break;
     }
 
+    Settings settings = cli.settings;
+
+    // A seed selects the procedural expedition: the deterministic Small -> Medium
+    // chain the prototype ships. Both seed forms resolve to one numeric identity
+    // first, so they share a replay identity, and a generation failure mirrors the
+    // map/data error contract (concise diagnostic on stderr, exit 1). A text seed
+    // is displayed only through the escaping helper so raw control bytes never
+    // reach the terminal.
+    if (settings.seed_text || settings.numeric_seed) {
+        const std::uint64_t numeric_seed = settings.seed_text
+                                               ? hash_seed_text(*settings.seed_text)
+                                               : *settings.numeric_seed;
+        settings.numeric_seed = numeric_seed;
+        std::optional<Expedition> expedition;
+        try {
+            expedition.emplace(numeric_seed);
+        } catch (const std::exception& ex) {
+            std::cerr << "nam_console: could not generate an expedition for seed ";
+            if (settings.seed_text) {
+                std::cerr << format_seed_for_display(*settings.seed_text);
+            } else {
+                std::cerr << "number " << numeric_seed;
+            }
+            std::cerr << ": " << ex.what() << "\n";
+            return 1;
+        }
+        return run(std::move(*expedition), settings, environment);
+    }
+
     // Load and validate the map up front. This needs no terminal, so map errors
     // are reported cleanly whether or not stdout is a TTY.
-    Settings settings = cli.settings;
     std::optional<Map> map;
     if (settings.map_path) {
         MapLoadResult result = load_map_file(*settings.map_path);
@@ -48,35 +77,6 @@ int main(int argc, char** argv) {
             return 1;
         }
         map.emplace(std::get<Map>(std::move(result)));
-    } else if (settings.seed_text) {
-        // A text seed selects the procedural Tiny World. Hash the exact seed bytes
-        // once, store the resulting numeric identity so both seed forms share one
-        // replay identity, then generate. A generation failure mirrors the
-        // map/data error contract (concise diagnostic on stderr, exit 1). The seed
-        // is displayed only through the escaping helper so raw control bytes never
-        // reach the terminal.
-        const std::uint64_t numeric_seed = hash_seed_text(*settings.seed_text);
-        settings.numeric_seed = numeric_seed;
-        WorldGenerationResult result = generate_tiny_world(numeric_seed);
-        if (const WorldGenerationError* error = std::get_if<WorldGenerationError>(&result)) {
-            std::cerr << "nam_console: could not generate a world for seed "
-                      << format_seed_for_display(*settings.seed_text) << ": "
-                      << to_string(error->code) << "\n";
-            return 1;
-        }
-        map.emplace(std::move(std::get<GeneratedWorld>(result).map));
-    } else if (settings.numeric_seed) {
-        // A numeric seed selects the procedural Tiny World directly from the exact
-        // decimal identity, so the same value reproduces the same world, objective,
-        // report identity, and score on every platform.
-        const std::uint64_t numeric_seed = *settings.numeric_seed;
-        WorldGenerationResult result = generate_tiny_world(numeric_seed);
-        if (const WorldGenerationError* error = std::get_if<WorldGenerationError>(&result)) {
-            std::cerr << "nam_console: could not generate a world for seed number "
-                      << numeric_seed << ": " << to_string(error->code) << "\n";
-            return 1;
-        }
-        map.emplace(std::move(std::get<GeneratedWorld>(result).map));
     } else {
         try {
             map.emplace(builtin_map());

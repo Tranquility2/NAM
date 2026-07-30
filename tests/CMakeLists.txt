@@ -174,20 +174,20 @@ if(TARGET nam_console)
         "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}
         -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
 
-    # --- seeded Tiny World integration -------------------------------------
+    # --- seeded expedition integration -------------------------------------
     #
     # Exercise the real executable's seeded path: a plain seeded session prints
     # the safely escaped seed and no ANSI, is deterministic across runs, and the
     # usage errors (map conflict, overlong seed) exit 2. An empty seed is valid.
     nam_add_cli_test(cli_seed_plain
         "-DARGS=--seed=glass-river|--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=Tiny World seed:" -DFORBID_ESC=1)
+        "-DEXPECT_CONTAINS=Expedition seed:" -DFORBID_ESC=1)
     nam_add_cli_test(cli_seed_deterministic
         "-DARGS=--seed=glass-river|--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
         -DEXPECT_DETERMINISTIC=1)
     nam_add_cli_test(cli_seed_empty
         "-DARGS=--seed=|--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=Tiny World seed" -DFORBID_ESC=1)
+        "-DEXPECT_CONTAINS=Expedition seed" -DFORBID_ESC=1)
     nam_add_cli_test(cli_seed_map_conflict
         "-DARGS=--seed=glass-river|--map|${NAM_FIXTURES_DIR}/valid-lf.map" -DEXPECT_CODE=2
         "-DEXPECT_CONTAINS=not both")
@@ -202,20 +202,20 @@ if(TARGET nam_console)
     # and every malformed/overflow/repeat/conflict case exits 2.
     nam_add_cli_test(cli_seed_number_min
         "-DARGS=--seed-number=0|--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=Tiny World seed number: 0" -DFORBID_ESC=1)
+        "-DEXPECT_CONTAINS=Expedition seed number: 0" -DFORBID_ESC=1)
     nam_add_cli_test(cli_seed_number_max
         "-DARGS=--seed-number|18446744073709551615|--plain" -DINPUT_FILE=${_quit_stdin}
-        -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=Tiny World seed number: 18446744073709551615"
+        -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=Expedition seed number: 18446744073709551615"
         -DFORBID_ESC=1)
     nam_add_cli_test(cli_seed_number_deterministic
         "-DARGS=--seed-number=42|--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
         -DEXPECT_DETERMINISTIC=1)
-    # The decimal hash of "glass-river" reproduces the same Tiny World as
+    # The decimal hash of "glass-river" reproduces the same expedition as
     # --seed glass-river (verified by the settings unit tests); here it must at
     # least generate and report its numeric identity.
     nam_add_cli_test(cli_seed_number_equivalent
         "-DARGS=--seed-number=1099592901251399996|--plain" -DINPUT_FILE=${_quit_stdin}
-        -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=Tiny World seed number: 1099592901251399996"
+        -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=Expedition seed number: 1099592901251399996"
         -DFORBID_ESC=1)
     nam_add_cli_test(cli_seed_number_malformed
         "-DARGS=--seed-number=12x" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=decimal integer")

@@ -7,6 +7,7 @@
 
 #include "app_state.h"
 #include "direction.h"
+#include "expedition.h"
 #include "expedition_report.h"
 #include "game_state.h"
 #include "input.h"
@@ -53,6 +54,11 @@ public:
 // object serves both the interactive and the plain-text paths.
 class ConsoleApp {
 public:
+    // Drive a whole expedition. Completing a level that is not the last one shows
+    // the level report as an interlude and then starts the next tier.
+    ConsoleApp(Expedition expedition, Settings settings);
+
+    // Drive one standalone level, which is what a handcrafted or built-in map is.
     ConsoleApp(GameState state, Settings settings);
 
     // Event-driven interactive loop over a raw terminal session. Blocks on input
@@ -79,17 +85,33 @@ public:
     }
 
 private:
+    [[nodiscard]] GameState& state() noexcept { return expedition_.state(); }
+    [[nodiscard]] const GameState& state() const noexcept { return expedition_.state(); }
+
     [[nodiscard]] RenderInput make_input(bool emphasize) const;
     // Apply one movement command and return the objective transition it caused so
     // the caller can choose the resulting presentation state.
     [[nodiscard]] ObjectiveTransition apply_move(Direction direction, bool& emphasize);
 
-    // Enter the completion presentation: build the completed final expedition
-    // report from the fully-updated game, journal, route history, and objective
-    // state, reset the report viewport to (0, 0), and set the restored final
-    // message. Emits no core event. Called only after the completing event (or the
-    // initial single-cell completion) has been fully recorded.
+    // Score the finished level into the expedition, then enter the completion
+    // presentation: build the report from the fully-updated game, journal, route
+    // history, and objective state, reset the report viewport to (0, 0), and set
+    // the restored final message. Emits no core event. Called only after the
+    // completing event (or the initial single-cell completion) has been fully
+    // recorded. When the expedition has another tier to play the report is an
+    // interlude that `begin_next_level` continues from.
     void enter_completion();
+
+    // Start the level the expedition advanced to: clear the per-level HUD, route
+    // history, and report, and return to gameplay. The journal is expedition-wide
+    // and deliberately survives. Emits no core event.
+    void begin_next_level();
+
+    // True while the completion report is an interlude between levels rather than
+    // the end of the run.
+    [[nodiscard]] bool interlude_active() const noexcept {
+        return final_report_active_ && !expedition_.completed();
+    }
 
     // Open the journal over the current presentation. Remembers the state it was
     // opened from and positions the scroll on the newest page for the given entry
@@ -104,7 +126,7 @@ private:
     // window (REQ-024). A `delta` of zero only reclamps, used on resize.
     void scroll_journal(int delta, int capacity);
 
-    GameState state_;
+    Expedition expedition_;
     Settings settings_;
     Hud hud_;
     Journal journal_;
@@ -143,5 +165,8 @@ private:
 // platform capability, create the session if needed, and run. Returns the
 // process exit code (0 normal; 2 if interactive init fails with no fallback).
 [[nodiscard]] int run(GameState state, Settings settings, const Environment& environment);
+
+// The expedition entry point: plays the whole tier chain in one session.
+[[nodiscard]] int run(Expedition expedition, Settings settings, const Environment& environment);
 
 }  // namespace nam::console

@@ -1,11 +1,13 @@
 #pragma once
 
+#include <optional>
 #include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "coordinates.h"
+#include "expedition.h"
 #include "expedition_score.h"
 #include "game_event.h"
 #include "journal.h"
@@ -70,6 +72,32 @@ private:
     std::vector<Coordinates> cells_;
 };
 
+// The carried expedition state at the moment a report is built. Defaults describe
+// a standalone single-level run, which is what a handcrafted or built-in map is,
+// so a caller that has no expedition to report can simply omit it.
+struct ExpeditionCarryover {
+    std::uint32_t levels_completed = 1;
+    std::uint32_t total_levels = 1;
+    bool expedition_completed = true;
+
+    // The optional content of the level this report describes.
+    std::uint32_t discoveries_found = 0;
+    std::uint32_t discovery_total = 0;
+
+    // Running totals across every finished level, including this one.
+    std::uint64_t expedition_score = 0;
+    std::uint32_t expedition_discoveries_found = 0;
+    std::uint32_t expedition_discoveries_available = 0;
+
+    // The bonus that was in force for this level, and the one it earned for the
+    // next level.
+    ExpeditionBonus applied_bonus = ExpeditionBonus::none;
+    ExpeditionBonus earned_bonus = ExpeditionBonus::none;
+
+    // The tier the next level uses. Absent once the expedition is complete.
+    std::optional<LevelTier> next_tier;
+};
+
 // The complete report snapshot. Map and visibility come first so the aggregate can
 // be brace-initialized with the two non-default-constructible members while every
 // remaining field value-initializes.
@@ -97,6 +125,7 @@ struct ExpeditionReport {
     std::uint32_t max_stamina = 0;
     std::uint64_t explored_reachable_cells = 0;
     std::uint64_t total_reachable_cells = 0;
+    ExpeditionCarryover carryover;
 };
 
 // Build the final report. Stamina spent is the HUD's cumulative movement cost,
@@ -109,7 +138,8 @@ struct ExpeditionReport {
     const LevelObjective& objective, const Map& map, const VisibilityMap& visibility,
     const Journal& journal, const RouteHistory& route, const WorldIdentity& identity,
     std::uint64_t move_count, std::uint64_t attempt_count, std::uint64_t stamina_spent,
-    std::uint32_t final_stamina, std::uint32_t max_stamina);
+    std::uint32_t final_stamina, std::uint32_t max_stamina,
+    const ExpeditionCarryover& carryover = ExpeditionCarryover{});
 
 // The single result/status line (REQ-133).
 [[nodiscard]] std::string format_report_result(const ExpeditionReport& report);

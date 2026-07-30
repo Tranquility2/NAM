@@ -1,7 +1,6 @@
 #include <doctest/doctest.h>
 
 #include <cstdint>
-#include <deque>
 #include <optional>
 #include <string>
 #include <vector>
@@ -10,63 +9,27 @@
 #include "direction.h"
 #include "expedition.h"
 #include "game_state.h"
+#include "objective.h"
 #include "terrain.h"
 
 namespace {
 
-// Breadth-first walk of the actor to `target` over walkable cells, issuing real
-// moves so every step charges stamina and advances the objective exactly as play
-// would. Returns false when the target is unreachable.
+// Walk the actor to `target` along the core's deterministic shortest path,
+// issuing real moves so every step charges stamina and advances the objective
+// exactly as play would. Returns false when the target is unreachable.
 bool walk_to(GameState& state, Coordinates target) {
     while (state.actor_position() != target) {
-        const Map& map = state.map();
-        const int width = static_cast<int>(map.width());
-        const int height = static_cast<int>(map.height());
-        const auto flat = [width](Coordinates cell) {
-            return static_cast<std::size_t>(cell.y * width + cell.x);
-        };
-
-        std::vector<int> came_from(static_cast<std::size_t>(width * height), -1);
-        std::deque<Coordinates> frontier{state.actor_position()};
-        came_from[flat(state.actor_position())] = 4;  // Sentinel for the origin.
-
-        bool found = false;
-        while (!frontier.empty() && !found) {
-            const Coordinates current = frontier.front();
-            frontier.pop_front();
-            for (int index = 0; index < 4; ++index) {
-                const Direction direction = static_cast<Direction>(index);
-                const Coordinates delta = direction_delta(direction);
-                const Coordinates next{current.x + delta.x, current.y + delta.y};
-                if (next.x < 0 || next.y < 0 || next.x >= width || next.y >= height) {
-                    continue;
-                }
-                if (!is_walkable(map.terrain_at(next)) || came_from[flat(next)] >= 0) {
-                    continue;
-                }
-                came_from[flat(next)] = index;
-                if (next == target) {
-                    found = true;
-                    break;
-                }
-                frontier.push_back(next);
-            }
-        }
-        if (came_from[flat(target)] < 0) {
+        const std::vector<Coordinates> path =
+            shortest_path(state.map(), state.actor_position(), target);
+        if (path.size() < 2u) {
             return false;
         }
-
-        // Walk the parent chain back to the actor to recover the first step.
-        std::vector<Direction> reversed;
-        Coordinates cursor = target;
-        while (cursor != state.actor_position()) {
-            const int index = came_from[flat(cursor)];
-            reversed.push_back(static_cast<Direction>(index));
-            const Coordinates delta = direction_delta(static_cast<Direction>(index));
-            cursor = Coordinates{cursor.x - delta.x, cursor.y - delta.y};
-        }
-        for (auto step = reversed.rbegin(); step != reversed.rend(); ++step) {
-            static_cast<void>(state.move(*step));
+        for (std::size_t step = 1; step < path.size(); ++step) {
+            const Coordinates delta{path[step].x - path[step - 1u].x,
+                                    path[step].y - path[step - 1u].y};
+            const std::optional<Direction> direction = direction_of(delta);
+            REQUIRE(direction.has_value());
+            static_cast<void>(state.move(*direction));
         }
     }
     return true;

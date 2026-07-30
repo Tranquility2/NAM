@@ -139,6 +139,17 @@ std::string completion_reminder() {
     return "Run complete. Press Enter or q to exit.";
 }
 
+std::string describe_level_started(LevelTier tier, std::uint32_t level_number,
+                                   std::uint32_t total_levels, ExpeditionBonus bonus) {
+    std::string text = std::string(to_string(tier)) + " level (" +
+                       std::to_string(level_number) + " of " + std::to_string(total_levels) +
+                       "). Stamina restored.";
+    if (bonus == ExpeditionBonus::keen_eye) {
+        text += " Keen eye: discoveries here are worth double.";
+    }
+    return text;
+}
+
 std::string restored_completion_message(const std::string& name) {
     return "Level complete beyond " + name + ".";
 }

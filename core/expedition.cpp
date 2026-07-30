@@ -20,6 +20,11 @@ Expedition::Expedition(std::uint64_t numeric_seed, LevelTier final_tier)
       progress_(final_tier),
       state_(make_level_state(progress_.current_tier(), numeric_seed)) {}
 
+Expedition::Expedition(GameState state, std::uint64_t numeric_seed)
+    : numeric_seed_(numeric_seed),
+      progress_(LevelTier::small),
+      state_(std::move(state)) {}
+
 LevelTransition Expedition::complete_level(const LevelPerformance& performance) {
     if (progress_.completed() || !state_.objective_completed()) {
         return LevelTransition::none;

@@ -277,9 +277,9 @@ std::string usage_text() {
     text += "  map               Path to a map file (defaults to the built-in map).\n\n";
     text += "Options:\n";
     text += "  --map <path>      Load the map at <path> (alternative to the positional form).\n";
-    text += "  --seed <text>     Generate the deterministic Tiny World from <text> (hashed;\n";
+    text += "  --seed <text>     Generate the deterministic expedition from <text> (hashed;\n";
     text += "                    max 128 bytes; cannot be combined with a map).\n";
-    text += "  --seed-number <n> Generate the deterministic Tiny World from a decimal uint64\n";
+    text += "  --seed-number <n> Generate the deterministic expedition from a decimal uint64\n";
     text += "                    seed (0..18446744073709551615; cannot be combined with a map\n";
     text += "                    or --seed).\n";
     text += "  --debug           Show internal diagnostics in the HUD.\n";

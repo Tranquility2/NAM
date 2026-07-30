@@ -144,13 +144,14 @@ TEST_CASE("completed report shows result story statistics and legend wording") {
           "The party found Glass River Exit and reached the exit in 3 moves.");
 
     const std::vector<std::string> stats = format_report_statistics(report);
-    REQUIRE(stats.size() == 6);
+    REQUIRE(stats.size() == 7);
     CHECK(stats[0] == "STATISTICS");
-    CHECK(stats[1] == "Score: 980 / 1000");
-    CHECK(stats[2] == "Route: 3 moves, 3 stamina (optimal 3)");
-    CHECK(stats[3] == "Blocked moves: 1");
-    CHECK(stats[4] == "Stamina: 17/20");
-    CHECK(stats[5] == "Explored: 4 / 4 cells");
+    CHECK(stats[1] == "Score: 980 (route 980 / 1000, discoveries 0)");
+    CHECK(stats[2] == "Discoveries: 0 / 0");
+    CHECK(stats[3] == "Route: 3 moves, 3 stamina (optimal 3)");
+    CHECK(stats[4] == "Blocked moves: 1");
+    CHECK(stats[5] == "Stamina: 17/20");
+    CHECK(stats[6] == "Explored: 4 / 4 cells");
 
     const std::vector<std::string> legend = format_report_legend();
     REQUIRE(legend.size() == 6);
@@ -197,8 +198,8 @@ TEST_CASE("the route line uses singular grammar for a single move") {
         build_report(objective, map, visibility, journal, route, 1, 1, 1, 19, 20);
 
     const std::vector<std::string> stats = format_report_statistics(report);
-    REQUIRE(stats.size() == 6);
-    CHECK(stats[2] == "Route: 1 move, 1 stamina (optimal 1)");
+    REQUIRE(stats.size() == 7);
+    CHECK(stats[3] == "Route: 1 move, 1 stamina (optimal 1)");
 }
 
 TEST_CASE("report line sections appear in the required order") {

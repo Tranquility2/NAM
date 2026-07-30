@@ -69,7 +69,8 @@ ExpeditionReport build_expedition_report(
     const LevelObjective& objective, const Map& map, const VisibilityMap& visibility,
     const Journal& journal, const RouteHistory& route, const WorldIdentity& identity,
     std::uint64_t move_count, std::uint64_t attempt_count, std::uint64_t stamina_spent,
-    std::uint32_t final_stamina, std::uint32_t max_stamina) {
+    std::uint32_t final_stamina, std::uint32_t max_stamina,
+    const ExpeditionCarryover& carryover) {
     // Blocked attempts are total movement attempts minus successful moves, via
     // comparison-before-subtraction so the count never underflows.
     const std::uint64_t blocked_attempts =
@@ -85,6 +86,8 @@ ExpeditionReport build_expedition_report(
     score_input.optimal_route_cost = objective.minimum_route_stamina_cost;
     score_input.actual_stamina_spent = stamina_spent;
     score_input.blocked_attempts = blocked_attempts;
+    score_input.discoveries_found = carryover.discoveries_found;
+    score_input.discovery_multiplier = discovery_multiplier_of(carryover.applied_bonus);
 
     ExpeditionReport report{map, visibility};
     report.landmark_name = objective.name;
@@ -103,11 +106,30 @@ ExpeditionReport build_expedition_report(
     report.max_stamina = max_stamina;
     report.explored_reachable_cells = explored;
     report.total_reachable_cells = total;
+    report.carryover = carryover;
+    // A standalone level is its own whole expedition, so its running total is
+    // simply this level's score rather than a separately tracked zero.
+    if (report.carryover.expedition_score == 0 && report.carryover.total_levels <= 1u) {
+        report.carryover.expedition_score = report.score.value;
+        report.carryover.expedition_discoveries_found = carryover.discoveries_found;
+        report.carryover.expedition_discoveries_available = carryover.discovery_total;
+    }
     return report;
 }
 
-std::string format_report_result(const ExpeditionReport&) {
-    return "Result: level complete.";
+std::string format_report_result(const ExpeditionReport& report) {
+    if (report.carryover.total_levels <= 1u) {
+        return "Result: level complete.";
+    }
+    if (report.carryover.expedition_completed) {
+        return "Result: expedition complete. All " +
+               std::to_string(report.carryover.total_levels) + " levels finished.";
+    }
+    return "Result: " + std::string(to_string(report.carryover.next_tier
+                                                  ? *report.carryover.next_tier
+                                                  : LevelTier::small)) +
+           " level ahead. " + std::to_string(report.carryover.levels_completed) + " of " +
+           std::to_string(report.carryover.total_levels) + " complete.";
 }
 
 std::string format_report_story(const ExpeditionReport& report) {
@@ -119,8 +141,29 @@ std::string format_report_story(const ExpeditionReport& report) {
 std::vector<std::string> format_report_statistics(const ExpeditionReport& report) {
     std::vector<std::string> lines;
     lines.emplace_back("STATISTICS");
-    lines.push_back("Score: " + std::to_string(report.score.value) + " / " +
-                    std::to_string(completed_score_maximum));
+    lines.push_back("Score: " + std::to_string(report.score.value) + " (route " +
+                    std::to_string(report.score.route_value) + " / " +
+                    std::to_string(completed_score_maximum) + ", discoveries " +
+                    std::to_string(report.score.discovery_value) + ")");
+    lines.push_back("Discoveries: " + std::to_string(report.carryover.discoveries_found) + " / " +
+                    std::to_string(report.carryover.discovery_total));
+    if (report.carryover.total_levels > 1u) {
+        lines.push_back("Expedition score: " +
+                        std::to_string(report.carryover.expedition_score) + " over " +
+                        std::to_string(report.carryover.levels_completed) + " of " +
+                        std::to_string(report.carryover.total_levels) + " levels");
+        lines.push_back("Expedition discoveries: " +
+                        std::to_string(report.carryover.expedition_discoveries_found) + " / " +
+                        std::to_string(report.carryover.expedition_discoveries_available));
+    }
+    // A bonus is only worth announcing while there is a next level to carry it to.
+    if (report.carryover.applied_bonus != ExpeditionBonus::none) {
+        lines.emplace_back("Bonus spent: keen eye doubled this level's discoveries.");
+    }
+    if (!report.carryover.expedition_completed &&
+        report.carryover.earned_bonus != ExpeditionBonus::none) {
+        lines.emplace_back("Bonus earned: keen eye. The next level's discoveries are worth double.");
+    }
     lines.push_back("Route: " + std::to_string(report.move_count) + " " +
                     plural(report.move_count, "move", "moves") + ", " +
                     std::to_string(report.actual_stamina_spent) + " stamina (optimal " +
@@ -139,14 +182,14 @@ std::vector<std::string> format_report_identity(const ExpeditionReport& report) 
     lines.emplace_back("WORLD");
     switch (identity.source) {
         case WorldSource::text_seed:
-            lines.emplace_back("Source: Tiny World (text seed)");
+            lines.emplace_back("Source: expedition (text seed)");
             lines.push_back("Seed text: " + format_seed_for_display(identity.seed_text));
             lines.push_back("Seed number: " + std::to_string(identity.numeric_seed));
             lines.push_back("Replay: nam_console --seed-number " +
                             std::to_string(identity.numeric_seed));
             return lines;
         case WorldSource::numeric_seed:
-            lines.emplace_back("Source: Tiny World (numeric seed)");
+            lines.emplace_back("Source: expedition (numeric seed)");
             lines.push_back("Seed number: " + std::to_string(identity.numeric_seed));
             lines.push_back("Replay: nam_console --seed-number " +
                             std::to_string(identity.numeric_seed));

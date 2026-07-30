@@ -60,12 +60,12 @@ enum class PlainCommand { none, quit, journal, up, down, left, right, unknown };
                               : "Plain mode. Commands: w/a/s/d or up/down/left/right, "
                                 "j for journal, q to quit.";
     if (settings.seed_text) {
-        message += " Tiny World seed: ";
+        message += " Expedition seed: ";
         message += format_seed_for_display(*settings.seed_text);
     } else if (settings.numeric_seed) {
         // A numeric seed has no original text form, so present its exact decimal
         // identity. std::to_string is ASCII-only and locale-independent.
-        message += " Tiny World seed number: ";
+        message += " Expedition seed number: ";
         message += std::to_string(*settings.numeric_seed);
     }
     return message;
@@ -101,35 +101,38 @@ bool is_journal_event(const KeyEvent& event) noexcept {
     return event.key == Key::character && lower(event.character) == 'j';
 }
 
-ConsoleApp::ConsoleApp(GameState state, Settings settings)
-    : state_(std::move(state)),
+ConsoleApp::ConsoleApp(Expedition expedition, Settings settings)
+    : expedition_(std::move(expedition)),
       settings_(std::move(settings)),
-      route_history_(state_.map().spawn()) {}
+      route_history_(state().map().spawn()) {}
+
+ConsoleApp::ConsoleApp(GameState state, Settings settings)
+    : ConsoleApp(Expedition(std::move(state)), std::move(settings)) {}
 
 RenderInput ConsoleApp::make_input(bool emphasize) const {
     RenderInput input;
-    input.map = &state_.map();
-    input.visibility = &state_.visibility();
-    input.actor = state_.actor_position();
-    input.terrain = state_.actor_terrain();
+    input.map = &state().map();
+    input.visibility = &state().visibility();
+    input.actor = state().actor_position();
+    input.terrain = state().actor_terrain();
     input.move_count = hud_.move_count();
     input.attempt_count = hud_.attempt_count();
-    input.stamina = state_.stamina();
-    input.max_stamina = state_.max_stamina();
+    input.stamina = state().stamina();
+    input.max_stamina = state().max_stamina();
     input.message = hud_.message();
     input.recent.assign(hud_.recent().begin(), hud_.recent().end());
     input.emphasize_actor = emphasize;
     // Production input always presents the core-owned objective; the renderer
     // gates the exit overlay on visibility and shows the objective line.
-    input.objective = &state_.objective();
+    input.objective = &state().objective();
     return input;
 }
 
 ObjectiveTransition ConsoleApp::apply_move(Direction direction, bool& emphasize) {
-    const GameEvent event = state_.move(direction);
+    const GameEvent event = state().move(direction);
     const MoveAttemptedEvent& payload = std::get<MoveAttemptedEvent>(event.data);
     hud_.record_event(event);
-    journal_.record_event(event, state_.objective().name);
+    journal_.record_event(event, state().objective().name);
     route_history_.record_event(event);
     emphasize = payload.outcome.result == MoveResult::moved;
     // A first discovery replaces the ordinary move wording; an objective transition
@@ -137,16 +140,16 @@ ObjectiveTransition ConsoleApp::apply_move(Direction direction, bool& emphasize)
     // important thing that happened on that command.
     if (payload.discovery_recorded) {
         hud_.set_message(
-            describe_discovery_found(state_.discoveries_found(), state_.discovery_total()));
+            describe_discovery_found(state().discoveries_found(), state().discovery_total()));
     }
     // Replace the ordinary move wording only for the typed objective transitions;
     // every other successful or blocked move keeps its normal message.
     switch (payload.objective_update.transition) {
         case ObjectiveTransition::landmark_discovered:
-            hud_.set_message(describe_landmark_discovered(state_.objective().name));
+            hud_.set_message(describe_landmark_discovered(state().objective().name));
             break;
         case ObjectiveTransition::level_completed:
-            hud_.set_message(describe_level_completed(state_.objective().name));
+            hud_.set_message(describe_level_completed(state().objective().name));
             break;
         case ObjectiveTransition::none:
             break;
@@ -157,15 +160,64 @@ ObjectiveTransition ConsoleApp::apply_move(Direction direction, bool& emphasize)
 void ConsoleApp::enter_completion() {
     presentation_ = Presentation::level_complete;
     final_report_active_ = true;
+
+    // Score the level into the expedition first: the report presents the carried
+    // totals, and on a multi-level run this also generates the next level.
+    const std::uint64_t blocked_attempts =
+        hud_.attempt_count() > hud_.move_count() ? hud_.attempt_count() - hud_.move_count() : 0u;
+    const LevelPerformance performance{hud_.stamina_spent(), blocked_attempts};
+
+    // Snapshot everything the report needs before complete_level replaces the
+    // level, because on an advance `state()` becomes the *next* level.
+    const LevelObjective objective = state().objective();
+    const Map map = state().map();
+    const VisibilityMap visibility = state().visibility();
+    const std::uint32_t final_stamina = state().stamina();
+    const std::uint32_t max_stamina = state().max_stamina();
+
+    static_cast<void>(expedition_.complete_level(performance));
+
+    ExpeditionCarryover carryover;
+    carryover.levels_completed = expedition_.completed_levels();
+    carryover.total_levels = expedition_.total_levels();
+    carryover.expedition_completed = expedition_.completed();
+    carryover.expedition_score = expedition_.total_score();
+    carryover.expedition_discoveries_found = expedition_.total_discoveries_found();
+    carryover.expedition_discoveries_available = expedition_.total_discoveries_available();
+    if (!expedition_.summaries().empty()) {
+        const LevelSummary& summary = expedition_.summaries().back();
+        carryover.discoveries_found = summary.discoveries_found;
+        carryover.discovery_total = summary.discovery_total;
+        carryover.applied_bonus = summary.applied_bonus;
+        carryover.earned_bonus = summary.earned_bonus;
+    }
+    if (!expedition_.completed()) {
+        carryover.next_tier = expedition_.current_tier();
+    }
+
     // Build the report only after the completing event has updated the HUD,
     // journal, route history, objective state, visibility, and stamina.
     report_.emplace(build_expedition_report(
-        state_.objective(), state_.map(), state_.visibility(), journal_, route_history_,
-        world_identity_from(settings_), static_cast<std::uint64_t>(hud_.move_count()),
-        static_cast<std::uint64_t>(hud_.attempt_count()), hud_.stamina_spent(),
-        state_.stamina(), state_.max_stamina()));
+        objective, map, visibility, journal_, route_history_, world_identity_from(settings_),
+        static_cast<std::uint64_t>(hud_.move_count()),
+        static_cast<std::uint64_t>(hud_.attempt_count()), hud_.stamina_spent(), final_stamina,
+        max_stamina, carryover));
     report_viewport_ = ReportViewport{};  // Open at (0, 0) (REQ-150).
-    restored_message_ = restored_completion_message(state_.objective().name);
+    restored_message_ = restored_completion_message(objective.name);
+}
+
+void ConsoleApp::begin_next_level() {
+    // Per-level tracking restarts with the level. The journal is expedition-wide
+    // and survives, which is what makes it a record of the whole run.
+    hud_ = Hud{};
+    route_history_ = RouteHistory(state().map().spawn());
+    report_.reset();
+    final_report_active_ = false;
+    presentation_ = Presentation::gameplay;
+    hud_.set_message(describe_level_started(expedition_.current_tier(),
+                                            expedition_.completed_levels() + 1u,
+                                            expedition_.total_levels(),
+                                            expedition_.active_bonus()));
 }
 
 void ConsoleApp::open_journal(int capacity) {
@@ -246,7 +298,7 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
             draw_report();
         } else if (transition == ObjectiveTransition::landmark_discovered) {
             presentation_ = Presentation::landmark_discovery;
-            session.draw(renderer.render_discovery(state_.objective().name, session.size()));
+            session.draw(renderer.render_discovery(state().objective().name, session.size()));
         } else {
             presentation_ = Presentation::gameplay;
             session.draw(renderer.render(make_input(emphasize), session.size()));
@@ -262,7 +314,7 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
                 session.draw(renderer.render(make_input(false), session.size()));
                 break;
             case Presentation::landmark_discovery:
-                session.draw(renderer.render_discovery(state_.objective().name, session.size()));
+                session.draw(renderer.render_discovery(state().objective().name, session.size()));
                 break;
             case Presentation::level_complete:
                 draw_report();
@@ -287,8 +339,8 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
 
     // Initial objective completion (single reachable walkable cell): start directly
     // on the final report and wait for an explicit acknowledgement (REQ-002).
-    if (state_.objective_completed()) {
-        journal_.record_initial_completion(state_.objective().name);
+    if (state().objective_completed()) {
+        journal_.record_initial_completion(state().objective().name);
         enter_completion();
         draw_report();
     } else {
@@ -347,7 +399,7 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
                         break;
                     case Key::resize:
                         session.draw(
-                            renderer.render_discovery(state_.objective().name, session.size()));
+                            renderer.render_discovery(state().objective().name, session.size()));
                         break;
                     case Key::enter:
                         // Dismiss the discovery screen and restore the intact
@@ -412,11 +464,20 @@ int ConsoleApp::run_interactive(InteractiveSession& session) {
                         scroll_report(0, 1);  // One column right (REQ-006).
                         break;
                     case Key::enter:
-                        running = false;  // Acknowledge and exit 0 (REQ-007).
+                        // Acknowledging an interlude starts the next level; on the
+                        // last level it acknowledges the run and exits 0 (REQ-007).
+                        if (interlude_active()) {
+                            begin_next_level();
+                            session.draw(renderer.render(make_input(false), session.size()));
+                            break;
+                        }
+                        running = false;
                         break;
                     default:
                         if (is_quit_event(event)) {
-                            running = false;  // q or Escape acknowledges and exits 0 (REQ-007).
+                            // q or Escape always stops the run, mid-expedition or not
+                            // (REQ-007).
+                            running = false;
                             break;
                         }
                         // Every movement semantic and every other key leaves the report
@@ -511,11 +572,20 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
             enter_completion();
             output << renderer.render_report_plain(*report_);
             output.flush();
+            // A finished level of a longer expedition is an interlude: print its
+            // report, then stream straight into the next level rather than ending
+            // the run.
+            if (interlude_active()) {
+                begin_next_level();
+                output << renderer.render_plain(make_input(false));
+                output.flush();
+                return false;
+            }
             return true;
         }
         if (transition == ObjectiveTransition::landmark_discovered) {
             presentation_ = Presentation::landmark_discovery;
-            output << renderer.render_discovery_plain(state_.objective().name);
+            output << renderer.render_discovery_plain(state().objective().name);
         } else {
             presentation_ = Presentation::gameplay;
             output << renderer.render_plain(make_input(false));
@@ -527,8 +597,8 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
     // Initial objective completion (single reachable walkable cell): write the
     // complete report once, flush, and return 0 immediately without reading stdin
     // (REQ-002 / REQ-009).
-    if (state_.objective_completed()) {
-        journal_.record_initial_completion(state_.objective().name);
+    if (state().objective_completed()) {
+        journal_.record_initial_completion(state().objective().name);
         enter_completion();
         output << renderer.render_report_plain(*report_);
         output.flush();
@@ -651,10 +721,14 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
 }
 
 int run(GameState state, Settings settings, const Environment& environment) {
+    return run(Expedition(std::move(state)), std::move(settings), environment);
+}
+
+int run(Expedition expedition, Settings settings, const Environment& environment) {
     const bool want_interactive =
         !settings.plain && interactive_display_supported(environment.term_supports_ansi());
 
-    ConsoleApp app(std::move(state), std::move(settings));
+    ConsoleApp app(std::move(expedition), std::move(settings));
 
     if (!want_interactive) {
         return app.run_plain(std::cin, std::cout);

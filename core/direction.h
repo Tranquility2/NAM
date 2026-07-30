@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include "coordinates.h"
 
 // A cardinal movement direction. Replaces the old mutable global moveAxis map;
@@ -21,4 +23,14 @@ enum class Direction : unsigned char {
         case Direction::right: return {1, 0};
     }
     return {0, 0};
+}
+
+// The inverse of direction_delta: the direction of a single cardinal step, or
+// nullopt for any other offset (including a zero or diagonal one).
+[[nodiscard]] constexpr std::optional<Direction> direction_of(Coordinates delta) noexcept {
+    if (delta.x == 0 && delta.y == -1) return Direction::up;
+    if (delta.x == 0 && delta.y == 1) return Direction::down;
+    if (delta.x == -1 && delta.y == 0) return Direction::left;
+    if (delta.x == 1 && delta.y == 0) return Direction::right;
+    return std::nullopt;
 }

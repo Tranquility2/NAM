@@ -144,7 +144,7 @@ TEST_CASE("usage and version text are self-describing") {
     CHECK(usage.find("! hazard") != std::string::npos);
     CHECK(usage.find("+ safe landmark") != std::string::npos);
     CHECK(usage.find("--seed") != std::string::npos);
-    CHECK(usage.find("Tiny World") != std::string::npos);
+    CHECK(usage.find("deterministic expedition") != std::string::npos);
     CHECK(usage.find("128") != std::string::npos);
     // The interactive controls advertise the journal command.
     CHECK(usage.find("j for the expedition journal") != std::string::npos);
@@ -279,7 +279,7 @@ TEST_CASE("numeric seeds are single-use and mutually exclusive with other world 
 
 TEST_CASE("a text seed and its decimal hash generate byte-identical worlds") {
     // TASK-008 / TEST-008 / REQ-030: --seed glass-river and --seed-number <hash>
-    // reproduce the same Tiny World.
+    // reproduce the same expedition.
     const std::uint64_t hash = hash_seed_text("glass-river");
     const CliResult numeric = parse({"--seed-number", std::to_string(hash)}, good_env());
     REQUIRE(numeric.settings.numeric_seed.has_value());

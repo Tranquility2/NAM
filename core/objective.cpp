@@ -80,62 +80,6 @@ constexpr std::array<Coordinates, 4> kCardinalOffsets{
     return distance;
 }
 
-[[nodiscard]] std::vector<Coordinates> shortest_path(const Map& map, Coordinates source,
-                                                     Coordinates target) {
-    const int width = static_cast<int>(map.width());
-    const int height = static_cast<int>(map.height());
-    const std::size_t cell_count =
-        static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
-    const auto flat_index = [width](Coordinates position) {
-        return static_cast<std::size_t>(position.y) * static_cast<std::size_t>(width) +
-               static_cast<std::size_t>(position.x);
-    };
-    const auto coordinate_at = [width](std::size_t index) {
-        return Coordinates{static_cast<int>(index % static_cast<std::size_t>(width)),
-                           static_cast<int>(index / static_cast<std::size_t>(width))};
-    };
-
-    const std::size_t source_index = flat_index(source);
-    const std::size_t target_index = flat_index(target);
-    std::vector<bool> visited(cell_count, false);
-    std::vector<std::size_t> parent(cell_count, cell_count);
-    std::vector<std::size_t> frontier;
-    frontier.reserve(cell_count);
-    visited[source_index] = true;
-    frontier.push_back(source_index);
-
-    for (std::size_t head = 0; head < frontier.size() && !visited[target_index]; ++head) {
-        const std::size_t current_index = frontier[head];
-        const Coordinates current = coordinate_at(current_index);
-        for (const Coordinates offset : kCardinalOffsets) {
-            const Coordinates neighbour = current + offset;
-            if (!map.contains(neighbour) || !is_walkable(map.terrain_at(neighbour))) {
-                continue;
-            }
-            const std::size_t neighbour_index = flat_index(neighbour);
-            if (visited[neighbour_index]) {
-                continue;
-            }
-            visited[neighbour_index] = true;
-            parent[neighbour_index] = current_index;
-            frontier.push_back(neighbour_index);
-        }
-    }
-
-    std::vector<Coordinates> path;
-    if (!visited[target_index]) {
-        return path;
-    }
-    for (std::size_t current = target_index;; current = parent[current]) {
-        path.push_back(coordinate_at(current));
-        if (current == source_index) {
-            break;
-        }
-    }
-    std::reverse(path.begin(), path.end());
-    return path;
-}
-
 // The deterministic cheapest stamina cost of a walkable cardinal path from
 // `source` to `target`, where entering a cell costs stamina_cost_of(that cell).
 // This is a Dijkstra shortest-path search: only the scalar minimum total cost is
@@ -258,6 +202,62 @@ constexpr std::array<Coordinates, 4> kCardinalOffsets{
 }
 
 }  // namespace
+
+std::vector<Coordinates> shortest_path(const Map& map, Coordinates source,
+                                       Coordinates target) {
+    const int width = static_cast<int>(map.width());
+    const int height = static_cast<int>(map.height());
+    const std::size_t cell_count =
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    const auto flat_index = [width](Coordinates position) {
+        return static_cast<std::size_t>(position.y) * static_cast<std::size_t>(width) +
+               static_cast<std::size_t>(position.x);
+    };
+    const auto coordinate_at = [width](std::size_t index) {
+        return Coordinates{static_cast<int>(index % static_cast<std::size_t>(width)),
+                           static_cast<int>(index / static_cast<std::size_t>(width))};
+    };
+
+    const std::size_t source_index = flat_index(source);
+    const std::size_t target_index = flat_index(target);
+    std::vector<bool> visited(cell_count, false);
+    std::vector<std::size_t> parent(cell_count, cell_count);
+    std::vector<std::size_t> frontier;
+    frontier.reserve(cell_count);
+    visited[source_index] = true;
+    frontier.push_back(source_index);
+
+    for (std::size_t head = 0; head < frontier.size() && !visited[target_index]; ++head) {
+        const std::size_t current_index = frontier[head];
+        const Coordinates current = coordinate_at(current_index);
+        for (const Coordinates offset : kCardinalOffsets) {
+            const Coordinates neighbour = current + offset;
+            if (!map.contains(neighbour) || !is_walkable(map.terrain_at(neighbour))) {
+                continue;
+            }
+            const std::size_t neighbour_index = flat_index(neighbour);
+            if (visited[neighbour_index]) {
+                continue;
+            }
+            visited[neighbour_index] = true;
+            parent[neighbour_index] = current_index;
+            frontier.push_back(neighbour_index);
+        }
+    }
+
+    std::vector<Coordinates> path;
+    if (!visited[target_index]) {
+        return path;
+    }
+    for (std::size_t current = target_index;; current = parent[current]) {
+        path.push_back(coordinate_at(current));
+        if (current == source_index) {
+            break;
+        }
+    }
+    std::reverse(path.begin(), path.end());
+    return path;
+}
 
 LevelObjective create_level_objective(const Map& map) {
     const std::vector<int> distance = compute_distances(map);

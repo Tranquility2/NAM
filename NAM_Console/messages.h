@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 
+#include "expedition.h"
 #include "direction.h"
 #include "level_feature.h"
 #include "game_event.h"
@@ -68,6 +69,12 @@ namespace nam::console {
 // The plain-mode reminder shown when the completion screen is active and the
 // player enters any command other than an acknowledgement.
 [[nodiscard]] std::string completion_reminder();
+
+// The HUD line that opens a level of a multi-level expedition, naming the tier,
+// the position in the chain, and any bonus carried into it.
+[[nodiscard]] std::string describe_level_started(LevelTier tier, std::uint32_t level_number,
+                                                 std::uint32_t total_levels,
+                                                 ExpeditionBonus bonus);
 
 // The single line printed once on the restored normal screen after an
 // interactive run whose level completed, naming the landmark it passed. While

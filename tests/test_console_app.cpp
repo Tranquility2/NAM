@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -10,6 +11,8 @@
 #include <vector>
 
 #include "console_app.h"
+#include "direction.h"
+#include "expedition.h"
 #include "frame.h"
 #include "game_state.h"
 #include "input.h"
@@ -259,14 +262,14 @@ TEST_CASE("a long session stays bounded and terminates") {
 }
 
 TEST_CASE("a seeded plain session shows the safely escaped seed in its first output") {
-    // TEST-016 (plain half): the initial HUD line identifies Tiny World and the
+    // TEST-016 (plain half): the initial HUD line identifies the expedition and the
     // original seed, displayed through the escaping helper.
     Settings settings;
     settings.seed_text = "glass-river";
     std::string output;
     const int code = run_plain_with("q\n", output, settings);
     CHECK(code == 0);
-    CHECK(output.find("Tiny World seed: \"glass-river\"") != std::string::npos);
+    CHECK(output.find("Expedition seed: \"glass-river\"") != std::string::npos);
     CHECK(output.find('\x1b') == std::string::npos);  // no ANSI when redirected.
 }
 
@@ -282,7 +285,7 @@ TEST_CASE("a seed carrying control bytes cannot inject terminal sequences") {
     const int code = run_plain_with("q\n", output, settings);
     CHECK(code == 0);
     CHECK(output.find('\x1b') == std::string::npos);
-    CHECK(output.find("Tiny World seed: \"a\\x1B[31m\"") != std::string::npos);
+    CHECK(output.find("Expedition seed: \"a\\x1B[31m\"") != std::string::npos);
 }
 
 TEST_CASE("a seeded plain session is byte-identical across repeated runs") {
@@ -301,7 +304,7 @@ TEST_CASE("an unseeded plain session keeps its original welcome and no seed noti
     const int code = run_plain_with("q\n", output);
     CHECK(code == 0);
     CHECK(output.find("Plain mode.") != std::string::npos);
-    CHECK(output.find("Tiny World seed:") == std::string::npos);
+    CHECK(output.find("Expedition seed:") == std::string::npos);
 }
 
 TEST_CASE("fog hides distant terrain until the actor explores toward it") {
@@ -528,7 +531,7 @@ TEST_CASE("plain single-cell map prints the report once and exits immediately") 
     CHECK(count_substr(output, "EXPEDITION REPORT") == 1);
     CHECK(output.find("The party found " + name + " and reached the exit in 0 moves.") !=
           std::string::npos);
-    CHECK(output.find("Score: 1000 / 1000") != std::string::npos);
+    CHECK(output.find("Score: 1000 (route 1000 / 1000, discoveries 0)") != std::string::npos);
     CHECK(output.find("Route: 0 moves, 0 stamina (optimal 0)") != std::string::npos);
     CHECK(output.find("Stamina: 20/20") != std::string::npos);
     CHECK(output.find("Goodbye") == std::string::npos);  // immediate quiet exit.
@@ -844,6 +847,147 @@ TEST_CASE("plain j on a completed single-cell map prints the initial completion 
     CHECK(output.find("Found " + name + " and the exit at spawn; the level was already complete.") !=
           std::string::npos);
     CHECK(output.find("Goodbye") == std::string::npos);  // EOF acknowledgement stays quiet.
+}
+
+}  // TEST_SUITE("console")
+
+namespace {
+
+// The plain-mode command letter for one cardinal step.
+[[nodiscard]] std::string plain_command_for(Direction direction) {
+    switch (direction) {
+        case Direction::up:    return "w\n";
+        case Direction::down:  return "s\n";
+        case Direction::left:  return "a\n";
+        case Direction::right: return "d\n";
+    }
+    return "w\n";
+}
+
+// Plain-mode commands that walk a copy of the expedition from spawn through the
+// landmark to the exit of every level, acknowledging each interlude with a blank
+// line. Driving a copy keeps the real app's state untouched.
+[[nodiscard]] std::string commands_to_finish(std::uint64_t seed) {
+    Expedition scout(seed);
+    std::string commands;
+    for (std::uint32_t level = 0; level < scout.total_levels(); ++level) {
+        for (const Coordinates target :
+             {scout.state().objective().landmark, scout.state().objective().exit_cell}) {
+            while (scout.state().actor_position() != target) {
+                const std::vector<Coordinates> path =
+                    shortest_path(scout.state().map(), scout.state().actor_position(), target);
+                REQUIRE(path.size() >= 2u);
+                for (std::size_t step = 1; step < path.size(); ++step) {
+                    const Coordinates delta{path[step].x - path[step - 1u].x,
+                                            path[step].y - path[step - 1u].y};
+                    const std::optional<Direction> direction = direction_of(delta);
+                    REQUIRE(direction.has_value());
+                    commands += plain_command_for(*direction);
+                    static_cast<void>(scout.state().move(*direction));
+                }
+            }
+        }
+        commands += "\n";  // Acknowledge the interlude or the final report.
+        static_cast<void>(scout.complete_level(LevelPerformance{}));
+    }
+    return commands;
+}
+
+constexpr std::uint64_t kExpeditionSeed = 0x0F4289EAF4A1813Cull;
+
+// The same walk as commands_to_finish, as interactive key events. Interludes are
+// acknowledged with Enter.
+[[nodiscard]] std::vector<KeyEvent> events_to_finish(std::uint64_t seed) {
+    std::vector<KeyEvent> events;
+    for (const char letter : commands_to_finish(seed)) {
+        if (letter == '\n') {
+            events.push_back(KeyEvent::of(Key::enter));
+        } else {
+            events.push_back(KeyEvent::of_character(letter));
+        }
+    }
+    return events;
+}
+
+}  // namespace
+
+TEST_SUITE("console") {
+
+TEST_CASE("a plain expedition reports each level and continues into the next") {
+    ConsoleApp app(Expedition(kExpeditionSeed), Settings{});
+    std::istringstream input(commands_to_finish(kExpeditionSeed));
+    std::ostringstream out;
+
+    CHECK(app.run_plain(input, out) == 0);
+    const std::string output = out.str();
+
+    // The interlude names the tier still to come; the final report closes the run.
+    CHECK(output.find("Result: Medium level ahead. 1 of 2 complete.") != std::string::npos);
+    CHECK(output.find("Result: expedition complete. All 2 levels finished.") !=
+          std::string::npos);
+    // The second level is announced with its tier and position in the chain.
+    CHECK(output.find("Medium level (2 of 2). Stamina restored.") != std::string::npos);
+    CHECK(count_substr(output, "EXPEDITION REPORT") == 2u);
+}
+
+TEST_CASE("the expedition score accumulates across levels in the final report") {
+    ConsoleApp app(Expedition(kExpeditionSeed), Settings{});
+    std::istringstream input(commands_to_finish(kExpeditionSeed));
+    std::ostringstream out;
+    REQUIRE(app.run_plain(input, out) == 0);
+    const std::string output = out.str();
+
+    CHECK(output.find("Expedition score: ") != std::string::npos);
+    CHECK(output.find("Expedition discoveries: ") != std::string::npos);
+    CHECK(output.find(" over 1 of 2 levels") != std::string::npos);
+    CHECK(output.find(" over 2 of 2 levels") != std::string::npos);
+}
+
+TEST_CASE("quitting at an interlude ends the run without playing the next level") {
+    // Walk the first level only, then quit at its report instead of acknowledging.
+    std::string commands = commands_to_finish(kExpeditionSeed);
+    const std::size_t first_interlude = commands.find("\n\n");
+    REQUIRE(first_interlude != std::string::npos);
+    commands = commands.substr(0, first_interlude + 1u) + "q\n";
+
+    ConsoleApp app(Expedition(kExpeditionSeed), Settings{});
+    std::istringstream input(commands);
+    std::ostringstream out;
+    REQUIRE(app.run_plain(input, out) == 0);
+    const std::string output = out.str();
+
+    CHECK(count_substr(output, "EXPEDITION REPORT") == 1u);
+    CHECK(output.find("Result: expedition complete") == std::string::npos);
+}
+
+TEST_CASE("an interactive interlude returns to gameplay on the next level") {
+    ConsoleApp app(Expedition(kExpeditionSeed), Settings{});
+    FakeSession session(events_to_finish(kExpeditionSeed));
+
+    CHECK(app.run_interactive(session) == 0);
+
+    // The run ended on the final report, so the restored line is the completion
+    // message rather than a goodbye.
+    CHECK(app.final_message().find("Level complete beyond ") == 0u);
+
+    std::string frames;
+    for (const Frame& frame : session.frames) {
+        for (const std::string& row : frame) {
+            frames += row;
+            frames += '\n';
+        }
+    }
+    CHECK(count_substr(frames, "EXPEDITION REPORT") >= 2u);
+    CHECK(frames.find("Medium level (2 of 2). Stamina restored.") != std::string::npos);
+}
+
+TEST_CASE("a standalone level is a one-level expedition with no carryover lines") {
+    std::string output;
+    REQUIRE(run_plain_state(make_corridor_state(), "d\nd\nd\n", output) == 0);
+
+    CHECK(output.find("Result: level complete.") != std::string::npos);
+    CHECK(output.find("Expedition score:") == std::string::npos);
+    CHECK(output.find("level ahead") == std::string::npos);
 }
 
 }  // TEST_SUITE("console")

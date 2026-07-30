@@ -76,6 +76,12 @@ public:
     // which callers avoid by generating through generate_level first.
     explicit Expedition(std::uint64_t numeric_seed, LevelTier final_tier = prototype_final_tier);
 
+    // A one-level expedition around an already-built level. Handcrafted maps and
+    // the built-in map are not part of a tier chain, so completing this level ends
+    // the expedition and no further level is generated. `numeric_seed` is only the
+    // reported run identity and drives no generation here.
+    explicit Expedition(GameState state, std::uint64_t numeric_seed = 0);
+
     // The run identity every level of this expedition is derived from.
     [[nodiscard]] std::uint64_t numeric_seed() const noexcept { return numeric_seed_; }
 

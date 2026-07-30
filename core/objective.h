@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "coordinates.h"
 #include "direction.h"
@@ -85,6 +86,15 @@ struct ObjectiveUpdate {
 // walkable cell the objective starts completed.
 //
 [[nodiscard]] LevelObjective create_level_objective(const Map& map);
+
+// The deterministic cheapest cardinal path from `source` to `target` over walkable
+// cells, inclusive of both ends. Empty when the target is unreachable, and a
+// single cell when source and target coincide. Neighbours are visited in the fixed
+// Direction order, so the chosen path among equal-length ones is stable on every
+// platform. Exposed because objectives, frontends, and tests all need to talk
+// about the same route.
+[[nodiscard]] std::vector<Coordinates> shortest_path(const Map& map, Coordinates source,
+                                                     Coordinates target);
 
 // Advance the objective for a committed actor position and return the exact
 // transition it caused. Entering the landmark while seeking reveals the exit;
