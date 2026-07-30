@@ -1,8 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 
 #include "coordinates.h"
+#include "level_feature.h"
 #include "terrain.h"
 
 // The rule-level result of attempting to move the actor. Presentation text is
@@ -29,16 +31,21 @@ enum class MoveResult {
 //            destination (the entered cell or the wall that blocked it); on
 //            `blocked_by_boundary` there is no valid destination cell, so it is
 //            the terrain the actor is standing on.
-// - stamina_cost: the stamina charged for entering the outcome's terrain. On
-//            `moved` this is the destination terrain's cost; on every blocked
-//            result it is 0 because no walkable destination cost applies. The
-//            charge saturates at zero, so it is an upper bound on the stamina
-//            actually lost rather than a guaranteed deduction.
+// - feature: the authored content on the outcome's destination cell, if any. It
+//            is empty on every blocked result and on any cell the level template
+//            left plain, so a frontend never re-derives content from coordinates.
+// - stamina_cost: the stamina charged for entering the outcome's terrain, plus
+//            hazard_stamina_penalty when the destination carries a hazard. On
+//            every blocked result it is 0 because no walkable destination cost
+//            applies. The charge saturates at zero, so it is an upper bound on the
+//            stamina actually lost rather than a guaranteed deduction. A hazard
+//            therefore makes a step expensive but never illegal.
 // - stamina_recovered: the stamina automatically regained by the step, after the
 //            cost was charged. On `moved` this is the destination terrain's
 //            passive_recovery_of amount clamped by the maximum, or the full
 //            restoration granted by reaching the level landmark for the first
-//            time; it is 0 on every blocked result.
+//            time or by entering a safe landmark; it is 0 on every blocked
+//            result.
 // - stamina_before: the actor's current stamina before the attempt.
 // - stamina_after:  the actor's current stamina after the attempt. On `moved`
 //            this is the saturating charge of `stamina_cost` followed by
@@ -53,4 +60,7 @@ struct MoveOutcome {
     std::uint32_t stamina_recovered{};
     std::uint32_t stamina_before{};
     std::uint32_t stamina_after{};
+    // Declared last and default-initialized so existing positional construction of
+    // a MoveOutcome stays valid.
+    std::optional<LevelFeatureKind> feature{};
 };

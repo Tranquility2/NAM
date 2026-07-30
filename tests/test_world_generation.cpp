@@ -490,8 +490,8 @@ TEST_CASE("every tier places its seeded exit inside the template exit zone") {
             const GeneratedWorld& world = require_world(result);
 
             CHECK(level.exit_zone.contains(world.exit_cell));
-            REQUIRE(world.map.authored_exit().has_value());
-            CHECK(*world.map.authored_exit() == world.exit_cell);
+            REQUIRE(world.map.layout().exit.has_value());
+            CHECK(*world.map.layout().exit == world.exit_cell);
             CHECK(world.map.terrain_at(world.exit_cell) == Terrain::open);
         }
     }

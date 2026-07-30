@@ -1,11 +1,14 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "coordinates.h"
 #include "direction.h"
 #include "game_event.h"
+#include "level_feature.h"
 #include "map.h"
 #include "move_outcome.h"
 #include "objective.h"
@@ -33,8 +36,9 @@ public:
     // step: a successful move charges the destination terrain's cost with a
     // saturating subtraction and immediately adds back that terrain's
     // passive_recovery_of amount, so easy ground restores the meter and rough
-    // ground drains it. Reaching the level landmark for the first time restores
-    // it completely.
+    // ground drains it. A hazard cell adds hazard_stamina_penalty to the charge
+    // without ever refusing the step. Reaching the level landmark for the first
+    // time, or entering a safe landmark at any time, restores it completely.
     [[nodiscard]] std::uint32_t stamina() const noexcept { return stamina_; }
     [[nodiscard]] std::uint32_t max_stamina() const noexcept { return maximum_stamina; }
 
@@ -71,6 +75,23 @@ public:
         return objective_.status == ObjectiveStatus::completed;
     }
 
+    // The authored content this level carries, in placement order. Empty for
+    // handcrafted maps, which have no level template.
+    [[nodiscard]] const std::vector<LevelFeature>& features() const noexcept {
+        return map_.layout().features;
+    }
+
+    // The authored content on a cell, if any. Cells carry at most one feature.
+    [[nodiscard]] std::optional<LevelFeatureKind> feature_at(Coordinates position) const;
+
+    // How many distinct discoveries the actor has entered. Hazards and safe
+    // landmarks are stateless rules, so only discoveries are counted.
+    [[nodiscard]] std::uint32_t discoveries_found() const noexcept { return discoveries_found_; }
+
+    // How many discoveries this level placed, i.e. the denominator of the
+    // discovery statistic.
+    [[nodiscard]] std::uint32_t discovery_total() const noexcept { return discovery_total_; }
+
     // Compute the outcome of moving one step without changing any state.
     [[nodiscard]] MoveOutcome peek(Direction direction) const;
 
@@ -96,4 +117,10 @@ private:
     VisibilityMap visibility_;
     std::uint32_t stamina_ = maximum_stamina;
     std::uint64_t next_event_sequence_ = 0;
+    // Parallel to map_.layout().features: true once that feature has been entered.
+    // Only discoveries read it; hazards and safe landmarks apply every time, which
+    // is what keeps peek() a pure function of position and stamina.
+    std::vector<bool> feature_resolved_;
+    std::uint32_t discoveries_found_ = 0;
+    std::uint32_t discovery_total_ = 0;
 };

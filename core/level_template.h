@@ -5,6 +5,7 @@
 
 #include "coordinates.h"
 #include "direction.h"
+#include "level_feature.h"
 #include "level_tier.h"
 
 // The authored shape of a level. A tier template fixes *where play happens*: the
@@ -48,6 +49,16 @@ struct BranchSpur {
     int length = 0;
 };
 
+// One reserved place for authored content. `zone` bounds the eligible cells and
+// `on_route` records whether the slot deliberately sits on the main route, which
+// is what distinguishes a hazard the player must decide about from a discovery
+// that rewards leaving the route.
+struct ContentSlot {
+    ZoneRect zone{};
+    LevelFeatureKind kind = LevelFeatureKind::discovery;
+    bool on_route = false;
+};
+
 // Everything a tier fixes about a level's shape.
 struct LevelTemplate {
     // The protected square around the spawn. No terrain feature is grown here, so
@@ -61,6 +72,10 @@ struct LevelTemplate {
     std::vector<Coordinates> route_waypoints;
     // Where optional side routes may attach to the main route.
     std::vector<BranchSpur> branch_spurs;
+    // The content budget: one slot per placed feature. A slot names a kind and the
+    // region it may occupy; the seed picks the exact walkable cell inside it. The
+    // budget is therefore fixed by the tier while the placement varies per seed.
+    std::vector<ContentSlot> content_slots;
 };
 
 // The authored template for a tier. One shape formula serves all four tiers: the

@@ -28,10 +28,15 @@
 // landmark, level_completed on the move that enters the exit, and none
 // otherwise. It is default-initialized so existing two-field aggregate
 // construction of a movement event remains valid.
+//
+// `discovery_recorded` is true only on the move that first enters a discovery
+// cell. Re-entering an already-found discovery is an ordinary step, so a frontend
+// can log the moment once without tracking which cells it has already seen.
 struct MoveAttemptedEvent {
     Direction direction{};
     MoveOutcome outcome{};
     ObjectiveUpdate objective_update{};
+    bool discovery_recorded = false;
 };
 
 // The payload of a GameEvent. A variant so command families can add their own

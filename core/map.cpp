@@ -5,12 +5,12 @@
 #include <utility>
 
 Map::Map(std::size_t width, std::size_t height, std::vector<Terrain> cells, Coordinates spawn,
-         std::optional<Coordinates> authored_exit)
+         LevelLayout layout)
     : width_(width),
       height_(height),
       cells_(std::move(cells)),
       spawn_(spawn),
-      authored_exit_(authored_exit) {
+      layout_(std::move(layout)) {
     if (width_ == 0 || height_ == 0) {
         throw std::invalid_argument("Map dimensions must be non-zero");
     }
@@ -20,8 +20,13 @@ Map::Map(std::size_t width, std::size_t height, std::vector<Terrain> cells, Coor
     if (!contains(spawn_)) {
         throw std::invalid_argument("Map spawn is outside the bounds");
     }
-    if (authored_exit_ && !contains(*authored_exit_)) {
+    if (layout_.exit && !contains(*layout_.exit)) {
         throw std::invalid_argument("Map authored exit is outside the bounds");
+    }
+    for (const LevelFeature& feature : layout_.features) {
+        if (!contains(feature.position)) {
+            throw std::invalid_argument("Map authored feature is outside the bounds");
+        }
     }
 }
 

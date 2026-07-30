@@ -8,6 +8,7 @@ add_library(nam_core STATIC
     direction.h
     level_tier.h
     expedition_progress.h
+    level_feature.h
     level_template.h
     level_template.cpp
     move_outcome.h

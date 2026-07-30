@@ -49,6 +49,18 @@ LevelTemplate template_of(LevelTier tier) {
         BranchSpur{Coordinates{left_x, spawn.y}, Direction::right, 3},
         BranchSpur{Coordinates{spawn.x - 3, top_y}, Direction::up, 1},
     };
+    // The hazard sits on the low corridor and the safe landmark on the left flank,
+    // so both are on the main route: the player meets the hazard decision early and
+    // the recovery waypoint afterwards. The discovery sits in the quadrant the
+    // route never crosses, so finding it always costs a deliberate detour.
+    level.content_slots = {
+        ContentSlot{ZoneRect{spawn.x - 6, low_y, spawn.x - 4, low_y}, LevelFeatureKind::hazard,
+                    true},
+        ContentSlot{ZoneRect{left_x, spawn.y - 1, left_x, spawn.y + 1},
+                    LevelFeatureKind::safe_landmark, true},
+        ContentSlot{ZoneRect{spawn.x + 2, spawn.y + 2, max_x - 1, max_y},
+                    LevelFeatureKind::discovery, false},
+    };
     return level;
 }
 

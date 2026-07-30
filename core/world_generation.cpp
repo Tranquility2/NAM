@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -16,7 +17,8 @@
 //      spurs open;
 //   3. carve that route and reserve its cells;
 //   4. grow the tier's terrain budget everywhere else;
-//   5. accept only if the route survived and every clustered invariant holds.
+//   5. accept only if the route survived and every clustered invariant holds;
+//   6. seed one cell per content slot among that slot's walkable cells.
 //
 // Reserving the route before growing terrain is what makes a level solvable by
 // construction: the corridor from spawn to exit cannot be painted over, so the
@@ -684,6 +686,55 @@ std::uint64_t hash_seed_text(std::string_view text) noexcept {
     return hash;
 }
 
+// Place one cell per content slot. Candidates are the slot zone's walkable cells
+// in row-major order, minus the spawn, the exit, and any cell already taken, so
+// placement is platform-independent and no two features share a cell. One bounded
+// draw per slot selects the cell. Returns nothing when a slot has no candidate,
+// which fails the whole candidate and retries with fresh terrain.
+[[nodiscard]] std::optional<std::vector<LevelFeature>> place_content(
+    const GenerationProfile& profile, const LevelTemplate& level, const RouteLayout& layout,
+    Pcg32& engine, const std::vector<Terrain>& cells) {
+    std::vector<LevelFeature> features;
+    features.reserve(level.content_slots.size());
+
+    for (const ContentSlot& slot : level.content_slots) {
+        std::vector<Coordinates> candidates;
+        for (int y = slot.zone.min_y; y <= slot.zone.max_y; ++y) {
+            for (int x = slot.zone.min_x; x <= slot.zone.max_x; ++x) {
+                const std::size_t ux = static_cast<std::size_t>(x);
+                const std::size_t uy = static_cast<std::size_t>(y);
+                if (!is_interior(profile, ux, uy)) {
+                    continue;
+                }
+                if (!stamina_cost_of(cells[cell_index(profile, ux, uy)]).has_value()) {
+                    continue;
+                }
+                const Coordinates position{x, y};
+                if (position == profile.spawn || position == layout.exit_cell) {
+                    continue;
+                }
+                bool taken = false;
+                for (const LevelFeature& placed : features) {
+                    if (placed.position == position) {
+                        taken = true;
+                    }
+                }
+                if (!taken) {
+                    candidates.push_back(position);
+                }
+            }
+        }
+        if (candidates.empty()) {
+            return std::nullopt;
+        }
+        const std::uint32_t pick =
+            engine.next_bounded(static_cast<std::uint32_t>(candidates.size()));
+        features.push_back(LevelFeature{candidates[pick], slot.kind});
+    }
+
+    return features;
+}
+
 WorldGenerationResult generate_level(LevelTier tier, std::uint64_t numeric_seed) {
     const GenerationProfile profile = profile_of(tier);
     const LevelTemplate level = template_of(tier);
@@ -695,11 +746,21 @@ WorldGenerationResult generate_level(LevelTier tier, std::uint64_t numeric_seed)
     std::vector<Terrain> cells;
     for (std::uint32_t attempt = 0; attempt < level_candidate_limit; ++attempt) {
         const RouteLayout layout = draw_route(profile, level, engine);
-        if (grow_candidate(profile, layout.reserved, engine, cells) &&
-            is_valid_candidate(profile, layout, cells)) {
-            Map map(profile.width, profile.height, cells, profile.spawn, layout.exit_cell);
-            return GeneratedWorld{std::move(map), numeric_seed, attempt, tier, layout.exit_cell};
+        if (!grow_candidate(profile, layout.reserved, engine, cells) ||
+            !is_valid_candidate(profile, layout, cells)) {
+            continue;
         }
+        std::optional<std::vector<LevelFeature>> features =
+            place_content(profile, level, layout, engine, cells);
+        if (!features) {
+            continue;
+        }
+
+        LevelLayout map_layout;
+        map_layout.exit = layout.exit_cell;
+        map_layout.features = std::move(*features);
+        Map map(profile.width, profile.height, cells, profile.spawn, std::move(map_layout));
+        return GeneratedWorld{std::move(map), numeric_seed, attempt, tier, layout.exit_cell};
     }
 
     return WorldGenerationError{WorldGenerationErrorCode::candidate_limit_exhausted, numeric_seed};
