@@ -5,20 +5,35 @@
 #include <utility>
 #include <vector>
 
+#include "level_template.h"
 #include "pcg32.h"
 #include "terrain.h"
 
-// IMPORTANT: every constant and pass below is part of a tier's compatibility
-// contract. Any change to the FNV constants, the stream selector, the eligible-cell
-// traversal order, the feature target sizes, the pass order, the cardinal
-// direction order, the growth proposal limit, the barrier-orientation rule, the
-// hill-halo construction, or the acceptance rules changes every generated world
-// for every seed. Such a change must later be gated behind an explicit recipe
-// version rather than silently altering existing output.
+// Generation is authored shape plus seeded content. For one tier the recipe is:
 //
-// The recipe is shared by every tier and parameterised by GenerationProfile. The
-// Medium profile reproduces the released Tiny World numbers exactly, so widening
-// the recipe to other tiers cannot move a single Medium cell.
+//   1. take the tier's LevelTemplate (entry zone, exit zone, route, spur slots);
+//   2. draw the exact exit inside the fixed exit zone and decide which optional
+//      spurs open;
+//   3. carve that route and reserve its cells;
+//   4. grow the tier's terrain budget everywhere else;
+//   5. accept only if the route survived and every clustered invariant holds.
+//
+// Reserving the route before growing terrain is what makes a level solvable by
+// construction: the corridor from spawn to exit cannot be painted over, so the
+// acceptance pass is a consistency check rather than rejection sampling.
+//
+// IMPORTANT: every constant and pass below is part of a tier's compatibility
+// contract. Any change to the FNV constants, the stream selector, the seeded-route
+// draw order, the tier template, the eligible-cell traversal order, the feature
+// target sizes, the pass order, the cardinal direction order, the growth proposal
+// limit, the barrier-orientation rule, the hill-halo construction, or the
+// acceptance rules changes every generated world for every seed. Such a change
+// must later be gated behind an explicit recipe version rather than silently
+// altering existing output.
+//
+// The recipe is shared by every tier and parameterised by GenerationProfile and
+// LevelTemplate, so Small, Medium, Large, and X-Large share one implementation
+// while each keeps its own numbers and its own shape.
 
 namespace {
 
@@ -169,11 +184,15 @@ struct GenerationProfile {
 }
 
 // An eligible cell for feature placement: interior, outside the protected spawn
-// square, and currently open. Painted features and the boundary are never open,
-// so a cell is annexed at most once and no pass overwrites an earlier feature.
-[[nodiscard]] bool is_eligible(const GenerationProfile& profile, const std::vector<Terrain>& cells,
-                               std::size_t x, std::size_t y) {
+// square, not reserved by the authored route, and currently open. Painted features
+// and the boundary are never open, so a cell is annexed at most once and no pass
+// overwrites an earlier feature. `reserved` marks the carved route skeleton, which
+// no pass - including the hill halo - may paint, so the authored route survives
+// generation as a fully open corridor.
+[[nodiscard]] bool is_eligible(const GenerationProfile& profile, const std::vector<bool>& reserved,
+                               const std::vector<Terrain>& cells, std::size_t x, std::size_t y) {
     return is_interior(profile, x, y) && !is_protected_spawn(profile, x, y) &&
+           !reserved[cell_index(profile, x, y)] &&
            cells[cell_index(profile, x, y)] == Terrain::open;
 }
 
@@ -193,13 +212,14 @@ struct GenerationProfile {
 // terrain for an annexed cell (it receives the cell coordinates so barriers can
 // derive their orientation).
 template <typename Paint>
-[[nodiscard]] bool grow_blob(const GenerationProfile& profile, Pcg32& engine,
-                             std::vector<Terrain>& cells, std::size_t target_size, Paint paint) {
+[[nodiscard]] bool grow_blob(const GenerationProfile& profile, const std::vector<bool>& reserved,
+                             Pcg32& engine, std::vector<Terrain>& cells, std::size_t target_size,
+                             Paint paint) {
     std::vector<std::size_t> eligible;
     eligible.reserve(profile.width * profile.height);
     for (std::size_t y = 1; y + 1 < profile.height; ++y) {
         for (std::size_t x = 1; x + 1 < profile.width; ++x) {
-            if (is_eligible(profile, cells, x, y)) {
+            if (is_eligible(profile, reserved, cells, x, y)) {
                 eligible.push_back(cell_index(profile, x, y));
             }
         }
@@ -237,7 +257,7 @@ template <typename Paint>
             default: nx = cx - 1u; break;  // left  (direction == 3; cx >= 1)
         }
 
-        if (is_eligible(profile, cells, nx, ny)) {
+        if (is_eligible(profile, reserved, cells, nx, ny)) {
             paint(cells, nx, ny);
             blob.push_back(cell_index(profile, nx, ny));
         }
@@ -250,7 +270,8 @@ template <typename Paint>
 // mask, then the interior is scanned in row-major order and each marked cell that
 // is still open becomes a hill. Because later passes paint only open cells, the
 // halo is never overwritten and every hill stays adjacent to a mountain.
-void add_hill_halo(const GenerationProfile& profile, std::vector<Terrain>& cells) {
+void add_hill_halo(const GenerationProfile& profile, const std::vector<bool>& reserved,
+                   std::vector<Terrain>& cells) {
     std::vector<bool> hill_mask(profile.width * profile.height, false);
 
     for (std::size_t y = 1; y + 1 < profile.height; ++y) {
@@ -265,7 +286,7 @@ void add_hill_halo(const GenerationProfile& profile, std::vector<Terrain>& cells
                     }
                     const std::size_t nx = static_cast<std::size_t>(static_cast<int>(x) + dx);
                     const std::size_t ny = static_cast<std::size_t>(static_cast<int>(y) + dy);
-                    if (is_eligible(profile, cells, nx, ny)) {
+                    if (is_eligible(profile, reserved, cells, nx, ny)) {
                         hill_mask[cell_index(profile, nx, ny)] = true;
                     }
                 }
@@ -288,8 +309,54 @@ void add_hill_halo(const GenerationProfile& profile, std::vector<Terrain>& cells
 // the water bodies, the mountain cores, stamp the hill halo, grow the field
 // regions, then the barrier ridges. Returns false if any growth pass exhausts its
 // proposal budget, leaving the buffer for the caller to discard.
-[[nodiscard]] bool grow_candidate(const GenerationProfile& profile, Pcg32& engine,
-                                  std::vector<Terrain>& cells) {
+// One candidate's authored layer: the seeded exit, the carved route, and the mask
+// of cells no terrain pass may touch.
+struct RouteLayout {
+    Coordinates exit_cell{};
+    std::vector<Coordinates> route;
+    std::vector<bool> reserved;
+};
+
+// Draw the seeded parts of the authored shape. Two bounded draws place the exit
+// inside the tier's fixed exit zone, then one bounded draw per branch spur decides
+// whether that optional side route opens. The draw order is a compatibility
+// contract: it runs before any terrain pass, so every later blob sees the same
+// engine state for a given seed.
+[[nodiscard]] RouteLayout draw_route(const GenerationProfile& profile, const LevelTemplate& level,
+                                     Pcg32& engine) {
+    RouteLayout layout;
+
+    const std::uint32_t zone_width = static_cast<std::uint32_t>(level.exit_zone.width());
+    const std::uint32_t zone_height = static_cast<std::uint32_t>(level.exit_zone.height());
+    layout.exit_cell = Coordinates{
+        level.exit_zone.min_x + static_cast<int>(engine.next_bounded(zone_width)),
+        level.exit_zone.min_y + static_cast<int>(engine.next_bounded(zone_height)),
+    };
+
+    layout.route = route_cells(level, profile.spawn, layout.exit_cell);
+    for (const BranchSpur& spur : level.branch_spurs) {
+        const bool opens = engine.next_bounded(2u) == 1u;
+        if (!opens) {
+            continue;
+        }
+        for (const Coordinates cell : spur_cells(spur)) {
+            layout.route.push_back(cell);
+        }
+    }
+
+    layout.reserved.assign(profile.width * profile.height, false);
+    for (const Coordinates cell : layout.route) {
+        if (is_interior(profile, static_cast<std::size_t>(cell.x),
+                        static_cast<std::size_t>(cell.y))) {
+            layout.reserved[cell_index(profile, static_cast<std::size_t>(cell.x),
+                                       static_cast<std::size_t>(cell.y))] = true;
+        }
+    }
+    return layout;
+}
+
+[[nodiscard]] bool grow_candidate(const GenerationProfile& profile, const std::vector<bool>& reserved,
+                                  Pcg32& engine, std::vector<Terrain>& cells) {
     cells.assign(profile.width * profile.height, Terrain::open);
 
     // Top and bottom rows (including all four corners) are horizontal walls.
@@ -315,21 +382,24 @@ void add_hill_halo(const GenerationProfile& profile, std::vector<Terrain>& cells
 
     // Water bodies, then mountain cores. Order and sizes are compatibility fixed.
     for (const std::size_t target : profile.water_blobs) {
-        if (!grow_blob(profile, engine, cells, target, paint(Terrain::water))) return false;
+        if (!grow_blob(profile, reserved, engine, cells, target, paint(Terrain::water)))
+            return false;
     }
     for (const std::size_t target : profile.mountain_blobs) {
-        if (!grow_blob(profile, engine, cells, target, paint(Terrain::mountain))) return false;
+        if (!grow_blob(profile, reserved, engine, cells, target, paint(Terrain::mountain)))
+            return false;
     }
 
     // Deterministic hill halo immediately after every mountain blob (no RNG).
-    add_hill_halo(profile, cells);
+    add_hill_halo(profile, reserved, cells);
 
     // Field regions, then short barrier ridges.
     for (const std::size_t target : profile.field_blobs) {
-        if (!grow_blob(profile, engine, cells, target, paint(Terrain::fields))) return false;
+        if (!grow_blob(profile, reserved, engine, cells, target, paint(Terrain::fields)))
+            return false;
     }
     for (const std::size_t target : profile.barrier_blobs) {
-        if (!grow_blob(profile, engine, cells, target, paint_barrier)) return false;
+        if (!grow_blob(profile, reserved, engine, cells, target, paint_barrier)) return false;
     }
 
     return true;
@@ -487,7 +557,7 @@ template <typename Match>
 // Enforce every acceptance rule directly on the candidate buffer (REQ-016/017).
 // The validator inspects the buffer itself and re-derives connectivity and every
 // component invariant iteratively, so an invalid candidate is never returned.
-[[nodiscard]] bool is_valid_candidate(const GenerationProfile& profile,
+[[nodiscard]] bool is_valid_candidate(const GenerationProfile& profile, const RouteLayout& layout,
                                       const std::vector<Terrain>& cells) {
     if (cells.size() != profile.width * profile.height) {
         return false;
@@ -501,6 +571,16 @@ template <typename Match>
             if (cells[cell_index(profile, x, y)] != Terrain::open) {
                 return false;
             }
+        }
+    }
+
+    // The carved route must have survived every terrain pass as an open corridor,
+    // which is what makes the level solvable by construction rather than by
+    // rejection sampling.
+    for (const Coordinates cell : layout.route) {
+        if (cells[cell_index(profile, static_cast<std::size_t>(cell.x),
+                             static_cast<std::size_t>(cell.y))] != Terrain::open) {
+            return false;
         }
     }
 
@@ -606,6 +686,7 @@ std::uint64_t hash_seed_text(std::string_view text) noexcept {
 
 WorldGenerationResult generate_level(LevelTier tier, std::uint64_t numeric_seed) {
     const GenerationProfile profile = profile_of(tier);
+    const LevelTemplate level = template_of(tier);
 
     // A single engine grows every candidate sequentially; retries continue from
     // its current state rather than reseeding, so attempt numbers are stable.
@@ -613,9 +694,11 @@ WorldGenerationResult generate_level(LevelTier tier, std::uint64_t numeric_seed)
 
     std::vector<Terrain> cells;
     for (std::uint32_t attempt = 0; attempt < level_candidate_limit; ++attempt) {
-        if (grow_candidate(profile, engine, cells) && is_valid_candidate(profile, cells)) {
-            Map map(profile.width, profile.height, cells, profile.spawn);
-            return GeneratedWorld{std::move(map), numeric_seed, attempt, tier};
+        const RouteLayout layout = draw_route(profile, level, engine);
+        if (grow_candidate(profile, layout.reserved, engine, cells) &&
+            is_valid_candidate(profile, layout, cells)) {
+            Map map(profile.width, profile.height, cells, profile.spawn, layout.exit_cell);
+            return GeneratedWorld{std::move(map), numeric_seed, attempt, tier, layout.exit_cell};
         }
     }
 

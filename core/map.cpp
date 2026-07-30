@@ -4,8 +4,13 @@
 #include <stdexcept>
 #include <utility>
 
-Map::Map(std::size_t width, std::size_t height, std::vector<Terrain> cells, Coordinates spawn)
-    : width_(width), height_(height), cells_(std::move(cells)), spawn_(spawn) {
+Map::Map(std::size_t width, std::size_t height, std::vector<Terrain> cells, Coordinates spawn,
+         std::optional<Coordinates> authored_exit)
+    : width_(width),
+      height_(height),
+      cells_(std::move(cells)),
+      spawn_(spawn),
+      authored_exit_(authored_exit) {
     if (width_ == 0 || height_ == 0) {
         throw std::invalid_argument("Map dimensions must be non-zero");
     }
@@ -14,6 +19,9 @@ Map::Map(std::size_t width, std::size_t height, std::vector<Terrain> cells, Coor
     }
     if (!contains(spawn_)) {
         throw std::invalid_argument("Map spawn is outside the bounds");
+    }
+    if (authored_exit_ && !contains(*authored_exit_)) {
+        throw std::invalid_argument("Map authored exit is outside the bounds");
     }
 }
 

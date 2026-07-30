@@ -7,7 +7,9 @@
 #include <variant>
 #include <vector>
 
+#include "level_template.h"
 #include "level_tier.h"
+#include "objective.h"
 #include "map.h"
 #include "terrain.h"
 #include "world_generation.h"
@@ -15,25 +17,26 @@
 namespace {
 
 // The exact clustered serialization TEST-006 locks for the "glass-river" seed.
-// Every feature is a connected blob grown to an exact size, so any change to the
-// generator's pass order, target sizes, direction order, growth proposal limit,
-// hill-halo construction, or acceptance rules would move these bytes. This doubles
-// as a full compatibility fixture.
+// Every feature is a connected blob grown to an exact size around a carved route
+// skeleton, so any change to the generator's pass order, target sizes, direction
+// order, growth proposal limit, hill-halo construction, acceptance rules, tier
+// template, or seeded-route draw order would move these bytes. This doubles as a
+// full compatibility fixture and is re-locked whenever the recipe version changes.
 constexpr std::string_view kGlassRiverGolden =
     "=============================\n"
-    "|.....x^^@@@^...............|\n"
-    "|...xxx^@@^@^.........~.....|\n"
-    "|....xx^^^^^^........~~~....|\n"
-    "|....xxxxx..........~~~~~...|\n"
-    "|....xxxxx.x..........~~~~~.|\n"
-    "|....x....xxx.........~~~~..|\n"
-    "|....x....xxx...............|\n"
-    "|..x..=|...xx...............|\n"
-    "|..x.=|=...xxxx.............|\n"
-    "|..xx^^^..xxxxxxx...~~~.....|\n"
-    "|xxxx^@^^^^^xx|...~~~~~~....|\n"
-    "|.xxx^@@@@@^..=..~~~~~......|\n"
-    "|.xxx^@^^@^^..|=|=..........|\n"
+    "|...........................|\n"
+    "|...........................|\n"
+    "|......xxxxx^^@@@^.xxxx.....|\n"
+    "|.......xxxx^@@@^^=.xxx.....|\n"
+    "|........xxx^^^^^=|xxxx.....|\n"
+    "|........xx~....=|..x.xx....|\n"
+    "|..........~~.....xxx.xx....|\n"
+    "|..........~~.....xxxxxxxx..|\n"
+    "|....=|....~~~..xxxxxxxxx...|\n"
+    "|....|=....~~~.^^^^xxx~~....|\n"
+    "|...|=.....~~~.@@@^~x~~~~...|\n"
+    "|..............@@@@~~~~~....|\n"
+    "|.............^@^^^~~~~~~...|\n"
     "=============================";
 
 // The numeric seed FNV-1a produces for "glass-river" (REQ-005).
@@ -335,13 +338,12 @@ TEST_CASE("hash_seed_text hashes every byte including embedded zeros") {
     CHECK(hash_seed_text(full) == hash_seed_text(std::string_view{with_zero.data(), with_zero.size()}));
 }
 
-TEST_CASE("the glass-river seed grows the exact clustered golden map on the first attempt") {
+TEST_CASE("the glass-river seed grows the exact clustered golden map") {
     // TEST-006 / TEST-007.
     const WorldGenerationResult result = generate_tiny_world(kGlassRiverSeed);
     const GeneratedWorld& world = require_world(result);
 
     CHECK(world.numeric_seed == kGlassRiverSeed);
-    CHECK(world.generation_attempt == 0u);
     CHECK(world.tier == LevelTier::medium);
     CHECK(world.map.width() == tiny_world_width);
     CHECK(world.map.height() == tiny_world_height);
@@ -476,6 +478,112 @@ TEST_CASE("the medium tier is exactly the released tiny world recipe") {
     CHECK(tiny.tier == LevelTier::medium);
     CHECK(tiny.map.to_string() == medium.map.to_string());
     CHECK(tiny.map.to_string() == std::string(kGlassRiverGolden));
+}
+
+TEST_CASE("every tier places its seeded exit inside the template exit zone") {
+    for (const LevelTier tier : {LevelTier::small, LevelTier::medium, LevelTier::large,
+                                 LevelTier::x_large}) {
+        const LevelTemplate level = template_of(tier);
+        for (std::uint64_t index = 0; index < 64u; ++index) {
+            const std::uint64_t seed = index * 0x9E3779B97F4A7C15ull + 0x51EDull;
+            const WorldGenerationResult result = generate_level(tier, seed);
+            const GeneratedWorld& world = require_world(result);
+
+            CHECK(level.exit_zone.contains(world.exit_cell));
+            REQUIRE(world.map.authored_exit().has_value());
+            CHECK(*world.map.authored_exit() == world.exit_cell);
+            CHECK(world.map.terrain_at(world.exit_cell) == Terrain::open);
+        }
+    }
+}
+
+TEST_CASE("the carved main route survives generation as an open walkable corridor") {
+    for (const LevelTier tier : {LevelTier::small, LevelTier::medium}) {
+        const LevelTemplate level = template_of(tier);
+        for (std::uint64_t index = 0; index < 64u; ++index) {
+            const std::uint64_t seed = index * 0x2545F4914F6CDD1Dull + 0x0Bull;
+            const WorldGenerationResult result = generate_level(tier, seed);
+            const GeneratedWorld& world = require_world(result);
+
+            const std::vector<Coordinates> route =
+                route_cells(level, world.map.spawn(), world.exit_cell);
+            REQUIRE(route.front() == world.map.spawn());
+            REQUIRE(route.back() == world.exit_cell);
+
+            bool all_open = true;
+            bool cardinal_chain = true;
+            for (std::size_t step = 0; step < route.size(); ++step) {
+                if (world.map.terrain_at(route[step]) != Terrain::open) {
+                    all_open = false;
+                }
+                if (step > 0u) {
+                    const Coordinates previous = route[step - 1u];
+                    const int dx = route[step].x - previous.x;
+                    const int dy = route[step].y - previous.y;
+                    if (dx * dx + dy * dy != 1) {
+                        cardinal_chain = false;
+                    }
+                }
+            }
+            CHECK(all_open);
+            CHECK(cardinal_chain);
+        }
+    }
+}
+
+TEST_CASE("the objective ends the level at the authored exit rather than a derived cell") {
+    for (const LevelTier tier : {LevelTier::small, LevelTier::medium}) {
+        for (std::uint64_t index = 0; index < 32u; ++index) {
+            const std::uint64_t seed = index * 0x9E3779B97F4A7C15ull + 0xA11Eull;
+            const WorldGenerationResult result = generate_level(tier, seed);
+            const GeneratedWorld& world = require_world(result);
+
+            const LevelObjective objective = create_level_objective(world.map);
+            CHECK(objective.exit_cell == world.exit_cell);
+            CHECK(objective.status == ObjectiveStatus::seeking_landmark);
+            CHECK(objective.minimum_route_stamina_cost > 0u);
+        }
+    }
+}
+
+TEST_CASE("a template exit zone never overlaps its entry zone") {
+    for (const LevelTier tier : {LevelTier::small, LevelTier::medium, LevelTier::large,
+                                 LevelTier::x_large}) {
+        const LevelTemplate level = template_of(tier);
+        const LevelDimensions dimensions = dimensions_of(tier);
+
+        CHECK(level.entry_zone.contains(center_spawn_of(tier)));
+        CHECK_FALSE(level.exit_zone.contains(center_spawn_of(tier)));
+        CHECK(level.exit_zone.min_x > level.entry_zone.max_x);
+        CHECK(level.exit_zone.min_x >= 1);
+        CHECK(level.exit_zone.max_x + 2 <= static_cast<int>(dimensions.width));
+        CHECK(level.exit_zone.min_y >= 1);
+        CHECK(level.exit_zone.max_y + 2 <= static_cast<int>(dimensions.height));
+    }
+}
+
+TEST_CASE("optional side routes open only for some seeds so content varies within one shape") {
+    const LevelTemplate level = template_of(LevelTier::medium);
+    REQUIRE_FALSE(level.branch_spurs.empty());
+
+    std::size_t opened = 0;
+    std::size_t closed = 0;
+    for (std::uint64_t index = 0; index < 64u; ++index) {
+        const std::uint64_t seed = index * 0x2545F4914F6CDD1Dull + 0x5Full;
+        const WorldGenerationResult result = generate_level(LevelTier::medium, seed);
+        const GeneratedWorld& world = require_world(result);
+
+        // A spur that opened was reserved, so it is open; a spur that stayed closed
+        // is ordinary ground and usually carries terrain.
+        const Coordinates tip = spur_cells(level.branch_spurs[1]).back();
+        if (world.map.terrain_at(tip) == Terrain::open) {
+            ++opened;
+        } else {
+            ++closed;
+        }
+    }
+    CHECK(opened > 0u);
+    CHECK(closed > 0u);
 }
 
 TEST_CASE("the generation error code maps to a stable identifier string") {

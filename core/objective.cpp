@@ -280,10 +280,19 @@ LevelObjective create_level_objective(const Map& map) {
     }
 
     Coordinates exit_cell = spawn;
-    // When no cell is farther than spawn, spawn is the only reachable walkable
-    // cell: the exit stays at spawn and the expedition starts completed. This
-    // also avoids any threshold or modulo arithmetic in the trivial case.
-    if (maximum_distance > 0) {
+    const bool authored = map.authored_exit() && distance[flat_index(map.authored_exit()->x,
+                                                                    map.authored_exit()->y)] > 0;
+    // An authored exit is a level-template decision and always wins over
+    // derivation, provided it is actually reachable from spawn. Everything else
+    // below - the landmark, name, bearing, route cost, and status - is derived the
+    // same way for authored and derived exits, so a template only chooses *where*
+    // the level ends, never how the objective behaves.
+    if (authored) {
+        exit_cell = *map.authored_exit();
+    } else if (maximum_distance > 0) {
+        // When no cell is farther than spawn, spawn is the only reachable walkable
+        // cell: the exit stays at spawn and the expedition starts completed. This
+        // also avoids any threshold or modulo arithmetic in the trivial case.
         // The minimum eligible distance is the exact integer ceiling of 75% of
         // maximum_distance: subtracting the truncated quarter rounds the retained
         // three quarters up, so no floating point is involved.

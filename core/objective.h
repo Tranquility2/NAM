@@ -7,13 +7,15 @@
 #include "direction.h"
 #include "map.h"
 
-// Frontend-neutral V2 level objective. Every map receives one deterministic exit
-// placed on a distant scenic reachable cell. A named landmark is placed on a
+// Frontend-neutral V2 level objective. Every map receives one deterministic exit.
+// A generated map carries the exit its level template authored, so the objective
+// simply honors it; a handcrafted map has none, so the exit is derived and placed
+// on a distant scenic reachable cell. Either way a named landmark is placed on a
 // deterministic shortest path from spawn to that exit. The player reaches the
 // landmark to reveal the broad exit direction, then completes the level by
 // entering the exit; returning to spawn is never required.
 //
-// The exit is chosen from the
+// A derived exit is chosen from the
 // cells whose shortest cardinal path from spawn is at least the minimum eligible
 // distance (the exact integer ceiling of 75% of the greatest reachable distance),
 // preferring hills and mountains and falling back to any distant walkable cell,

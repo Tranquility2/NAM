@@ -10,13 +10,18 @@
 #include "map.h"
 
 // Deterministic procedural world generation. One shared recipe converts a stable
-// 64-bit seed and a level tier into a fully connected terrain grid whose water,
-// mountain, hill, and field regions form coherent spatial clusters, plus short
-// interior barrier ridges and a protected central spawn. Each tier supplies its
-// own dimensions, spawn, RNG stream, and content budgets, so the same seed yields
-// unrelated Small and Medium levels within one expedition.
+// 64-bit seed and a level tier into a playable level: the tier's authored
+// LevelTemplate fixes the entry zone, the exit zone, the main route, and where
+// optional side routes may attach, and the seed fixes the exact exit inside the
+// exit zone, which side routes open, and every terrain feature grown around them.
 //
-// The Medium tier is the released "Tiny World" recipe, retained byte-for-byte.
+// The carved route is reserved before terrain grows, so an accepted level is
+// solvable by construction and its exit is the authored one, carried on the map as
+// its authored exit. Water, mountain, hill, and field regions still form coherent
+// spatial clusters with short interior barrier ridges and a protected spawn.
+//
+// Each tier supplies its own dimensions, spawn, RNG stream, and content budgets,
+// so the same seed yields unrelated Small and Medium levels within one expedition.
 //
 // Terrain is not sampled independently per cell. Instead each feature is grown as
 // a connected blob: a seeded start cell is chosen, then neighbours are repeatedly
@@ -63,6 +68,10 @@ struct GeneratedWorld {
     std::uint64_t numeric_seed = 0;
     std::uint32_t generation_attempt = 0;
     LevelTier tier = tiny_world_tier;
+    // The seeded exit inside the tier template's fixed exit zone. The same value
+    // is carried by `map` as its authored exit, so the objective ends the level
+    // exactly where the template intended.
+    Coordinates exit_cell{};
 };
 
 // Why a seed failed to produce a world. Stable, non-localized values mirroring
