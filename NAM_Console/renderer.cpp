@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <string>
 
 #include "messages.h"
@@ -25,6 +26,19 @@ constexpr int standard_min_map_rows = 3;
 
 constexpr int color_actor = 93;   // Bright yellow.
 constexpr int color_objective = 96;  // Bright cyan: the current objective target.
+constexpr int color_discovery = 95;     // Bright magenta: an optional find.
+constexpr int color_hazard = 91;        // Bright red: an expensive crossing.
+constexpr int color_safe_landmark = 92; // Bright green: a recovery waypoint.
+
+// The colour for one authored-content overlay glyph.
+[[nodiscard]] constexpr int color_for_feature(LevelFeatureKind kind) noexcept {
+    switch (kind) {
+        case LevelFeatureKind::discovery:     return color_discovery;
+        case LevelFeatureKind::hazard:        return color_hazard;
+        case LevelFeatureKind::safe_landmark: return color_safe_landmark;
+    }
+    return color_discovery;
+}
 
 [[nodiscard]] std::string sgr(int code) {
     return "\033[" + std::to_string(code) + "m";
@@ -83,12 +97,14 @@ constexpr int color_objective = 96;  // Bright cyan: the current objective targe
 //     even if colour is disabled.
 //   * visible    -> the terrain glyph with its normal colour mapping.
 //   * the actor  -> the existing actor styling, always drawn as actor_glyph.
-// The objective target is a semantic overlay applied only after visibility
-// classification and only when the actor is not on the cell: a visible target is
-// drawn as objective_glyph in bright cyan (ESC[96m) under colour, a remembered
-// target reuses the dim-memory style, and an unexplored target stays blank like
-// any other unexplored cell so a hidden objective never leaks. Plain and
-// no-colour modes emit only the glyph with no new escape sequence.
+// Semantic overlays - the objective target and the level's authored content - are
+// applied only after visibility classification and only when the actor is not on
+// the cell: a visible overlay is drawn as its glyph in its own bright colour, a
+// remembered overlay reuses the dim-memory style, and an unexplored overlay stays
+// blank like any other unexplored cell so hidden content never leaks. The
+// objective target outranks authored content, which outranks terrain, so the cell
+// the player must reach is never hidden by a discovery or hazard sharing it.
+// Plain and no-colour modes emit only the glyph with no new escape sequence.
 // ANSI style transitions explicitly reset before switching kinds so dim or
 // colour state cannot leak into adjacent cells, padding, HUD text, or later
 // rows; a styled row always ends with ESC[0m.
@@ -126,14 +142,29 @@ constexpr int color_objective = 96;  // Bright cyan: the current objective targe
         const bool is_objective =
             input.objective != nullptr && here == objective_target(*input.objective);
 
+        // Authored content is the lower-priority overlay: it is skipped entirely on
+        // the objective cell so the two can never compete for one glyph.
+        std::optional<LevelFeatureKind> feature;
+        if (!is_objective) {
+            for (const LevelFeature& placed : map.layout().features) {
+                if (placed.position == here) {
+                    feature = placed.kind;
+                }
+            }
+        }
+        const bool is_overlay = is_objective || feature.has_value();
+        const char overlay = is_objective ? objective_glyph : feature_glyph(*feature);
+        const int overlay_color =
+            is_objective ? color_objective : (feature ? color_for_feature(*feature) : 0);
+
         if (!ansi) {
             if (is_actor) {
                 row.push_back(actor_glyph);
             } else if (visibility.at(here) == CellVisibility::unexplored) {
                 row.push_back(' ');
-            } else if (is_objective) {
-                // Visible or remembered target: plain mode emits only the glyph.
-                row.push_back(objective_glyph);
+            } else if (is_overlay) {
+                // Visible or remembered overlay: plain mode emits only the glyph.
+                row.push_back(overlay);
             } else {
                 // Plain mode cannot distinguish remembered from visible without
                 // changing canonical glyphs, so both use the terrain glyph.
@@ -179,15 +210,15 @@ constexpr int color_objective = 96;  // Bright cyan: the current objective targe
                 style_active = true;
                 active_style = style_remembered;
             }
-            // A remembered target reuses the dim-memory style as its overlay.
-            row.push_back(is_objective ? objective_glyph : symbol_of(map.terrain_at(here)));
+            // A remembered overlay reuses the dim-memory style.
+            row.push_back(is_overlay ? overlay : symbol_of(map.terrain_at(here)));
             continue;
         }
 
         // Currently visible terrain: normal styling, never dimmed. A visible
-        // target overrides the terrain colour with bright cyan under colour.
+        // overlay overrides the terrain colour with its own bright colour.
         if (colored) {
-            const int code = is_objective ? color_objective : color_for(map.terrain_at(here));
+            const int code = is_overlay ? overlay_color : color_for(map.terrain_at(here));
             if (active_style != code) {
                 reset_style();
                 row += sgr(code);
@@ -197,7 +228,7 @@ constexpr int color_objective = 96;  // Bright cyan: the current objective targe
         } else {
             reset_style();
         }
-        row.push_back(is_objective ? objective_glyph : symbol_of(map.terrain_at(here)));
+        row.push_back(is_overlay ? overlay : symbol_of(map.terrain_at(here)));
     }
 
     reset_style();

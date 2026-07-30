@@ -1,8 +1,10 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include "direction.h"
+#include "level_feature.h"
 #include "game_event.h"
 #include "map_parser.h"
 #include "move_outcome.h"
@@ -29,6 +31,11 @@ namespace nam::console {
 // carried in the MoveOutcome and any passive recovery; boundary and
 // impassable-terrain outcomes have no cost and keep their existing wording.
 [[nodiscard]] std::string describe_move(const MoveOutcome& outcome);
+
+// The latest-event message shown when a move first enters a discovery cell,
+// replacing the ordinary move wording for that command. Discoveries are optional,
+// so the count makes the remaining reward legible without a separate HUD field.
+[[nodiscard]] std::string describe_discovery_found(std::uint32_t found, std::uint32_t total);
 
 // A user-facing explanation of why a map failed to load, including the source
 // and line/column when the parser reported them.

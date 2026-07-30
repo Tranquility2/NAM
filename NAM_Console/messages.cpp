@@ -52,10 +52,16 @@ std::string direction_name(Direction direction) {
 std::string describe_move(const MoveOutcome& outcome) {
     switch (outcome.result) {
         case MoveResult::moved: {
-            std::string line = "Moved onto " + terrain_name(outcome.terrain) + " for " +
-                               std::to_string(outcome.stamina_cost) + " stamina.";
+            const bool hazard = outcome.feature == LevelFeatureKind::hazard;
+            std::string line = hazard ? "Crossed a hazard on " : "Moved onto ";
+            line += terrain_name(outcome.terrain) + " for " +
+                    std::to_string(outcome.stamina_cost) + " stamina.";
             if (outcome.stamina_recovered > 0) {
-                line += " Recovered " + std::to_string(outcome.stamina_recovered) + " stamina.";
+                line += outcome.feature == LevelFeatureKind::safe_landmark
+                            ? " Rested at a safe landmark and recovered " +
+                                  std::to_string(outcome.stamina_recovered) + " stamina."
+                            : " Recovered " + std::to_string(outcome.stamina_recovered) +
+                                  " stamina.";
             }
             return line;
         }
@@ -65,6 +71,10 @@ std::string describe_move(const MoveOutcome& outcome) {
             return "Blocked by " + terrain_name(outcome.terrain) + ".";
     }
     return "Nothing happened.";
+}
+
+std::string describe_discovery_found(std::uint32_t found, std::uint32_t total) {
+    return "Found a discovery (" + std::to_string(found) + " of " + std::to_string(total) + ").";
 }
 
 std::string describe_map_error(const MapLoadError& error) {

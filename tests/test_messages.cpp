@@ -6,6 +6,7 @@
 #include "direction.h"
 #include "game_event.h"
 #include "map_parser.h"
+#include "level_feature.h"
 #include "messages.h"
 #include "move_outcome.h"
 #include "objective.h"
@@ -47,6 +48,24 @@ TEST_CASE("direction letters and names are consistent") {
     CHECK(direction_name(Direction::down) == "down");
     CHECK(direction_name(Direction::left) == "left");
     CHECK(direction_name(Direction::right) == "right");
+}
+
+TEST_CASE("authored content changes the move wording it deserves") {
+    MoveOutcome hazard{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 7, 0, 12, 5};
+    hazard.feature = LevelFeatureKind::hazard;
+    CHECK(describe_move(hazard).find("hazard") != std::string::npos);
+    CHECK(describe_move(hazard).find("7 stamina") != std::string::npos);
+
+    MoveOutcome safe{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 1, 9, 12, 20};
+    safe.feature = LevelFeatureKind::safe_landmark;
+    CHECK(describe_move(safe).find("safe landmark") != std::string::npos);
+
+    MoveOutcome plain{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 1, 2, 12, 13};
+    CHECK(plain.feature.has_value() == false);
+    CHECK(describe_move(plain).find("hazard") == std::string::npos);
+    CHECK(describe_move(plain).find("safe landmark") == std::string::npos);
+
+    CHECK(describe_discovery_found(1, 1).find("1 of 1") != std::string::npos);
 }
 
 TEST_CASE("move outcomes map to distinct human-readable sentences") {

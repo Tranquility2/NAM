@@ -10,6 +10,7 @@
 #include "expedition_report.h"
 #include "frame.h"
 #include "journal.h"
+#include "level_feature.h"
 #include "map.h"
 #include "objective.h"
 #include "terminal.h"
@@ -63,6 +64,23 @@ inline constexpr char actor_glyph = 'O';
 // or remembered and the actor is not standing on it; it never replaces or mutates
 // the underlying Terrain.
 inline constexpr char objective_glyph = '*';
+
+// The authored-content overlay glyphs. Like the objective glyph these are drawn
+// on top of terrain and never replace or mutate it, and they are chosen so they
+// collide with no terrain symbol, the actor, or the objective target.
+inline constexpr char discovery_glyph = '?';
+inline constexpr char hazard_glyph = '!';
+inline constexpr char safe_landmark_glyph = '+';
+
+// The overlay glyph for one authored feature kind.
+[[nodiscard]] constexpr char feature_glyph(LevelFeatureKind kind) noexcept {
+    switch (kind) {
+        case LevelFeatureKind::discovery:     return discovery_glyph;
+        case LevelFeatureKind::hazard:        return hazard_glyph;
+        case LevelFeatureKind::safe_landmark: return safe_landmark_glyph;
+    }
+    return discovery_glyph;
+}
 
 // A frontend-only viewport into the final expedition report: the index of the
 // topmost visible body line and the leftmost visible column. Both offsets are

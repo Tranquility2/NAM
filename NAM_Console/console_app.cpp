@@ -132,6 +132,13 @@ ObjectiveTransition ConsoleApp::apply_move(Direction direction, bool& emphasize)
     journal_.record_event(event, state_.objective().name);
     route_history_.record_event(event);
     emphasize = payload.outcome.result == MoveResult::moved;
+    // A first discovery replaces the ordinary move wording; an objective transition
+    // outranks it below, because reaching the landmark or the exit is the more
+    // important thing that happened on that command.
+    if (payload.discovery_recorded) {
+        hud_.set_message(
+            describe_discovery_found(state_.discoveries_found(), state_.discovery_total()));
+    }
     // Replace the ordinary move wording only for the typed objective transitions;
     // every other successful or blocked move keeps its normal message.
     switch (payload.objective_update.transition) {

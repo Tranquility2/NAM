@@ -17,6 +17,7 @@
 #include "renderer.h"
 #include "settings.h"
 #include "terminal.h"
+#include "level_feature.h"
 #include "terrain.h"
 #include "visibility.h"
 
@@ -256,6 +257,60 @@ LevelObjective exit_at(Coordinates cell, ObjectiveStatus status) {
 }  // namespace
 
 TEST_SUITE("console") {
+
+TEST_CASE("authored content is drawn as its own overlay glyph over terrain") {
+    LevelLayout layout;
+    layout.features = {LevelFeature{Coordinates{1, 0}, LevelFeatureKind::discovery},
+                       LevelFeature{Coordinates{2, 0}, LevelFeatureKind::hazard},
+                       LevelFeature{Coordinates{3, 0}, LevelFeatureKind::safe_landmark}};
+    const Map map(5, 1, std::vector<Terrain>(5, Terrain::open), Coordinates{0, 0},
+                  std::move(layout));
+
+    Renderer renderer(RenderConfig{false, false, false, false});
+    const std::string plain = renderer.render_plain(make_input(map));
+
+    CHECK(plain.find("O?!+.") != std::string::npos);
+}
+
+TEST_CASE("the objective target outranks authored content sharing its cell") {
+    LevelLayout layout;
+    layout.exit = Coordinates{2, 0};
+    layout.features = {LevelFeature{Coordinates{2, 0}, LevelFeatureKind::hazard}};
+    const Map map(4, 1, std::vector<Terrain>(4, Terrain::open), Coordinates{0, 0},
+                  std::move(layout));
+
+    LevelObjective objective;
+    objective.landmark = Coordinates{2, 0};
+    objective.exit_cell = Coordinates{2, 0};
+    objective.status = ObjectiveStatus::seeking_landmark;
+
+    RenderInput input = make_input(map);
+    input.objective = &objective;
+
+    Renderer renderer(RenderConfig{false, false, false, false});
+    const std::string plain = renderer.render_plain(input);
+
+    CHECK(plain.find("O.*.") != std::string::npos);
+}
+
+TEST_CASE("unexplored authored content never leaks its glyph") {
+    LevelLayout layout;
+    layout.features = {LevelFeature{Coordinates{3, 0}, LevelFeatureKind::discovery}};
+    const Map map(5, 1, std::vector<Terrain>(5, Terrain::open), Coordinates{0, 0},
+                  std::move(layout));
+
+    VisibilityMap fog(5, 1);
+    fog.reveal_square(Coordinates{0, 0}, 1);
+
+    RenderInput input = make_input(map);
+    input.visibility = &fog;
+
+    Renderer renderer(RenderConfig{false, false, false, false});
+    const std::string plain = renderer.render_plain(input);
+
+    CHECK(plain.find('?') == std::string::npos);
+}
+
 
 TEST_CASE("standard status shows stamina terrain and moves in order") {
     const Map map = open_map(8, 4);
