@@ -67,7 +67,7 @@ nam_add_unit_test(nam_game_tests
     SOURCES test_movement.cpp test_rendering.cpp test_determinism.cpp
             test_pcg32.cpp test_game_events.cpp test_level_tier.cpp test_world_generation.cpp
             test_visibility.cpp test_stamina.cpp test_objective.cpp
-            test_expedition_score.cpp)
+            test_expedition_score.cpp test_phase0_level.cpp)
 
 nam_add_unit_test(nam_input_tests
     SOURCES test_input_decoder.cpp)
@@ -88,6 +88,7 @@ if(TARGET nam_console)
     set(_moves_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_moves.txt)
     set(_level_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_level.txt)
     set(_wander_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_wander.txt)
+    set(_phase0_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_phase0_level.txt)
 
     # add a CLI test: name plus driver options forwarded as -D definitions.
     function(nam_add_cli_test name)
@@ -132,9 +133,9 @@ if(TARGET nam_console)
         "-DARGS=--map|${NAM_FIXTURES_DIR}/valid-lf.map" -DINPUT_FILE=${_moves_stdin}
         -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
 
-    # A scripted expedition on a dedicated corridor map walks out to the exit
-    # and back to spawn, so the real executable completes the objective and prints
-    # the final expedition report, then exits 0 on the end-of-input acknowledgement
+    # A scripted expedition on a dedicated corridor map walks from spawn through
+    # the landmark to the exit, so the real executable completes the objective and
+    # prints the final report, then exits 0 on the end-of-input acknowledgement
     # with the report banners present and no ANSI when redirected. The run is also
     # deterministic across identical runs.
     nam_add_cli_test(cli_run_level_complete
@@ -156,6 +157,20 @@ if(TARGET nam_console)
         -DFORBID_ESC=1)
     nam_add_cli_test(cli_run_level_wander_deterministic
         "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_wander_stdin}
+        -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
+
+    # The Phase 0 exit condition end to end: the handcrafted serpentine level is
+    # completed from entry to exit by the real executable using movement alone. The
+    # script crosses hill, water, fields and mountain bands, so the meter empties
+    # without a single blocked move and without any recovery command, and the run
+    # ends on the concise report and journal.
+    nam_add_cli_test(cli_run_phase0_level
+        "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}
+        -DEXPECT_CODE=0
+        "-DEXPECT_CONTAINS=Result: level complete.|Blocked moves: 0|Stamina: 0/20|Explored: 55 / 55 cells|Discovered Rain Light Landmark|Reached the exit after Rain Light Landmark"
+        -DFORBID_ESC=1)
+    nam_add_cli_test(cli_run_phase0_level_deterministic
+        "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}
         -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
 
     # --- seeded Tiny World integration -------------------------------------
