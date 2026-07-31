@@ -56,13 +56,44 @@ TEST_CASE("a canonical NAM-MAP 1 file parses with the declared geometry") {
     CHECK(map.width() == 8);
     CHECK(map.height() == 4);
     CHECK(map.spawn() == Coordinates{3, 2});
-    // Corner and interior terrain: border is a wall, interior has mixed terrain.
-    CHECK(map.terrain_at({0, 0}) == Terrain::wall_horizontal);
-    CHECK(map.terrain_at({0, 1}) == Terrain::wall_vertical);
+    // Corner and interior terrain: the border is a cliff, the interior is mixed.
+    CHECK(map.terrain_at({0, 0}) == Terrain::cliff);
+    CHECK(map.terrain_at({0, 1}) == Terrain::cliff);
     CHECK(map.terrain_at({3, 1}) == Terrain::mountain);
-    CHECK(map.terrain_at({4, 1}) == Terrain::water);
+    CHECK(map.terrain_at({4, 1}) == Terrain::shallow_water);
     CHECK(map.terrain_at({5, 1}) == Terrain::fields);
     CHECK(map.terrain_at({2, 2}) == Terrain::hill);
+}
+
+TEST_CASE("every terrain glyph parses and serializes back to the same bytes") {
+    // The all-glyph fixture is the on-disk statement of the terrain contract: if
+    // a glyph is added, retired, or reassigned, this file must change with it.
+    const MapLoadResult result = load_map_file(fixture("terrain-all.map"));
+    const Map& map = expect_map(result);
+    CHECK(map.width() == 10);
+    CHECK(map.height() == 5);
+
+    CHECK(map.terrain_at({0, 0}) == Terrain::cliff);
+    CHECK(map.terrain_at({1, 1}) == Terrain::open);
+    CHECK(map.terrain_at({2, 1}) == Terrain::mountain);
+    CHECK(map.terrain_at({3, 1}) == Terrain::shallow_water);
+    CHECK(map.terrain_at({4, 1}) == Terrain::fields);
+    CHECK(map.terrain_at({5, 1}) == Terrain::hill);
+    CHECK(map.terrain_at({6, 1}) == Terrain::forest);
+    CHECK(map.terrain_at({7, 1}) == Terrain::deep_water);
+
+    // Both barriers refuse an actor; every other glyph accepts one.
+    CHECK_FALSE(is_walkable(map.terrain_at({7, 1})));
+    CHECK_FALSE(is_walkable(map.terrain_at({0, 0})));
+    CHECK(is_walkable(map.terrain_at({6, 1})));
+
+    // Serialization round-trips exactly, so no glyph is lossy.
+    CHECK(std::string(map.to_string()) ==
+          "##########\n"
+          "#.@~x^&=.#\n"
+          "#..&&....#\n"
+          "#=====...#\n"
+          "##########");
 }
 
 TEST_CASE("LF and CRLF encodings of the same map parse identically") {
@@ -105,7 +136,7 @@ TEST_CASE("a legacy '<width> <height>' header parses with a deterministic spawn"
 }
 
 TEST_CASE("the deterministic spawn policy is stable across repeated parses") {
-    const std::string_view text = "8 4\n========\n|..@~x.|\n|.^....|\n========\n";
+    const std::string_view text = "8 4\n########\n#..@~x.#\n#.^....#\n########\n";
     const Coordinates first = expect_map(load_map(text)).spawn();
     const Coordinates second = expect_map(load_map(text)).spawn();
     CHECK(first == second);
@@ -186,17 +217,17 @@ TEST_CASE("an explicit spawn is validated for bounds and walkability") {
 }
 
 TEST_CASE("a map with no walkable cell has no valid default spawn") {
-    // Every cell is a wall, so the deterministic policy finds nowhere to stand.
-    const MapLoadError& error = expect_error(load_map(std::string_view{"3 1\n===\n"}));
+    // Every cell is a cliff, so the deterministic policy finds nowhere to stand.
+    const MapLoadError& error = expect_error(load_map(std::string_view{"3 1\n###\n"}));
     CHECK(error.code == MapLoadErrorCode::no_walkable_spawn);
 }
 
 TEST_CASE("the deterministic spawn policy breaks ties by row before column") {
-    // Centre is (2,2). Every cell is a wall except two walkable cells that are
+    // Centre is (2,2). Every cell is a cliff except two walkable cells that are
     // both at Chebyshev distance 2 from the centre: (2,0) on the top row and
     // (0,2) on the left column. The (distance, y, x) key must prefer the
     // smaller row, so the top-row cell (2,0) wins over the left-column (0,2).
-    const std::string_view text = "5 5\n==.==\n=====\n.====\n=====\n=====\n";
+    const std::string_view text = "5 5\n##.##\n#####\n.####\n#####\n#####\n";
     const Map& map = expect_map(load_map(text));
     CHECK(map.spawn() == Coordinates{2, 0});
     CHECK(is_walkable(map.terrain_at(map.spawn())));

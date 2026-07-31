@@ -134,7 +134,7 @@ Journal make_milestone_journal(std::uint32_t count) {
 ExpeditionReport build_test_report(std::size_t interior_width) {
     const std::size_t width = interior_width + 2;
     const std::size_t height = 3;
-    std::vector<Terrain> cells(width * height, Terrain::wall_horizontal);
+    std::vector<Terrain> cells(width * height, Terrain::cliff);
     for (std::size_t x = 0; x < width; ++x) {
         cells[width + x] = Terrain::open;  // The middle row is open ground.
     }
@@ -202,7 +202,7 @@ struct FogScene {
 FogScene make_fog_scene() {
     std::vector<Terrain> cells(11, Terrain::open);
     cells[1] = Terrain::fields;     // x1: remembered, expect 'x'.
-    cells[6] = Terrain::water;      // x6: visible, expect '~'.
+    cells[6] = Terrain::shallow_water;      // x6: visible, expect '~'.
     cells[10] = Terrain::mountain;  // x10: unexplored, '@' must never appear.
     Map map(11, 1, std::move(cells), Coordinates{4, 0});
     VisibilityMap visibility(11, 1);

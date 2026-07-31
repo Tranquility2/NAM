@@ -42,7 +42,7 @@ TEST_SUITE("console") {
 TEST_CASE("attempts always count while only successful moves advance the move count") {
     Hud hud;
     hud.record_event(move_event(Direction::right, moved_to({0, 0}, {1, 0}, Terrain::open), 0));
-    hud.record_event(move_event(Direction::up, blocked({1, 0}, Terrain::wall_horizontal), 1));
+    hud.record_event(move_event(Direction::up, blocked({1, 0}, Terrain::cliff), 1));
 
     CHECK(hud.attempt_count() == 2);
     CHECK(hud.move_count() == 1);
@@ -51,7 +51,7 @@ TEST_CASE("attempts always count while only successful moves advance the move co
 
 TEST_CASE("last_move_succeeded tracks the most recent outcome") {
     Hud hud;
-    hud.record_event(move_event(Direction::up, blocked({0, 0}, Terrain::wall_horizontal), 0));
+    hud.record_event(move_event(Direction::up, blocked({0, 0}, Terrain::cliff), 0));
     CHECK_FALSE(hud.last_move_succeeded());
     hud.record_event(move_event(Direction::down, moved_to({0, 0}, {0, 1}, Terrain::open), 1));
     CHECK(hud.last_move_succeeded());
@@ -70,7 +70,7 @@ TEST_CASE("the recent-move history is bounded regardless of session length") {
 
 TEST_CASE("recording a move sets the latest-event message") {
     Hud hud;
-    const MoveOutcome outcome = moved_to({0, 0}, {1, 0}, Terrain::water);
+    const MoveOutcome outcome = moved_to({0, 0}, {1, 0}, Terrain::shallow_water);
     hud.record_event(move_event(Direction::right, outcome, 0));
     CHECK(hud.message() == describe_move(outcome));
 }
@@ -78,7 +78,7 @@ TEST_CASE("recording a move sets the latest-event message") {
 TEST_CASE("only a successful move records a recent entry carrying its direction") {
     Hud hud;
     // A blocked attempt increments attempts but records no history entry.
-    hud.record_event(move_event(Direction::left, blocked({2, 2}, Terrain::wall_vertical), 0));
+    hud.record_event(move_event(Direction::left, blocked({2, 2}, Terrain::cliff), 0));
     CHECK(hud.attempt_count() == 1);
     CHECK(hud.recent().empty());
 
@@ -100,8 +100,8 @@ TEST_CASE("set_message overrides the message without recording a move") {
 TEST_CASE("boundary and wall blocks count attempts but add no history") {
     Hud hud;
     hud.record_event(move_event(Direction::up, boundary_blocked({0, 0}, Terrain::open), 0));
-    hud.record_event(move_event(Direction::left, blocked({0, 0}, Terrain::wall_vertical), 1));
-    hud.record_event(move_event(Direction::right, blocked({0, 0}, Terrain::wall_horizontal), 2));
+    hud.record_event(move_event(Direction::left, blocked({0, 0}, Terrain::cliff), 1));
+    hud.record_event(move_event(Direction::right, blocked({0, 0}, Terrain::cliff), 2));
 
     CHECK(hud.attempt_count() == 3);
     CHECK(hud.move_count() == 0);
@@ -114,7 +114,7 @@ TEST_CASE("the recent history capacity counts successful moves only") {
     // Interleave a blocked attempt before every successful move: only the
     // successful moves consume history capacity, so the bound is on real moves.
     for (int i = 0; i < 1000; ++i) {
-        hud.record_event(move_event(Direction::up, blocked({0, 0}, Terrain::wall_horizontal),
+        hud.record_event(move_event(Direction::up, blocked({0, 0}, Terrain::cliff),
                                     static_cast<std::uint64_t>(2 * i)));
         hud.record_event(move_event(Direction::right, moved_to({0, 0}, {1, 0}, Terrain::open),
                                     static_cast<std::uint64_t>(2 * i + 1)));
@@ -131,7 +131,7 @@ TEST_CASE("the recent history capacity counts successful moves only") {
 TEST_CASE("a terrain block is an attempt, not a move, and records no history") {
     Hud hud;
     hud.record_event(move_event(Direction::right, moved_to({0, 0}, {1, 0}, Terrain::open), 0));
-    const MoveOutcome outcome = blocked({1, 0}, Terrain::wall_vertical);
+    const MoveOutcome outcome = blocked({1, 0}, Terrain::cliff);
     hud.record_event(move_event(Direction::right, outcome, 1));
 
     // The block counts as an attempt but does not advance the move count.
@@ -143,7 +143,7 @@ TEST_CASE("a terrain block is an attempt, not a move, and records no history") {
     CHECK(hud.recent().back().direction == Direction::right);
     // The typed impassable-terrain message is shown verbatim.
     CHECK(hud.message() == describe_move(outcome));
-    CHECK(hud.message() == "Blocked by wall.");
+    CHECK(hud.message() == "Blocked by cliff.");
 }
 
 }  // TEST_SUITE("console")

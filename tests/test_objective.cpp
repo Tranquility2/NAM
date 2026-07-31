@@ -252,7 +252,7 @@ TEST_CASE("the selected cell need not be the earliest row-major candidate") {
     // (2,2) in row-major order, but the hash selects (2,2), which is neither the
     // earliest candidate nor the single farthest cell.
     const Map map =
-        make_map("NAM-MAP 1\nwidth 5\nheight 3\nspawn 0 0\n---\n.....\n====.\n.....\n");
+        make_map("NAM-MAP 1\nwidth 5\nheight 3\nspawn 0 0\n---\n.....\n####.\n.....\n");
     const std::vector<Coordinates> candidates = distant_candidates(map);
     REQUIRE(candidates.front() == Coordinates{0, 2});  // earliest row-major.
     const LevelObjective objective = create_level_objective(map);
@@ -285,7 +285,7 @@ TEST_CASE("a symmetric open field places the exit_cell off the corners") {
 TEST_CASE("unreachable walkable cells are ignored when placing the exit_cell") {
     // REQ-005: cells at x=3,4 are walkable but sealed off by the wall at x=2, so
     // the only reachable distant cell is (0,0), left of the spawn.
-    const Map map = make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 1 0\n---\n..=..\n");
+    const Map map = make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 1 0\n---\n..#..\n");
     const LevelObjective objective = create_level_objective(map);
     CHECK(objective.exit_cell == Coordinates{0, 0});
     CHECK(is_walkable(map.terrain_at(objective.exit_cell)));
@@ -297,7 +297,7 @@ TEST_CASE("a single reachable spawn produces a completed exit_cell at spawn") {
     // TEST-006 / REQ-003: the only reachable walkable cell is the spawn, so the
     // exit_cell is placed at spawn with no candidate pool or modulo, and the objective
     // starts completed.
-    const Map map = make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.=.\n");
+    const Map map = make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.#.\n");
     const LevelObjective objective = create_level_objective(map);
     CHECK(objective.exit_cell == map.spawn());
     CHECK(objective.status == ObjectiveStatus::completed);
@@ -308,7 +308,7 @@ TEST_CASE("a single reachable spawn produces a completed exit_cell at spawn") {
 TEST_CASE("placement never mutates terrain or map serialization") {
     // TEST-007: creating the objective is read-only over the map.
     const Map map = make_map(
-        "NAM-MAP 1\nwidth 5\nheight 3\nspawn 0 0\n---\n.....\n====.\n.....\n");
+        "NAM-MAP 1\nwidth 5\nheight 3\nspawn 0 0\n---\n.....\n####.\n.....\n");
     const std::string before = map.to_string();
     const LevelObjective objective = create_level_objective(map);
     (void)objective;
@@ -319,7 +319,7 @@ TEST_CASE("exit_cell names use the exact fixed tables and hash indices") {
     // The generated name matches an independent reconstruction from the public
     // hash and documented indices, and is stable across repeated builds.
     const Map map = make_map(
-        "NAM-MAP 1\nwidth 5\nheight 3\nspawn 0 0\n---\n.....\n====.\n.....\n");
+        "NAM-MAP 1\nwidth 5\nheight 3\nspawn 0 0\n---\n.....\n####.\n.....\n");
     const LevelObjective first = create_level_objective(map);
     const LevelObjective second = create_level_objective(map);
 
@@ -408,7 +408,7 @@ TEST_CASE("a GameState owns a seeking objective and exposes completion state") {
 }
 
 TEST_CASE("a single-cell GameState starts already completed") {
-    GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.=.\n"));
+    GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.#.\n"));
     CHECK(state.objective().status == ObjectiveStatus::completed);
     CHECK(state.objective_completed());
     CHECK(state.objective().exit_cell == state.map().spawn());

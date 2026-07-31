@@ -36,7 +36,7 @@ Map open_field() {
 // A 3x3 map walled on all sides with a single open centre cell, so every move
 // from the spawn is blocked by terrain.
 Map boxed_centre() {
-    return make_map("NAM-MAP 1\nwidth 3\nheight 3\nspawn 1 1\n---\n===\n|.|\n===\n");
+    return make_map("NAM-MAP 1\nwidth 3\nheight 3\nspawn 1 1\n---\n###\n#.#\n###\n");
 }
 
 }  // namespace

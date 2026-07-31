@@ -74,7 +74,7 @@ struct SpawnRequest {
 // (Chebyshev distance to centre, y, x). Visiting cells in ascending (y, x)
 // order means an earlier candidate already wins any (y, x) tie, so we replace
 // the incumbent only on a strictly smaller Chebyshev distance. This rejects a
-// fully-walled map in linear time instead of rescanning growing rings.
+// fully-enclosed map in linear time instead of rescanning growing rings.
 [[nodiscard]] std::optional<Coordinates> find_default_spawn(const std::vector<Terrain>& cells,
                                                             std::size_t width, std::size_t height) {
     const int centre_x = static_cast<int>(width / 2);
@@ -340,16 +340,16 @@ width 29
 height 10
 spawn 14 5
 ---
-=============================
-|...@...~~~~~......@.....xxx|
-|.@@@@..~~~~~......@@....xxx|
-|.@@@@..~~~~......@@......xx|
-|..@@...~~~.......@@@......x|
-|...........................|
-|x......x@@x....^^^.......~~|
-|xxx....x@@x...^^^.......~~~|
-|xxxxx..........^^^......~~~|
-=============================
+#############################
+#...@...~~~~~......@.....xxx#
+#.@@@@..~~~~~......@@....xxx#
+#.@@@@..~~~~......@@......xx#
+#..@@...~~~.......@@@......x#
+#...........................#
+#x......x@@x....^^^.......~~#
+#xxx....x@@x...^^^.......~~~#
+#xxxxx..........^^^......~~~#
+#############################
 )";
     return source;
 }

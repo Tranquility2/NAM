@@ -28,7 +28,7 @@ enum class MoveResult {
 //            equals `from`.
 // - terrain: the terrain relevant to the outcome. On `moved` and
 //            `blocked_by_terrain` this is the terrain of the attempted
-//            destination (the entered cell or the wall that blocked it); on
+//            destination (the entered cell or the barrier that blocked it); on
 //            `blocked_by_boundary` there is no valid destination cell, so it is
 //            the terrain the actor is standing on.
 // - feature: the authored content on the outcome's destination cell, if any. It

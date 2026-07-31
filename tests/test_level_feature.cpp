@@ -23,12 +23,12 @@ Map arena(std::vector<LevelFeature> features, Coordinates exit_cell) {
     constexpr std::size_t height = 5;
     std::vector<Terrain> cells(width * height, Terrain::open);
     for (std::size_t x = 0; x < width; ++x) {
-        cells[x] = Terrain::wall_horizontal;
-        cells[(height - 1) * width + x] = Terrain::wall_horizontal;
+        cells[x] = Terrain::cliff;
+        cells[(height - 1) * width + x] = Terrain::cliff;
     }
     for (std::size_t y = 1; y + 1 < height; ++y) {
-        cells[y * width] = Terrain::wall_vertical;
-        cells[y * width + width - 1] = Terrain::wall_vertical;
+        cells[y * width] = Terrain::cliff;
+        cells[y * width + width - 1] = Terrain::cliff;
     }
 
     LevelLayout layout;
@@ -48,11 +48,11 @@ TEST_SUITE("game") {
 
 TEST_CASE("a handcrafted map carries no authored content") {
     GameState state(Map(3, 3,
-                        std::vector<Terrain>{Terrain::wall_horizontal, Terrain::wall_horizontal,
-                                             Terrain::wall_horizontal, Terrain::wall_vertical,
-                                             Terrain::open, Terrain::wall_vertical,
-                                             Terrain::wall_horizontal, Terrain::wall_horizontal,
-                                             Terrain::wall_horizontal},
+                        std::vector<Terrain>{Terrain::cliff, Terrain::cliff,
+                                             Terrain::cliff, Terrain::cliff,
+                                             Terrain::open, Terrain::cliff,
+                                             Terrain::cliff, Terrain::cliff,
+                                             Terrain::cliff},
                         Coordinates{1, 1}));
 
     CHECK(state.features().empty());

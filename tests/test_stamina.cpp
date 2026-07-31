@@ -62,22 +62,22 @@ TEST_CASE("every terrain has its exact locked stamina cost") {
     CHECK(stamina_cost_of(Terrain::fields).value() == 2u);
     CHECK(stamina_cost_of(Terrain::hill).has_value());
     CHECK(stamina_cost_of(Terrain::hill).value() == 2u);
-    CHECK(stamina_cost_of(Terrain::water).has_value());
-    CHECK(stamina_cost_of(Terrain::water).value() == 3u);
+    CHECK(stamina_cost_of(Terrain::shallow_water).has_value());
+    CHECK(stamina_cost_of(Terrain::shallow_water).value() == 3u);
     CHECK(stamina_cost_of(Terrain::mountain).has_value());
     CHECK(stamina_cost_of(Terrain::mountain).value() == 4u);
-    CHECK_FALSE(stamina_cost_of(Terrain::wall_horizontal).has_value());
-    CHECK_FALSE(stamina_cost_of(Terrain::wall_vertical).has_value());
+    CHECK_FALSE(stamina_cost_of(Terrain::cliff).has_value());
+    CHECK_FALSE(stamina_cost_of(Terrain::cliff).has_value());
 }
 
 TEST_CASE("walkability is derived from the stamina cost table") {
     CHECK(is_walkable(Terrain::open));
     CHECK(is_walkable(Terrain::fields));
     CHECK(is_walkable(Terrain::hill));
-    CHECK(is_walkable(Terrain::water));
+    CHECK(is_walkable(Terrain::shallow_water));
     CHECK(is_walkable(Terrain::mountain));
-    CHECK_FALSE(is_walkable(Terrain::wall_horizontal));
-    CHECK_FALSE(is_walkable(Terrain::wall_vertical));
+    CHECK_FALSE(is_walkable(Terrain::cliff));
+    CHECK_FALSE(is_walkable(Terrain::cliff));
 }
 
 TEST_CASE("a new game starts at full stamina and never charges the spawn") {
@@ -103,7 +103,7 @@ TEST_CASE("successful movement onto each terrain charges its cost then its recov
         {'.', Terrain::open, 1u, 1u, 20u},
         {'x', Terrain::fields, 2u, 2u, 20u},
         {'^', Terrain::hill, 2u, 1u, 19u},
-        {'~', Terrain::water, 3u, 0u, 17u},
+        {'~', Terrain::shallow_water, 3u, 0u, 17u},
         {'@', Terrain::mountain, 4u, 0u, 16u},
     };
 
@@ -172,7 +172,7 @@ TEST_CASE("the stamina charge saturates at zero instead of refusing a step") {
 
     const MoveOutcome exhausted = outcome_of(state.move(next));
     CHECK(exhausted.result == MoveResult::moved);
-    CHECK(exhausted.terrain == Terrain::water);
+    CHECK(exhausted.terrain == Terrain::shallow_water);
     CHECK(exhausted.stamina_cost == 3u);
     CHECK(exhausted.stamina_before == 0u);
     CHECK(exhausted.stamina_recovered == 0u);
@@ -182,7 +182,7 @@ TEST_CASE("the stamina charge saturates at zero instead of refusing a step") {
 }
 
 TEST_CASE("boundary and wall blocks cost zero at non-full stamina") {
-    GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.@=\n"));
+    GameState state(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.@#\n"));
 
     CHECK(outcome_of(state.move(Direction::right)).result == MoveResult::moved);  // mountain, 20->16
     CHECK(state.stamina() == 16u);

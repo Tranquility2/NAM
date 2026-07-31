@@ -29,7 +29,7 @@ const MoveAttemptedEvent& payload_of(const GameEvent& event) {
 // bump a wall to its right, then step off the top edge — one map exercising a
 // success, a terrain block, and a boundary block in a single scripted run.
 Map mixed_map() {
-    return make_map("NAM-MAP 1\nwidth 3\nheight 3\nspawn 0 0\n---\n..=\n...\n...\n");
+    return make_map("NAM-MAP 1\nwidth 3\nheight 3\nspawn 0 0\n---\n..#\n...\n...\n");
 }
 
 // A 3x3 field of open ground with the spawn in a corner.
@@ -142,7 +142,7 @@ TEST_CASE("stamina never blocks a walkable step") {
     CHECK(exhausted.sequence == 7);
     const MoveOutcome& outcome = payload_of(exhausted).outcome;
     CHECK(outcome.result == MoveResult::moved);
-    CHECK(outcome.terrain == Terrain::water);
+    CHECK(outcome.terrain == Terrain::shallow_water);
     CHECK(outcome.stamina_cost == 3);
     CHECK(outcome.stamina_before == 0);
     CHECK(outcome.stamina_recovered == 0);

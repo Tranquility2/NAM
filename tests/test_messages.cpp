@@ -31,11 +31,12 @@ TEST_SUITE("console") {
 TEST_CASE("terrain names are provided for every terrain") {
     CHECK(terrain_name(Terrain::open) == "open ground");
     CHECK(terrain_name(Terrain::mountain) == "mountain");
-    CHECK(terrain_name(Terrain::water) == "water");
+    CHECK(terrain_name(Terrain::shallow_water) == "shallow water");
     CHECK(terrain_name(Terrain::fields) == "fields");
     CHECK(terrain_name(Terrain::hill) == "hill");
-    CHECK(terrain_name(Terrain::wall_horizontal) == "wall");
-    CHECK(terrain_name(Terrain::wall_vertical) == "wall");
+    CHECK(terrain_name(Terrain::forest) == "forest");
+    CHECK(terrain_name(Terrain::deep_water) == "deep water");
+    CHECK(terrain_name(Terrain::cliff) == "cliff");
 }
 
 TEST_CASE("direction letters and names are consistent") {
@@ -69,14 +70,14 @@ TEST_CASE("authored content changes the move wording it deserves") {
 }
 
 TEST_CASE("move outcomes map to distinct human-readable sentences") {
-    MoveOutcome moved{MoveResult::moved, {0, 0}, {1, 0}, Terrain::water, 3, 0, 12, 9};
+    MoveOutcome moved{MoveResult::moved, {0, 0}, {1, 0}, Terrain::shallow_water, 3, 0, 12, 9};
     CHECK(describe_move(moved).find("water") != std::string::npos);
 
     MoveOutcome boundary{MoveResult::blocked_by_boundary, {0, 0}, {0, 0}, Terrain::open,
                          0, 0, 12, 12};
     CHECK(describe_move(boundary).find("edge") != std::string::npos);
 
-    MoveOutcome terrain{MoveResult::blocked_by_terrain, {0, 0}, {0, 0}, Terrain::wall_vertical,
+    MoveOutcome terrain{MoveResult::blocked_by_terrain, {0, 0}, {0, 0}, Terrain::cliff,
                         0, 0, 12, 12};
     CHECK(describe_move(terrain).find("Blocked") != std::string::npos);
 }
@@ -104,9 +105,13 @@ TEST_CASE("boundary and impassable-terrain wording carries no stamina cost") {
                          0, 0, 7, 7};
     CHECK(describe_move(boundary) == "Blocked by the edge of the map.");
 
-    MoveOutcome wall{MoveResult::blocked_by_terrain, {0, 0}, {0, 0}, Terrain::wall_horizontal,
-                    0, 0, 7, 7};
-    CHECK(describe_move(wall) == "Blocked by wall.");
+    MoveOutcome cliff{MoveResult::blocked_by_terrain, {0, 0}, {0, 0}, Terrain::cliff,
+                      0, 0, 7, 7};
+    CHECK(describe_move(cliff) == "Blocked by cliff.");
+
+    MoveOutcome deep{MoveResult::blocked_by_terrain, {0, 0}, {0, 0}, Terrain::deep_water,
+                     0, 0, 7, 7};
+    CHECK(describe_move(deep) == "Blocked by deep water.");
 }
 
 TEST_CASE("map errors describe the source and position when present") {

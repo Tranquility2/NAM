@@ -13,7 +13,7 @@ namespace nam::console {
 // One entry in the bounded recent-move history. Recent history records
 // successful movements only: every stored entry represents an actual step the
 // actor took, so it carries just the direction and no blocked-result field.
-// A blocked boundary or wall attempt never produces an entry.
+// A blocked boundary or barrier attempt never produces an entry.
 struct RecentMove {
     Direction direction{};
 };

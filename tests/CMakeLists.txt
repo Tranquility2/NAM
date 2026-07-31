@@ -168,7 +168,7 @@ if(TARGET nam_console)
     nam_add_cli_test(cli_run_phase0_level
         "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}
         -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=Result: level complete.|Route: 50 moves|0 blocked|Stamina: 0/20|Explored: 55 / 55 cells|Sighted Rain Light Landmark|Reached the exit after Rain Light Landmark"
+        "-DEXPECT_CONTAINS=Result: level complete.|Route: 46 moves|0 blocked|Stamina: 4/20|Explored: 55 / 55 cells|Sighted Moon Way Landmark|Reached the exit after Moon Way Landmark"
         -DFORBID_ESC=1)
     nam_add_cli_test(cli_run_phase0_level_deterministic
         "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}

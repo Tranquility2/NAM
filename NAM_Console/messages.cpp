@@ -18,13 +18,14 @@ namespace {
 
 std::string terrain_name(Terrain terrain) {
     switch (terrain) {
-        case Terrain::open:            return "open ground";
-        case Terrain::mountain:        return "mountain";
-        case Terrain::water:           return "water";
-        case Terrain::fields:          return "fields";
-        case Terrain::hill:            return "hill";
-        case Terrain::wall_horizontal: return "wall";
-        case Terrain::wall_vertical:   return "wall";
+        case Terrain::open:          return "open ground";
+        case Terrain::mountain:      return "mountain";
+        case Terrain::shallow_water: return "shallow water";
+        case Terrain::fields:        return "fields";
+        case Terrain::hill:          return "hill";
+        case Terrain::forest:        return "forest";
+        case Terrain::deep_water:    return "deep water";
+        case Terrain::cliff:         return "cliff";
     }
     return "unknown";
 }

@@ -20,7 +20,7 @@
 // - hazard:        a visible cell that is expensive to cross. Entering it charges
 //                  an extra stamina penalty on top of the terrain cost. It never
 //                  blocks the step, so a hazard is a route-quality decision and
-//                  never a wall.
+//                  never a barrier.
 // - safe_landmark: a resting waypoint on a plausible forward route. Entering it
 //                  restores the stamina meter completely, every time, with no
 //                  command and no state to track.

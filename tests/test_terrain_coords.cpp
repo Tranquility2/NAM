@@ -13,9 +13,9 @@
 TEST_SUITE("parser") {
 
 TEST_CASE("every terrain symbol round-trips through the glyph table") {
-    constexpr std::array<Terrain, 7> all{
-        Terrain::open,           Terrain::mountain,      Terrain::water, Terrain::fields,
-        Terrain::hill,           Terrain::wall_horizontal, Terrain::wall_vertical};
+    constexpr std::array<Terrain, 8> all{
+        Terrain::open,   Terrain::mountain,   Terrain::shallow_water, Terrain::fields,
+        Terrain::hill,   Terrain::forest,     Terrain::deep_water,    Terrain::cliff};
     for (const Terrain terrain : all) {
         const auto decoded = terrain_from_symbol(symbol_of(terrain));
         REQUIRE(decoded.has_value());
@@ -23,26 +23,38 @@ TEST_CASE("every terrain symbol round-trips through the glyph table") {
     }
 }
 
-TEST_CASE("walls are the only impassable terrain") {
+TEST_CASE("cliffs and deep water are the only impassable terrain") {
     CHECK(is_walkable(Terrain::open));
     CHECK(is_walkable(Terrain::mountain));
-    CHECK(is_walkable(Terrain::water));
+    CHECK(is_walkable(Terrain::shallow_water));
     CHECK(is_walkable(Terrain::fields));
     CHECK(is_walkable(Terrain::hill));
-    CHECK_FALSE(is_walkable(Terrain::wall_horizontal));
-    CHECK_FALSE(is_walkable(Terrain::wall_vertical));
+    CHECK(is_walkable(Terrain::forest));
+    CHECK_FALSE(is_walkable(Terrain::deep_water));
+    CHECK_FALSE(is_walkable(Terrain::cliff));
 }
 
-TEST_CASE("terrain visibility radius maps to the canonical 2/2/2/3/4/0/0 table") {
-    // TASK-005 / TEST-001: base terrain sees radius 2, hills 3, mountains 4, and
-    // both unoccupiable wall variants document radius 0.
-    CHECK(visibility_radius_of(Terrain::open) == 2);
-    CHECK(visibility_radius_of(Terrain::fields) == 2);
-    CHECK(visibility_radius_of(Terrain::water) == 2);
-    CHECK(visibility_radius_of(Terrain::hill) == 3);
-    CHECK(visibility_radius_of(Terrain::mountain) == 4);
-    CHECK(visibility_radius_of(Terrain::wall_horizontal) == 0);
-    CHECK(visibility_radius_of(Terrain::wall_vertical) == 0);
+TEST_CASE("is_barrier is the exact complement of is_walkable") {
+    constexpr std::array<Terrain, 8> all{
+        Terrain::open,   Terrain::mountain,   Terrain::shallow_water, Terrain::fields,
+        Terrain::hill,   Terrain::forest,     Terrain::deep_water,    Terrain::cliff};
+    for (const Terrain terrain : all) {
+        CHECK(is_barrier(terrain) == !is_walkable(terrain));
+    }
+}
+
+TEST_CASE("terrain visibility radius maps to the canonical 1/3/3/4/5/7 table") {
+    // Terrain is chosen for what it shows you: forest blinds, water and elevation
+    // open up. Impassable terrain documents radius 0 because it can never be
+    // occupied.
+    CHECK(visibility_radius_of(Terrain::forest) == 1);
+    CHECK(visibility_radius_of(Terrain::open) == 3);
+    CHECK(visibility_radius_of(Terrain::fields) == 3);
+    CHECK(visibility_radius_of(Terrain::shallow_water) == 4);
+    CHECK(visibility_radius_of(Terrain::hill) == 5);
+    CHECK(visibility_radius_of(Terrain::mountain) == 7);
+    CHECK(visibility_radius_of(Terrain::deep_water) == 0);
+    CHECK(visibility_radius_of(Terrain::cliff) == 0);
 }
 
 TEST_CASE("public GameState radius constants derive from the terrain table") {
@@ -51,9 +63,9 @@ TEST_CASE("public GameState radius constants derive from the terrain table") {
     CHECK(GameState::base_visibility_radius == visibility_radius_of(Terrain::open));
     CHECK(GameState::hill_visibility_radius == visibility_radius_of(Terrain::hill));
     CHECK(GameState::mountain_visibility_radius == visibility_radius_of(Terrain::mountain));
-    CHECK(GameState::base_visibility_radius == 2);
-    CHECK(GameState::hill_visibility_radius == 3);
-    CHECK(GameState::mountain_visibility_radius == 4);
+    CHECK(GameState::base_visibility_radius == 3);
+    CHECK(GameState::hill_visibility_radius == 5);
+    CHECK(GameState::mountain_visibility_radius == 7);
 }
 
 TEST_CASE("unknown symbols decode to no terrain") {

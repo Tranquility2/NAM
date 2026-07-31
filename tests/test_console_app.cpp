@@ -38,14 +38,14 @@ Map make_map(std::string_view text) {
 // below, so ordinary movement and quit tests never enter the discovery flow.
 GameState make_state() {
     return GameState(
-        make_map("NAM-MAP 1\nwidth 9\nheight 3\nspawn 2 1\n---\n=========\n|.......|\n=========\n"));
+        make_map("NAM-MAP 1\nwidth 9\nheight 3\nspawn 2 1\n---\n#########\n#.......#\n#########\n"));
 }
 
 // A room wider than the initial 5x5 reveal, with a distinctive mountain '@' far
 // to the right (walkable, so the actor can approach it) that starts hidden.
 GameState make_big_state() {
     return GameState(make_map(
-        "NAM-MAP 1\nwidth 9\nheight 3\nspawn 1 1\n---\n=========\n......@..\n=========\n"));
+        "NAM-MAP 1\nwidth 9\nheight 3\nspawn 1 1\n---\n#########\n......@..\n#########\n"));
 }
 
 // A corridor with an open spawn at x=1, a hill at x=2, and a distinctive water
@@ -54,7 +54,7 @@ GameState make_big_state() {
 // the hill reveals it. Stepping back off the hill keeps it as memory.
 GameState make_hill_state() {
     return GameState(make_map(
-        "NAM-MAP 1\nwidth 9\nheight 3\nspawn 1 1\n---\n=========\n..^..~...\n=========\n"));
+        "NAM-MAP 1\nwidth 9\nheight 3\nspawn 1 1\n---\n#########\n..^..~...\n#########\n"));
 }
 
 // A long corridor of fields leading to a distant water glyph. Fields neither
@@ -62,7 +62,7 @@ GameState make_hill_state() {
 // finally reveals it.
 GameState make_mountain_reach_state() {
     return GameState(make_map(
-        "NAM-MAP 1\nwidth 14\nheight 4\nspawn 0 1\n---\n==============\n.xxxxxxxxxxx.~\n.=============\n..............\n"));
+        "NAM-MAP 1\nwidth 14\nheight 4\nspawn 0 1\n---\n##############\n.xxxxxxxxxxx.~\n.#############\n..............\n"));
 }
 
 std::size_t count_char(const std::string& text, char needle) {
@@ -121,7 +121,7 @@ std::string corridor_landmark_name() {
 // A single-reachable-cell map: the spawn is sealed by a wall, so the exit_cell is at
 // spawn and the objective starts completed.
 GameState make_single_cell_state() {
-    return GameState(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.=.\n"));
+    return GameState(make_map("NAM-MAP 1\nwidth 3\nheight 1\nspawn 0 0\n---\n.#.\n"));
 }
 
 std::string single_cell_landmark_name() {
@@ -413,7 +413,7 @@ d
     CHECK(code == 0);
     // The fields march is stamina-neutral, so the water step is charged from the
     // cap and simply succeeds.
-    CHECK(travelled.find("Moved onto water for 3 stamina.") != std::string::npos);
+    CHECK(travelled.find("Moved onto shallow water for 3 stamina.") != std::string::npos);
     CHECK(travelled.find("Stamina: 17/20") != std::string::npos);
     CHECK(travelled.find('\x1b') == std::string::npos);
 }

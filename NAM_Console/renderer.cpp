@@ -46,13 +46,14 @@ constexpr int color_safe_landmark = 92; // Bright green: a recovery waypoint.
 
 [[nodiscard]] int color_for(Terrain terrain) noexcept {
     switch (terrain) {
-        case Terrain::open:            return 90;  // Dim grey.
-        case Terrain::mountain:        return 33;  // Yellow.
-        case Terrain::water:           return 36;  // Cyan.
-        case Terrain::fields:          return 32;  // Green.
-        case Terrain::hill:            return 35;  // Magenta.
-        case Terrain::wall_horizontal:
-        case Terrain::wall_vertical:   return 37;  // White.
+        case Terrain::open:          return 90;  // Dim grey.
+        case Terrain::mountain:      return 33;  // Yellow.
+        case Terrain::shallow_water: return 36;  // Cyan.
+        case Terrain::fields:        return 32;  // Green.
+        case Terrain::hill:          return 35;  // Magenta.
+        case Terrain::forest:        return 92;  // Bright green.
+        case Terrain::deep_water:    return 34;  // Blue.
+        case Terrain::cliff:         return 37;  // White.
     }
     return 37;
 }

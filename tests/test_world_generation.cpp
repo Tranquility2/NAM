@@ -23,21 +23,21 @@ namespace {
 // template, or seeded-route draw order would move these bytes. This doubles as a
 // full compatibility fixture and is re-locked whenever the recipe version changes.
 constexpr std::string_view kGlassRiverGolden =
-    "=============================\n"
-    "|...........................|\n"
-    "|...........................|\n"
-    "|...^^^^|=|=....^^^^x.xx....|\n"
-    "|...^@@^^|=....^^@@^xxxx....|\n"
-    "|...@@@@^.x....^@@@^xxx.....|\n"
-    "|...^^^^^xxx....@@@^..xxx...|\n"
-    "|.......xxxx....^^^^..x.....|\n"
-    "||=.....xxxxx...xxxxx.......|\n"
-    "|.|.....xxxxx..xxxxxx.......|\n"
-    "|.=.....xxx....xxxxx~~~~~~~.|\n"
-    "|.|.......x....x.x~~~~~.~~~.|\n"
-    "|................~~~~~~~~~~~|\n"
-    "|................~~.~...~~.~|\n"
-    "=============================";
+    "#############################\n"
+    "#...........................#\n"
+    "#...........................#\n"
+    "#...^^^^####....^^^^x.xx....#\n"
+    "#...^@@^^##....^^@@^xxxx....#\n"
+    "#...@@@@^.x....^@@@^xxx.....#\n"
+    "#...^^^^^xxx....@@@^..xxx...#\n"
+    "#.......xxxx....^^^^..x.....#\n"
+    "###.....xxxxx...xxxxx.......#\n"
+    "#.#.....xxxxx..xxxxxx.......#\n"
+    "#.#.....xxx....xxxxx~~~~~~~.#\n"
+    "#.#.......x....x.x~~~~~.~~~.#\n"
+    "#................~~~~~~~~~~~#\n"
+    "#................~~.~...~~.~#\n"
+    "#############################";
 
 // The numeric seed FNV-1a produces for "glass-river" (REQ-005).
 constexpr std::uint64_t kGlassRiverSeed = 0x0F4289EAF4A1813Cull;
@@ -72,13 +72,15 @@ std::vector<std::string> to_rows(const Map& map) {
 }
 
 bool glyph_walkable(char glyph) {
-    return glyph != '=' && glyph != '|';
+    // Cliffs and deep water are the only barriers; both are re-derived from the
+    // serialized glyph so this predicate never consults core terrain rules.
+    return glyph != '#' && glyph != '=';
 }
 
 bool is_water_glyph(char glyph) { return glyph == '~'; }
 bool is_field_glyph(char glyph) { return glyph == 'x'; }
 bool is_mountain_glyph(char glyph) { return glyph == '@'; }
-bool is_barrier_glyph(char glyph) { return glyph == '=' || glyph == '|'; }
+bool is_barrier_glyph(char glyph) { return glyph == '#'; }
 
 // The independently re-derived REQ-016 invariants for one map.
 struct MapInvariants {
@@ -191,12 +193,12 @@ MapInvariants inspect(const Map& map) {
 
     result.boundary_intact = true;
     for (std::size_t x = 0; x < width; ++x) {
-        if (rows[0][x] != '=' || rows[height - 1][x] != '=') {
+        if (rows[0][x] != '#' || rows[height - 1][x] != '#') {
             result.boundary_intact = false;
         }
     }
     for (std::size_t y = 1; y + 1 < height; ++y) {
-        if (rows[y][0] != '|' || rows[y][width - 1] != '|') {
+        if (rows[y][0] != '#' || rows[y][width - 1] != '#') {
             result.boundary_intact = false;
         }
     }
@@ -220,8 +222,7 @@ MapInvariants inspect(const Map& map) {
                 case 'x': ++result.fields; break;
                 case '@': ++result.mountain; break;
                 case '^': ++result.hill; break;
-                case '=':
-                case '|': ++result.barrier; break;
+                case '#': ++result.barrier; break;
                 default: break;
             }
         }

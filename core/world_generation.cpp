@@ -169,7 +169,7 @@ struct GenerationProfile {
     return y * profile.width + x;
 }
 
-// True when (x, y) is an interior cell, i.e. not on the solid wall boundary.
+// True when (x, y) is an interior cell, i.e. not on the solid cliff boundary.
 [[nodiscard]] constexpr bool is_interior(const GenerationProfile& profile, std::size_t x,
                                          std::size_t y) noexcept {
     return x >= 1u && x + 1u < profile.width && y >= 1u && y + 1u < profile.height;
@@ -198,10 +198,10 @@ struct GenerationProfile {
            cells[cell_index(profile, x, y)] == Terrain::open;
 }
 
-// Paint a barrier glyph. Both wall variants are equally impassable; the parity
-// rule only records a consistent serialized glyph and consumes no RNG.
-[[nodiscard]] constexpr Terrain barrier_glyph(std::size_t x, std::size_t y) noexcept {
-    return ((x + y) % 2u == 0u) ? Terrain::wall_horizontal : Terrain::wall_vertical;
+// Paint a barrier glyph. Interior barrier ridges and the map border are the same
+// impassable terrain, so this exists only to name the intent at its call site.
+[[nodiscard]] constexpr Terrain barrier_glyph(std::size_t, std::size_t) noexcept {
+    return Terrain::cliff;
 }
 
 // Grow one connected feature blob to an exact target size using the common
@@ -307,7 +307,7 @@ void add_hill_halo(const GenerationProfile& profile, const std::vector<bool>& re
 }
 
 // Grow one complete candidate terrain buffer from the engine. The passes run in a
-// fixed order so RNG consumption is deterministic: build the wall boundary, grow
+// fixed order so RNG consumption is deterministic: build the cliff boundary, grow
 // the water bodies, the mountain cores, stamp the hill halo, grow the field
 // regions, then the barrier ridges. Returns false if any growth pass exhausts its
 // proposal budget, leaving the buffer for the caller to discard.
@@ -361,15 +361,15 @@ struct RouteLayout {
                                   Pcg32& engine, std::vector<Terrain>& cells) {
     cells.assign(profile.width * profile.height, Terrain::open);
 
-    // Top and bottom rows (including all four corners) are horizontal walls.
+    // Top and bottom rows (including all four corners) are cliffs.
     for (std::size_t x = 0; x < profile.width; ++x) {
-        cells[cell_index(profile, x, 0)] = Terrain::wall_horizontal;
-        cells[cell_index(profile, x, profile.height - 1)] = Terrain::wall_horizontal;
+        cells[cell_index(profile, x, 0)] = Terrain::cliff;
+        cells[cell_index(profile, x, profile.height - 1)] = Terrain::cliff;
     }
-    // The remaining left and right boundary cells are vertical walls.
+    // The remaining left and right boundary cells are cliffs.
     for (std::size_t y = 1; y + 1 < profile.height; ++y) {
-        cells[cell_index(profile, 0, y)] = Terrain::wall_vertical;
-        cells[cell_index(profile, profile.width - 1, y)] = Terrain::wall_vertical;
+        cells[cell_index(profile, 0, y)] = Terrain::cliff;
+        cells[cell_index(profile, profile.width - 1, y)] = Terrain::cliff;
     }
 
     const auto paint = [&profile](Terrain terrain) {
@@ -384,7 +384,7 @@ struct RouteLayout {
 
     // Water bodies, then mountain cores. Order and sizes are compatibility fixed.
     for (const std::size_t target : profile.water_blobs) {
-        if (!grow_blob(profile, reserved, engine, cells, target, paint(Terrain::water)))
+        if (!grow_blob(profile, reserved, engine, cells, target, paint(Terrain::shallow_water)))
             return false;
     }
     for (const std::size_t target : profile.mountain_blobs) {
@@ -456,7 +456,7 @@ struct RouteLayout {
 
 // Sizes of the cardinal-connected interior components whose cells satisfy `match`.
 // The search is iterative and restricted to interior cells so an interior barrier
-// ridge touching the boundary wall is never merged with it. Row-major visited and
+// ridge touching the boundary cliff is never merged with it. Row-major visited and
 // start ordering keep the result deterministic (only the sizes are inspected).
 template <typename Match>
 [[nodiscard]] std::vector<std::size_t> interior_component_sizes(const GenerationProfile& profile,
@@ -586,16 +586,16 @@ template <typename Match>
         }
     }
 
-    // The full wall boundary must be intact.
+    // The full cliff boundary must be intact.
     for (std::size_t x = 0; x < profile.width; ++x) {
-        if (cells[cell_index(profile, x, 0)] != Terrain::wall_horizontal ||
-            cells[cell_index(profile, x, profile.height - 1)] != Terrain::wall_horizontal) {
+        if (cells[cell_index(profile, x, 0)] != Terrain::cliff ||
+            cells[cell_index(profile, x, profile.height - 1)] != Terrain::cliff) {
             return false;
         }
     }
     for (std::size_t y = 1; y + 1 < profile.height; ++y) {
-        if (cells[cell_index(profile, 0, y)] != Terrain::wall_vertical ||
-            cells[cell_index(profile, profile.width - 1, y)] != Terrain::wall_vertical) {
+        if (cells[cell_index(profile, 0, y)] != Terrain::cliff ||
+            cells[cell_index(profile, profile.width - 1, y)] != Terrain::cliff) {
             return false;
         }
     }
@@ -606,21 +606,28 @@ template <typename Match>
     std::size_t mountain = 0u;
     std::size_t hill = 0u;
     std::size_t barrier = 0u;
+    std::size_t unbudgeted = 0u;
     for (std::size_t y = 1; y + 1 < profile.height; ++y) {
         for (std::size_t x = 1; x + 1 < profile.width; ++x) {
             switch (cells[cell_index(profile, x, y)]) {
-                case Terrain::water:    ++water; break;
-                case Terrain::fields:   ++fields; break;
-                case Terrain::mountain: ++mountain; break;
-                case Terrain::hill:     ++hill; break;
-                case Terrain::wall_horizontal:
-                case Terrain::wall_vertical: ++barrier; break;
-                case Terrain::open:     break;
+                case Terrain::shallow_water: ++water; break;
+                case Terrain::fields:        ++fields; break;
+                case Terrain::mountain:      ++mountain; break;
+                case Terrain::hill:          ++hill; break;
+                case Terrain::cliff:         ++barrier; break;
+                case Terrain::forest:        ++unbudgeted; break;
+                case Terrain::deep_water:    ++unbudgeted; break;
+                case Terrain::open:          break;
             }
         }
     }
     if (water != profile.water_cells || fields != profile.field_cells ||
         mountain != profile.mountain_cells || barrier != profile.barrier_cells) {
+        return false;
+    }
+    // Forest and deep water have no tier budget yet, so no candidate may contain
+    // them. Both gain real budgets when the generator learns to paint them.
+    if (unbudgeted != 0u) {
         return false;
     }
     if (hill < profile.min_hill_cells) {
@@ -634,7 +641,7 @@ template <typename Match>
 
     // Cardinal component limits and minimum sizes for each clustered feature.
     if (!components_within(
-            interior_component_sizes(profile, cells, [](Terrain t) { return t == Terrain::water; }),
+            interior_component_sizes(profile, cells, [](Terrain t) { return t == Terrain::shallow_water; }),
             profile.water)) {
         return false;
     }
@@ -652,16 +659,13 @@ template <typename Match>
     }
     if (!components_within(
             interior_component_sizes(profile, cells,
-                                     [](Terrain t) {
-                                         return t == Terrain::wall_horizontal ||
-                                                t == Terrain::wall_vertical;
-                                     }),
+                                     [](Terrain t) { return t == Terrain::cliff; }),
             profile.barrier)) {
         return false;
     }
 
     // Every walkable cell must be reachable from the spawn. Because the boundary
-    // is solid wall, the total walkable count equals the walkable interior count,
+    // is solid cliff, the total walkable count equals the walkable interior count,
     // but count the whole grid so the invariant matches the specification exactly.
     std::size_t total_walkable = 0u;
     for (const Terrain terrain : cells) {

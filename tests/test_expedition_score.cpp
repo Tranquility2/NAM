@@ -56,7 +56,7 @@ TEST_CASE("terrain entry costs make the two route legs differ") {
 }
 
 TEST_CASE("a single reachable spawn yields a zero-cost route") {
-    const Map map = make_map("NAM-MAP 1\nwidth 3\nheight 3\nspawn 1 1\n---\n===\n=.=\n===\n");
+    const Map map = make_map("NAM-MAP 1\nwidth 3\nheight 3\nspawn 1 1\n---\n###\n#.#\n###\n");
     const LevelObjective objective = create_level_objective(map);
     CHECK(objective.minimum_route_stamina_cost == 0);
 }
@@ -64,7 +64,7 @@ TEST_CASE("a single reachable spawn yields a zero-cost route") {
 // --- Reachability ------------------------------------------------------------
 
 TEST_CASE("exploration counts reflect reachable walkable cells and explored memory") {
-    const Map map = make_map("NAM-MAP 1\nwidth 5\nheight 3\nspawn 0 1\n---\n=====\n.....\n=====\n");
+    const Map map = make_map("NAM-MAP 1\nwidth 5\nheight 3\nspawn 0 1\n---\n#####\n.....\n#####\n");
     CHECK(count_reachable_walkable_cells(map) == 5);
     VisibilityMap visibility(map.width(), map.height());
     CHECK(count_explored_reachable_walkable_cells(map, visibility) == 0);

@@ -12,6 +12,7 @@
 #include "map_parser.h"
 #include "move_outcome.h"
 #include "objective.h"
+#include "terrain.h"
 #include "visibility.h"
 
 namespace {
@@ -23,7 +24,7 @@ Map make_map(std::string_view text) {
 }
 
 constexpr std::string_view kMap =
-    "NAM-MAP 1\nwidth 5\nheight 5\nspawn 2 2\n---\n.....\n.=.=.\n.....\n.=.=.\n.....\n";
+    "NAM-MAP 1\nwidth 5\nheight 5\nspawn 2 2\n---\n.....\n.#.#.\n.....\n.#.#.\n.....\n";
 
 // An 11x11 open field with a hill '^' and mountain '@' immediately right of the
 // spawn at (4,5), so a script can enter and leave both elevated terrains and
@@ -107,9 +108,9 @@ TEST_CASE("terrain-transition scripts produce identical radius and visibility") 
         move_cmd(Direction::right),  // open (4,5) -> hill (5,5), radius 3
         move_cmd(Direction::right),  // hill (5,5) -> mountain (6,5), radius 4
         move_cmd(Direction::left),   // mountain -> hill, radius 3
-        move_cmd(Direction::left),   // hill -> open, radius 2
-        move_cmd(Direction::down),   // open ground, radius 2
-        move_cmd(Direction::up)};    // back up, radius 2
+        move_cmd(Direction::left),   // hill -> open, base radius
+        move_cmd(Direction::down),   // open ground, base radius
+        move_cmd(Direction::up)};    // back up, base radius
 
     GameState a(make_map(kTerrainMap));
     GameState b(make_map(kTerrainMap));
@@ -130,9 +131,9 @@ TEST_CASE("terrain-transition scripts produce identical radius and visibility") 
     }
 
     // The script actually visited both elevated terrains: after the two right
-    // steps the second game reached the mountain's radius 4, and after returning
-    // the actor is back on base terrain at radius 2.
-    CHECK(a.visibility_radius() == 2);
+    // steps the second game reached the mountain's radius, and after returning
+    // the actor is back on base terrain.
+    CHECK(a.visibility_radius() == visibility_radius_of(Terrain::open));
 }
 
 TEST_CASE("identical maps and scripts produce identical exit_cell objectives and updates") {

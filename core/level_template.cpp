@@ -25,12 +25,12 @@ LevelTemplate template_of(LevelTier tier, ExitCorner corner) {
     const int width = static_cast<int>(dimensions.width);
     const int height = static_cast<int>(dimensions.height);
 
-    // Interior bounds. The outermost ring is always solid wall.
+    // Interior bounds. The outermost ring is always solid cliff.
     const int max_x = width - 2;
     const int max_y = height - 2;
 
     // The four candidate corridors: a low run, a top run, and the two flanks. Each
-    // sits one cell inside the wall ring so the route never hugs the boundary,
+    // sits one cell inside the cliff ring so the route never hugs the boundary,
     // which keeps a walkable rim available for side content.
     const int low_y = max_y - 1;
     const int top_y = 2;
