@@ -26,28 +26,32 @@ constexpr std::string_view kGlassRiverGolden =
     "#############################\n"
     "#...........................#\n"
     "#...........................#\n"
-    "#...^^^^####....^^^^x.xx....#\n"
-    "#...^@@^^##....^^@@^xxxx....#\n"
-    "#...@@@@^.x....^@@@^xxx.....#\n"
-    "#...^^^^^xxx....@@@^..xxx...#\n"
+    "#...^^^^&&&&&...^^^^x.xx....#\n"
+    "#...^@@^^&&&&&&^^@@^xxxx....#\n"
+    "#...@@@@^&x&&&.^@@@^xxx.....#\n"
+    "#...^^^^^xxx&...@@@^..xxx...#\n"
     "#.......xxxx....^^^^..x.....#\n"
-    "###.....xxxxx...xxxxx.......#\n"
-    "#.#.....xxxxx..xxxxxx.......#\n"
-    "#.#.....xxx....xxxxx~~~~~~~.#\n"
-    "#.#.......x....x.x~~~~~.~~~.#\n"
-    "#................~~~~~~~~~~~#\n"
-    "#................~~.~...~~.~#\n"
+    "#&&...#.xxxxx...xxxxx.......#\n"
+    "#&&..##.xxxxx..xxxxxx.......#\n"
+    "#&&..###xxx....xxxxx~~~~~~~.#\n"
+    "#&&.......x....x#x~~==~.~=~.#\n"
+    "#&&............##~=~=~~~==~~#\n"
+    "#&&............##~~.~...~~.~#\n"
     "#############################";
 
 // The numeric seed FNV-1a produces for "glass-river" (REQ-005).
 constexpr std::uint64_t kGlassRiverSeed = 0x0F4289EAF4A1813Cull;
 
 // Exact clustered terrain totals every accepted world must contain (REQ-016).
+// `kWaterCells` counts shallow and deep water together, because deep water is not
+// grown: it is the deterministic core cut out of an already grown water body.
 constexpr std::size_t kWaterCells = 32u;
 constexpr std::size_t kFieldCells = 54u;
+constexpr std::size_t kForestCells = 28u;
 constexpr std::size_t kMountainCells = 14u;
 constexpr std::size_t kBarrierCells = 11u;
 constexpr std::size_t kMinHillCells = 20u;
+constexpr std::size_t kMinDeepWaterCells = 1u;
 
 // Pull the accepted world out of a result or fail the test loudly.
 const GeneratedWorld& require_world(const WorldGenerationResult& result) {
@@ -77,8 +81,9 @@ bool glyph_walkable(char glyph) {
     return glyph != '#' && glyph != '=';
 }
 
-bool is_water_glyph(char glyph) { return glyph == '~'; }
+bool is_water_glyph(char glyph) { return glyph == '~' || glyph == '='; }
 bool is_field_glyph(char glyph) { return glyph == 'x'; }
+bool is_forest_glyph(char glyph) { return glyph == '&'; }
 bool is_mountain_glyph(char glyph) { return glyph == '@'; }
 bool is_barrier_glyph(char glyph) { return glyph == '#'; }
 
@@ -88,13 +93,17 @@ struct MapInvariants {
     bool spawn_protected_open = false;
     bool fully_connected = false;
     bool hills_touch_mountains = false;
+    bool deep_water_enclosed = false;
     std::size_t water = 0;
+    std::size_t deep_water = 0;
     std::size_t fields = 0;
+    std::size_t forest = 0;
     std::size_t mountain = 0;
     std::size_t hill = 0;
     std::size_t barrier = 0;
     std::vector<std::size_t> water_components;
     std::vector<std::size_t> field_components;
+    std::vector<std::size_t> forest_components;
     std::vector<std::size_t> mountain_components;
     std::vector<std::size_t> barrier_components;
 };
@@ -180,6 +189,24 @@ bool all_hills_touch_mountains(const std::vector<std::string>& rows,
     return true;
 }
 
+// True when every deep water cell has water on all four cardinal sides, which is
+// what keeps the impassable core fringed by the shallow water it was cut from.
+bool all_deep_water_enclosed(const std::vector<std::string>& rows, std::size_t width,
+                             std::size_t height) {
+    for (std::size_t y = 1; y + 1 < height; ++y) {
+        for (std::size_t x = 1; x + 1 < width; ++x) {
+            if (rows[y][x] != '=') {
+                continue;
+            }
+            if (!is_water_glyph(rows[y - 1u][x]) || !is_water_glyph(rows[y + 1u][x]) ||
+                !is_water_glyph(rows[y][x - 1u]) || !is_water_glyph(rows[y][x + 1u])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 // An independent, test-side inspection over a serialized map. It deliberately
 // re-derives the counts, components, hill relationship, and connectivity from the
 // rendered glyphs rather than reusing the generator's internal validator, so a
@@ -219,7 +246,9 @@ MapInvariants inspect(const Map& map) {
         for (std::size_t x = 1; x + 1 < width; ++x) {
             switch (rows[y][x]) {
                 case '~': ++result.water; break;
+                case '=': ++result.water; ++result.deep_water; break;
                 case 'x': ++result.fields; break;
+                case '&': ++result.forest; break;
                 case '@': ++result.mountain; break;
                 case '^': ++result.hill; break;
                 case '#': ++result.barrier; break;
@@ -229,8 +258,10 @@ MapInvariants inspect(const Map& map) {
     }
 
     result.hills_touch_mountains = all_hills_touch_mountains(rows, width, height);
+    result.deep_water_enclosed = all_deep_water_enclosed(rows, width, height);
     result.water_components = interior_component_sizes(rows, width, height, is_water_glyph);
     result.field_components = interior_component_sizes(rows, width, height, is_field_glyph);
+    result.forest_components = interior_component_sizes(rows, width, height, is_forest_glyph);
     result.mountain_components = interior_component_sizes(rows, width, height, is_mountain_glyph);
     result.barrier_components = interior_component_sizes(rows, width, height, is_barrier_glyph);
 
@@ -295,18 +326,19 @@ bool components_within(const std::vector<std::size_t>& sizes, std::size_t min_co
 bool satisfies_structural_invariants(const Map& map) {
     const MapInvariants inv = inspect(map);
     return inv.boundary_intact && inv.spawn_protected_open && inv.fully_connected &&
-           inv.hills_touch_mountains;
+           inv.hills_touch_mountains && inv.deep_water_enclosed;
 }
 
 // The full REQ-016 acceptance predicate, re-derived independently of the generator.
 bool satisfies_all_invariants(const Map& map) {
     const MapInvariants inv = inspect(map);
-    return inv.boundary_intact && inv.spawn_protected_open && inv.fully_connected &&
-           inv.hills_touch_mountains && inv.water == kWaterCells && inv.fields == kFieldCells &&
+    return satisfies_structural_invariants(map) && inv.water == kWaterCells &&
+           inv.fields == kFieldCells && inv.forest == kForestCells &&
            inv.mountain == kMountainCells && inv.barrier == kBarrierCells &&
-           inv.hill >= kMinHillCells &&
+           inv.hill >= kMinHillCells && inv.deep_water >= kMinDeepWaterCells &&
            components_within(inv.water_components, 1u, 2u, 14u) &&
            components_within(inv.field_components, 1u, 3u, 14u) &&
+           components_within(inv.forest_components, 1u, 2u, 12u) &&
            components_within(inv.mountain_components, 1u, 2u, 6u) &&
            components_within(inv.barrier_components, 1u, 2u, 5u);
 }
@@ -447,6 +479,54 @@ TEST_CASE("a representative sample of small-tier seeds satisfies the structural 
         const WorldGenerationResult result = generate_level(LevelTier::small, seed);
         const GeneratedWorld& world = require_world(result);
         CHECK_MESSAGE(satisfies_structural_invariants(world.map), "small seed index ", index);
+    }
+}
+
+TEST_CASE("impassable terrain never severs a generated level on any tier") {
+    // Cliffs and deep water are the only barriers, so this is the connectivity
+    // proof the terrain contract requires: every walkable cell of every tier must
+    // remain reachable from the spawn. The exit and every content slot sit on
+    // walkable cells, so one component covering them all is strictly stronger than
+    // checking each of them individually.
+    for (const LevelTier tier : {LevelTier::small, LevelTier::medium, LevelTier::large,
+                                 LevelTier::x_large}) {
+        for (std::uint64_t index = 0; index < 128u; ++index) {
+            const std::uint64_t seed = index * 0x9E3779B97F4A7C15ull + 0xBEEFull;
+            const WorldGenerationResult result = generate_level(tier, seed);
+            REQUIRE_MESSAGE(std::holds_alternative<GeneratedWorld>(result),
+                            "candidates exhausted on tier " << to_string(tier) << " index " << index);
+            const GeneratedWorld& world = std::get<GeneratedWorld>(result);
+            const MapInvariants inv = inspect(world.map);
+            CHECK_MESSAGE(inv.fully_connected,
+                          "severed map on tier " << to_string(tier) << " index " << index);
+        }
+    }
+}
+
+TEST_CASE("deep water is always the middle of a body of shallow water") {
+    // Deep water is not grown; it is the deterministic core cut out of an already
+    // grown water body. That is what makes the barrier readable, so every deep cell
+    // must have water on all four sides and never border dry land.
+    for (const LevelTier tier : {LevelTier::small, LevelTier::medium, LevelTier::large,
+                                 LevelTier::x_large}) {
+        for (std::uint64_t index = 0; index < 64u; ++index) {
+            const std::uint64_t seed = index * 0x9E3779B97F4A7C15ull + 0xD00Dull;
+            const WorldGenerationResult result = generate_level(tier, seed);
+            const GeneratedWorld& world = require_world(result);
+            CHECK_MESSAGE(inspect(world.map).deep_water_enclosed,
+                          "exposed deep water on tier " << to_string(tier) << " index " << index);
+        }
+    }
+}
+
+TEST_CASE("every medium level grows both forest cover and a deep water barrier") {
+    for (std::uint64_t index = 0; index < 64u; ++index) {
+        const std::uint64_t seed = index * 0x9E3779B97F4A7C15ull + 0xFEEDull;
+        const WorldGenerationResult result = generate_level(LevelTier::medium, seed);
+        const GeneratedWorld& world = require_world(result);
+        const MapInvariants inv = inspect(world.map);
+        CHECK(inv.forest == kForestCells);
+        CHECK(inv.deep_water >= kMinDeepWaterCells);
     }
 }
 

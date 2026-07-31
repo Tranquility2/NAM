@@ -21,8 +21,8 @@
 //
 // The carved route is reserved before terrain grows, so an accepted level is
 // solvable by construction and its exit is the authored one, carried on the map as
-// its authored exit. Water, mountain, hill, and field regions still form coherent
-// spatial clusters with short interior barrier ridges and a protected spawn.
+// its authored exit. Water, mountain, hill, field, and forest regions still form
+// coherent spatial clusters with short interior cliff ridges and a protected spawn.
 //
 // Each tier supplies its own dimensions, spawn, RNG stream, and content budgets,
 // so the same seed yields unrelated Small and Medium levels within one expedition.
@@ -30,9 +30,11 @@
 // Terrain is not sampled independently per cell. Instead each feature is grown as
 // a connected blob: a seeded start cell is chosen, then neighbours are repeatedly
 // annexed until the feature reaches an exact target size. Water bodies, mountain
-// cores, field regions, and barrier ridges are grown in a fixed order, and a
-// deterministic one-cell hill halo is stamped around the mountains. This mirrors
-// the clustered look of the hand-authored default map instead of white noise.
+// cores, field regions, forest cover, and cliff ridges are grown in a fixed order.
+// Two deterministic derived passes then run with no RNG at all: a one-cell hill
+// halo is stamped around the mountains, and the middle of every water body is
+// deepened into impassable deep water. This mirrors the clustered look of the
+// hand-authored default map instead of white noise.
 //
 // Like pcg32.*, this module is frontend-neutral: it performs only fixed-width
 // unsigned arithmetic, owns no global state, and touches no <iostream>, terminal,
@@ -41,9 +43,9 @@
 // operating system, which is what lets the generated output act as a stable
 // compatibility contract for future share/replay features.
 //
-// Every generation pass (boundary, connected feature growth, hill halo, spawn
-// protection, and acceptance) is explicit and documented so later recipes can be
-// added without silently changing Tiny World's output.
+// Every generation pass (boundary, connected feature growth, hill halo, water
+// deepening, spawn protection, and acceptance) is explicit and documented so later
+// recipes can be added without silently changing Tiny World's output.
 
 // Tiny World is retained as the V2 Medium profile. Its generator remains a
 // compatibility recipe while later work replaces whole-map randomization with a

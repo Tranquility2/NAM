@@ -70,18 +70,25 @@ struct GenerationProfile {
     std::array<std::size_t, 2> water_blobs{};
     std::array<std::size_t, 2> mountain_blobs{};
     std::array<std::size_t, 3> field_blobs{};
+    std::array<std::size_t, 2> forest_blobs{};
     std::array<std::size_t, 2> barrier_blobs{};
     // Exact interior terrain totals every accepted candidate must contain: the
-    // sums of the blob targets above.
+    // sums of the blob targets above. `water_cells` counts shallow and deep water
+    // together, because deepening converts cells of an already grown body rather
+    // than adding new ones.
     std::size_t water_cells = 0u;
     std::size_t field_cells = 0u;
+    std::size_t forest_cells = 0u;
     std::size_t mountain_cells = 0u;
     std::size_t barrier_cells = 0u;
-    // The hill halo is deterministic but its size varies with mountain shape, so
-    // it is bounded below rather than fixed exactly.
+    // The hill halo and the deep-water core are deterministic, but their sizes
+    // vary with the shape of the feature they derive from, so both are bounded
+    // below rather than fixed exactly.
     std::size_t min_hill_cells = 0u;
+    std::size_t min_deep_water_cells = 0u;
     ComponentLimits water{};
     ComponentLimits fields{};
+    ComponentLimits forest{};
     ComponentLimits mountain{};
     ComponentLimits barrier{};
 };
@@ -97,14 +104,18 @@ struct GenerationProfile {
     profile.water_blobs = {18u, 14u};
     profile.mountain_blobs = {8u, 6u};
     profile.field_blobs = {22u, 18u, 14u};
+    profile.forest_blobs = {16u, 12u};
     profile.barrier_blobs = {6u, 5u};
     profile.water_cells = 32u;
     profile.field_cells = 54u;
+    profile.forest_cells = 28u;
     profile.mountain_cells = 14u;
     profile.barrier_cells = 11u;
     profile.min_hill_cells = 20u;
+    profile.min_deep_water_cells = 1u;
     profile.water = ComponentLimits{1u, 2u, 14u};
     profile.fields = ComponentLimits{1u, 3u, 14u};
+    profile.forest = ComponentLimits{1u, 2u, 12u};
     profile.mountain = ComponentLimits{1u, 2u, 6u};
     profile.barrier = ComponentLimits{1u, 2u, 5u};
     return profile;
@@ -120,17 +131,21 @@ struct GenerationProfile {
     profile.height = dimensions_of(LevelTier::small).height;
     profile.spawn = center_spawn_of(LevelTier::small);
     profile.stream = 0x534D414CULL;
-    profile.water_blobs = {9u, 7u};
+    profile.water_blobs = {11u, 9u};
     profile.mountain_blobs = {4u, 3u};
     profile.field_blobs = {11u, 9u, 7u};
+    profile.forest_blobs = {8u, 6u};
     profile.barrier_blobs = {3u, 3u};
-    profile.water_cells = 16u;
+    profile.water_cells = 20u;
     profile.field_cells = 27u;
+    profile.forest_cells = 14u;
     profile.mountain_cells = 7u;
     profile.barrier_cells = 6u;
     profile.min_hill_cells = 8u;
-    profile.water = ComponentLimits{1u, 2u, 7u};
+    profile.min_deep_water_cells = 0u;
+    profile.water = ComponentLimits{1u, 2u, 9u};
     profile.fields = ComponentLimits{1u, 3u, 7u};
+    profile.forest = ComponentLimits{1u, 2u, 6u};
     profile.mountain = ComponentLimits{1u, 2u, 3u};
     profile.barrier = ComponentLimits{1u, 2u, 3u};
     return profile;
@@ -306,6 +321,44 @@ void add_hill_halo(const GenerationProfile& profile, const std::vector<bool>& re
     }
 }
 
+// True when a cell holds water of either depth.
+[[nodiscard]] constexpr bool is_water(Terrain terrain) noexcept {
+    return terrain == Terrain::shallow_water || terrain == Terrain::deep_water;
+}
+
+// Deepen the middle of every water body. No RNG is consumed. A shallow cell whose
+// four cardinal neighbours are all shallow water is marked, then the marks are
+// applied in one pass, so deepening never cascades: a deep cell is always fringed
+// by the shallow water it was cut out of, which is what makes the barrier readable
+// instead of arbitrary.
+//
+// This is the water counterpart of the hill halo. A mountain grows a walkable ring
+// outward; a lake grows an impassable core inward. Both derive from a feature that
+// was already placed, so neither can appear where the tier did not put one.
+void deepen_water_cores(const GenerationProfile& profile, std::vector<Terrain>& cells) {
+    std::vector<bool> deep_mask(profile.width * profile.height, false);
+
+    for (std::size_t y = 1; y + 1 < profile.height; ++y) {
+        for (std::size_t x = 1; x + 1 < profile.width; ++x) {
+            const std::size_t idx = cell_index(profile, x, y);
+            if (cells[idx] != Terrain::shallow_water) {
+                continue;
+            }
+            const bool enclosed = cells[cell_index(profile, x, y - 1u)] == Terrain::shallow_water &&
+                                  cells[cell_index(profile, x, y + 1u)] == Terrain::shallow_water &&
+                                  cells[cell_index(profile, x - 1u, y)] == Terrain::shallow_water &&
+                                  cells[cell_index(profile, x + 1u, y)] == Terrain::shallow_water;
+            deep_mask[idx] = enclosed;
+        }
+    }
+
+    for (std::size_t idx = 0; idx < cells.size(); ++idx) {
+        if (deep_mask[idx]) {
+            cells[idx] = Terrain::deep_water;
+        }
+    }
+}
+
 // Grow one complete candidate terrain buffer from the engine. The passes run in a
 // fixed order so RNG consumption is deterministic: build the cliff boundary, grow
 // the water bodies, the mountain cores, stamp the hill halo, grow the field
@@ -382,11 +435,13 @@ struct RouteLayout {
         buffer[cell_index(profile, x, y)] = barrier_glyph(x, y);
     };
 
-    // Water bodies, then mountain cores. Order and sizes are compatibility fixed.
+    // Water bodies, then their deterministic deep cores, then mountain cores.
+    // Order and sizes are compatibility fixed.
     for (const std::size_t target : profile.water_blobs) {
         if (!grow_blob(profile, reserved, engine, cells, target, paint(Terrain::shallow_water)))
             return false;
     }
+    deepen_water_cores(profile, cells);
     for (const std::size_t target : profile.mountain_blobs) {
         if (!grow_blob(profile, reserved, engine, cells, target, paint(Terrain::mountain)))
             return false;
@@ -395,9 +450,13 @@ struct RouteLayout {
     // Deterministic hill halo immediately after every mountain blob (no RNG).
     add_hill_halo(profile, reserved, cells);
 
-    // Field regions, then short barrier ridges.
+    // Field regions, forest cover, then short barrier ridges.
     for (const std::size_t target : profile.field_blobs) {
         if (!grow_blob(profile, reserved, engine, cells, target, paint(Terrain::fields)))
+            return false;
+    }
+    for (const std::size_t target : profile.forest_blobs) {
+        if (!grow_blob(profile, reserved, engine, cells, target, paint(Terrain::forest)))
             return false;
     }
     for (const std::size_t target : profile.barrier_blobs) {
@@ -556,6 +615,27 @@ template <typename Match>
     return true;
 }
 
+// True when every deep water cell is surrounded on all four sides by water. Deep
+// cores are cut out of grown water bodies, so this holds by construction; it is
+// re-checked because it is the property that keeps the barrier readable.
+[[nodiscard]] bool every_deep_cell_is_enclosed_by_water(const GenerationProfile& profile,
+                                                        const std::vector<Terrain>& cells) {
+    for (std::size_t y = 1; y + 1 < profile.height; ++y) {
+        for (std::size_t x = 1; x + 1 < profile.width; ++x) {
+            if (cells[cell_index(profile, x, y)] != Terrain::deep_water) {
+                continue;
+            }
+            if (!is_water(cells[cell_index(profile, x, y - 1u)]) ||
+                !is_water(cells[cell_index(profile, x, y + 1u)]) ||
+                !is_water(cells[cell_index(profile, x - 1u, y)]) ||
+                !is_water(cells[cell_index(profile, x + 1u, y)])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 // Enforce every acceptance rule directly on the candidate buffer (REQ-016/017).
 // The validator inspects the buffer itself and re-derives connectivity and every
 // component invariant iteratively, so an invalid candidate is never returned.
@@ -602,53 +682,60 @@ template <typename Match>
 
     // Exact interior terrain totals and a hill floor, counted in one scan.
     std::size_t water = 0u;
+    std::size_t deep_water = 0u;
     std::size_t fields = 0u;
+    std::size_t forest = 0u;
     std::size_t mountain = 0u;
     std::size_t hill = 0u;
     std::size_t barrier = 0u;
-    std::size_t unbudgeted = 0u;
     for (std::size_t y = 1; y + 1 < profile.height; ++y) {
         for (std::size_t x = 1; x + 1 < profile.width; ++x) {
             switch (cells[cell_index(profile, x, y)]) {
                 case Terrain::shallow_water: ++water; break;
+                case Terrain::deep_water:    ++water; ++deep_water; break;
                 case Terrain::fields:        ++fields; break;
+                case Terrain::forest:        ++forest; break;
                 case Terrain::mountain:      ++mountain; break;
                 case Terrain::hill:          ++hill; break;
                 case Terrain::cliff:         ++barrier; break;
-                case Terrain::forest:        ++unbudgeted; break;
-                case Terrain::deep_water:    ++unbudgeted; break;
                 case Terrain::open:          break;
             }
         }
     }
     if (water != profile.water_cells || fields != profile.field_cells ||
-        mountain != profile.mountain_cells || barrier != profile.barrier_cells) {
+        forest != profile.forest_cells || mountain != profile.mountain_cells ||
+        barrier != profile.barrier_cells) {
         return false;
     }
-    // Forest and deep water have no tier budget yet, so no candidate may contain
-    // them. Both gain real budgets when the generator learns to paint them.
-    if (unbudgeted != 0u) {
-        return false;
-    }
-    if (hill < profile.min_hill_cells) {
+    if (hill < profile.min_hill_cells || deep_water < profile.min_deep_water_cells) {
         return false;
     }
 
-    // Every hill must touch a mountain (guaranteed by construction; re-checked).
+    // Every hill must touch a mountain, and every deep cell must sit inside water
+    // (both guaranteed by construction; re-checked).
     if (!every_hill_touches_mountain(profile, cells)) {
         return false;
     }
+    if (!every_deep_cell_is_enclosed_by_water(profile, cells)) {
+        return false;
+    }
 
-    // Cardinal component limits and minimum sizes for each clustered feature.
-    if (!components_within(
-            interior_component_sizes(profile, cells, [](Terrain t) { return t == Terrain::shallow_water; }),
-            profile.water)) {
+    // Cardinal component limits and minimum sizes for each clustered feature. Water
+    // is matched at either depth so deepening a body's middle does not read as
+    // having split it into a ring.
+    if (!components_within(interior_component_sizes(profile, cells, is_water), profile.water)) {
         return false;
     }
     if (!components_within(
             interior_component_sizes(profile, cells,
                                      [](Terrain t) { return t == Terrain::fields; }),
             profile.fields)) {
+        return false;
+    }
+    if (!components_within(
+            interior_component_sizes(profile, cells,
+                                     [](Terrain t) { return t == Terrain::forest; }),
+            profile.forest)) {
         return false;
     }
     if (!components_within(
@@ -667,6 +754,12 @@ template <typename Match>
     // Every walkable cell must be reachable from the spawn. Because the boundary
     // is solid cliff, the total walkable count equals the walkable interior count,
     // but count the whole grid so the invariant matches the specification exactly.
+    //
+    // This single equality is the connectivity proof the impassable terrain
+    // requires: it is strictly stronger than checking the entry, the landmark,
+    // every discovery, and the exit individually, because all of those are placed
+    // on walkable cells. A candidate whose cliffs or deep water sever the map is
+    // rejected here and re-rolled, never patched.
     std::size_t total_walkable = 0u;
     for (const Terrain terrain : cells) {
         if (is_walkable(terrain)) {
