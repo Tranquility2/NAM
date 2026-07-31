@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "game_event.h"
+#include "level_tier.h"
 
 namespace nam::console {
 
@@ -20,17 +21,37 @@ namespace nam::console {
 // movement, stamina changes, passive recovery, and blocked input are reported
 // through the immediate HUD message and the final statistics; only durable
 // milestones become entries, so a full run stays readable end to end.
+//
+// Entries fall into the three categories the prototype can produce: an optional
+// discovery, an objective milestone, and a level completion. A full level yields
+// about three entries, which keeps a four-tier run near its budget.
+
+// An optional find the actor entered for the first time. `ordinal` is its place
+// in the level's discovery order, so an entry reads as progress rather than as a
+// repeated anonymous event.
+struct DiscoveryEntry {
+    std::uint64_t sequence = 0;
+    std::uint32_t ordinal = 0;
+    std::uint32_t total = 0;
+};
 
 // The move that first entered the landmark cell and revealed the exit bearing.
-struct DiscoveryEntry {
+struct LandmarkEntry {
     std::uint64_t sequence = 0;
     std::string landmark_name;
 };
 
-// The move that entered the exit cell and completed the level.
+// The move that entered the exit cell and completed the level. It carries the
+// level's place in the chain so the entry reads as a milestone in an expedition
+// rather than as an isolated ending.
 struct CompletionEntry {
     std::uint64_t sequence = 0;
     std::string landmark_name;
+    LevelTier tier = LevelTier::small;
+    std::uint32_t level_number = 1;
+    std::uint32_t total_levels = 1;
+    std::uint32_t discoveries_found = 0;
+    std::uint32_t discovery_total = 0;
 };
 
 // A single-reachable-cell game that started already completed (REQ-012). It is
@@ -41,11 +62,25 @@ struct InitialCompletionEntry {
 
 // The payload of one journal entry. A variant so distinct entry kinds keep their
 // own typed fields and prose is rendered through one total visitor (GUD-002).
-using JournalEntryData = std::variant<DiscoveryEntry, CompletionEntry, InitialCompletionEntry>;
+using JournalEntryData =
+    std::variant<DiscoveryEntry, LandmarkEntry, CompletionEntry, InitialCompletionEntry>;
 
 // One journal entry: a structured payload with no rendered text of its own.
 struct JournalEntry {
     JournalEntryData data{};
+};
+
+// What the frontend knows about the level an event belongs to. Core events carry
+// the outcome; this supplies the surrounding level identity the journal needs to
+// phrase a milestone, so the journal itself still stores no presentation state.
+struct JournalContext {
+    std::string landmark_name;
+    LevelTier tier = LevelTier::small;
+    std::uint32_t level_number = 1;
+    std::uint32_t total_levels = 1;
+    // The level's discovery tallies read after the event was applied.
+    std::uint32_t discoveries_found = 0;
+    std::uint32_t discovery_total = 0;
 };
 
 // Aggregates the ordered core event stream into structured journal entries. The
@@ -53,11 +88,12 @@ struct JournalEntry {
 // format_entry so the same entries can feed any future narrator or export.
 class Journal {
 public:
-    // Fold one ordered core event into the journal. Only a successful movement
-    // that carries an objective transition appends an entry; every other event,
-    // including a blocked attempt, leaves the journal unchanged. `landmark_name`
-    // is the core-owned deterministic name used by those entries.
-    void record_event(const GameEvent& event, const std::string& landmark_name);
+    // Fold one ordered core event into the journal. A successful movement appends
+    // an entry when it records a discovery or carries an objective transition; a
+    // routine step and every other event, including a blocked attempt, leave the
+    // journal unchanged. One move can both find a discovery and complete the
+    // level, in which case both entries are appended in that order.
+    void record_event(const GameEvent& event, const JournalContext& context);
 
     // Record the explicit initial-completion entry for a game that started
     // already completed at spawn (REQ-012).

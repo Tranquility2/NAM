@@ -93,6 +93,10 @@ private:
     // the caller can choose the resulting presentation state.
     [[nodiscard]] ObjectiveTransition apply_move(Direction direction, bool& emphasize);
 
+    // The level identity the journal needs to phrase a milestone. Read after the
+    // move was applied, so its discovery tallies already include that move.
+    [[nodiscard]] JournalContext journal_context() const;
+
     // Score the finished level into the expedition, then enter the completion
     // presentation: build the report from the fully-updated game, journal, route
     // history, and objective state, reset the report viewport to (0, 0), and set

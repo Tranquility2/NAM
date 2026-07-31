@@ -25,6 +25,13 @@ using namespace nam::console;
 
 namespace {
 
+// A single-level journal context: the landmark name is all these cases need.
+JournalContext ctx(const std::string& landmark_name) {
+    JournalContext context;
+    context.landmark_name = landmark_name;
+    return context;
+}
+
 Map open_map(std::size_t width, std::size_t height) {
     return Map(width, height, std::vector<Terrain>(width * height, Terrain::open),
                Coordinates{0, 0});
@@ -114,7 +121,7 @@ Journal make_milestone_journal(std::uint32_t count) {
         move.outcome.terrain = Terrain::open;
         move.outcome.stamina_cost = 1;
         move.objective_update.transition = ObjectiveTransition::landmark_discovered;
-        journal.record_event(GameEvent{i, move}, "Landmark " + std::to_string(i + 1));
+        journal.record_event(GameEvent{i, move}, ctx("Landmark " + std::to_string(i + 1)));
     }
     return journal;
 }
@@ -146,7 +153,7 @@ ExpeditionReport build_test_report(std::size_t interior_width) {
     move.outcome.result = MoveResult::moved;
     move.outcome.terrain = Terrain::open;
     move.outcome.stamina_cost = 1;
-    journal.record_event(GameEvent{0, move}, objective.name);
+    journal.record_event(GameEvent{0, move}, ctx(objective.name));
     journal.record_initial_completion(objective.name);
 
     RouteHistory route(map.spawn());

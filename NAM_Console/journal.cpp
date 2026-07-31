@@ -11,10 +11,21 @@ namespace {
 // only (SEC-001 / SEC-002).
 struct EntryFormatter {
     std::string operator()(const DiscoveryEntry& entry) const {
-        return "Discovered " + entry.landmark_name + "; the exit direction was revealed.";
+        return "Found a hidden site off the route (" + std::to_string(entry.ordinal) + " of " +
+               std::to_string(entry.total) + ").";
+    }
+    std::string operator()(const LandmarkEntry& entry) const {
+        return "Sighted " + entry.landmark_name + "; the exit direction was revealed.";
     }
     std::string operator()(const CompletionEntry& entry) const {
-        return "Reached the exit after " + entry.landmark_name + "; level complete.";
+        if (entry.total_levels <= 1u) {
+            return "Reached the exit after " + entry.landmark_name + "; level complete.";
+        }
+        return "Left the " + std::string(to_string(entry.tier)) + " level through the exit (" +
+               std::to_string(entry.level_number) + " of " +
+               std::to_string(entry.total_levels) + " complete, " +
+               std::to_string(entry.discoveries_found) + " of " +
+               std::to_string(entry.discovery_total) + " discoveries found).";
     }
     std::string operator()(const InitialCompletionEntry& entry) const {
         return "Found " + entry.landmark_name + " and the exit at spawn; the level was already complete.";
@@ -23,16 +34,23 @@ struct EntryFormatter {
 
 }  // namespace
 
-void Journal::record_event(const GameEvent& event, const std::string& landmark_name) {
+void Journal::record_event(const GameEvent& event, const JournalContext& context) {
     const auto* move = std::get_if<MoveAttemptedEvent>(&event.data);
     if (move == nullptr || move->outcome.result != MoveResult::moved) return;
 
+    if (move->discovery_recorded) {
+        entries_.push_back(JournalEntry{
+            DiscoveryEntry{event.sequence, context.discoveries_found, context.discovery_total}});
+    }
+
     switch (move->objective_update.transition) {
         case ObjectiveTransition::landmark_discovered:
-            entries_.push_back(JournalEntry{DiscoveryEntry{event.sequence, landmark_name}});
+            entries_.push_back(JournalEntry{LandmarkEntry{event.sequence, context.landmark_name}});
             return;
         case ObjectiveTransition::level_completed:
-            entries_.push_back(JournalEntry{CompletionEntry{event.sequence, landmark_name}});
+            entries_.push_back(JournalEntry{CompletionEntry{
+                event.sequence, context.landmark_name, context.tier, context.level_number,
+                context.total_levels, context.discoveries_found, context.discovery_total}});
             return;
         case ObjectiveTransition::none:
             return;

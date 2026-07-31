@@ -13,6 +13,7 @@
 #include "console_app.h"
 #include "direction.h"
 #include "expedition.h"
+#include "level_feature.h"
 #include "frame.h"
 #include "game_state.h"
 #include "input.h"
@@ -832,7 +833,7 @@ TEST_CASE("plain j records prior moves and does not dismiss discovery") {
     const int code = run_plain_state(make_corridor_state(), "d\nd\nj\nq\n", output);
     CHECK(code == 0);
     CHECK(output.find("EXPEDITION JOURNAL") != std::string::npos);
-    CHECK(output.find("Discovered " + name + "; the exit direction was revealed.") !=
+    CHECK(output.find("Sighted " + name + "; the exit direction was revealed.") !=
           std::string::npos);
 }
 
@@ -867,12 +868,26 @@ namespace {
 // Plain-mode commands that walk a copy of the expedition from spawn through the
 // landmark to the exit of every level, acknowledging each interlude with a blank
 // line. Driving a copy keeps the real app's state untouched.
-[[nodiscard]] std::string commands_to_finish(std::uint64_t seed) {
+// The route a level asks for: every discovery when `thorough`, then the landmark,
+// then the exit. Read fresh for each level because the state is replaced on an
+// advance.
+[[nodiscard]] std::vector<Coordinates> targets_for_level(const Expedition& scout, bool thorough) {
+    std::vector<Coordinates> targets;
+    if (thorough) {
+        for (const LevelFeature& feature : scout.state().features()) {
+            if (feature.kind == LevelFeatureKind::discovery) targets.push_back(feature.position);
+        }
+    }
+    targets.push_back(scout.state().objective().landmark);
+    targets.push_back(scout.state().objective().exit_cell);
+    return targets;
+}
+
+[[nodiscard]] std::string commands_to_finish(std::uint64_t seed, bool thorough = false) {
     Expedition scout(seed);
     std::string commands;
     for (std::uint32_t level = 0; level < scout.total_levels(); ++level) {
-        for (const Coordinates target :
-             {scout.state().objective().landmark, scout.state().objective().exit_cell}) {
+        for (const Coordinates target : targets_for_level(scout, thorough)) {
             while (scout.state().actor_position() != target) {
                 const std::vector<Coordinates> path =
                     shortest_path(scout.state().map(), scout.state().actor_position(), target);
@@ -937,10 +952,35 @@ TEST_CASE("the expedition score accumulates across levels in the final report") 
     REQUIRE(app.run_plain(input, out) == 0);
     const std::string output = out.str();
 
-    CHECK(output.find("Expedition score: ") != std::string::npos);
-    CHECK(output.find("Expedition discoveries: ") != std::string::npos);
+    // Every level report closes with the running expedition section.
+    CHECK(count_substr(output, "EXPEDITION\n") == 2u);
     CHECK(output.find(" over 1 of 2 levels") != std::string::npos);
     CHECK(output.find(" over 2 of 2 levels") != std::string::npos);
+}
+
+TEST_CASE("a thorough run logs its discoveries and keeps the journal within budget") {
+    ConsoleApp app(Expedition(kExpeditionSeed), Settings{});
+    std::istringstream input(commands_to_finish(kExpeditionSeed, /*thorough=*/true));
+    std::ostringstream out;
+    REQUIRE(app.run_plain(input, out) == 0);
+    const std::string output = out.str();
+
+    CHECK(output.find("Discoveries: 2 / 2") != std::string::npos);
+    CHECK(output.find("Bonus earned: keen eye.") != std::string::npos);
+    CHECK(output.find("Bonus spent: keen eye doubled this level's discoveries.") !=
+          std::string::npos);
+
+    // The journal is the expedition-wide record, so the final report holds every
+    // level's entries. Both levels place one discovery and visiting them both is
+    // what earns the carried bonus.
+    const std::size_t journal = output.rfind("EXPEDITION JOURNAL");
+    REQUIRE(journal != std::string::npos);
+    const std::string final_journal = output.substr(journal);
+    CHECK(count_substr(final_journal, "Found a hidden site off the route (1 of 1).") == 2u);
+
+    // Three entries per level keeps a four-tier run near its twelve-entry budget.
+    CHECK(count_substr(final_journal, "\n6. ") == 1u);
+    CHECK(count_substr(final_journal, "\n7. ") == 0u);
 }
 
 TEST_CASE("quitting at an interlude ends the run without playing the next level") {

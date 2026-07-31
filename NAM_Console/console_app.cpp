@@ -128,11 +128,22 @@ RenderInput ConsoleApp::make_input(bool emphasize) const {
     return input;
 }
 
+JournalContext ConsoleApp::journal_context() const {
+    JournalContext context;
+    context.landmark_name = state().objective().name;
+    context.tier = expedition_.current_tier();
+    context.level_number = expedition_.completed_levels() + 1u;
+    context.total_levels = expedition_.total_levels();
+    context.discoveries_found = state().discoveries_found();
+    context.discovery_total = state().discovery_total();
+    return context;
+}
+
 ObjectiveTransition ConsoleApp::apply_move(Direction direction, bool& emphasize) {
     const GameEvent event = state().move(direction);
     const MoveAttemptedEvent& payload = std::get<MoveAttemptedEvent>(event.data);
     hud_.record_event(event);
-    journal_.record_event(event, state().objective().name);
+    journal_.record_event(event, journal_context());
     route_history_.record_event(event);
     emphasize = payload.outcome.result == MoveResult::moved;
     // A first discovery replaces the ordinary move wording; an objective transition

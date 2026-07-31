@@ -147,32 +147,39 @@ std::vector<std::string> format_report_statistics(const ExpeditionReport& report
                     std::to_string(report.score.discovery_value) + ")");
     lines.push_back("Discoveries: " + std::to_string(report.carryover.discoveries_found) + " / " +
                     std::to_string(report.carryover.discovery_total));
-    if (report.carryover.total_levels > 1u) {
-        lines.push_back("Expedition score: " +
-                        std::to_string(report.carryover.expedition_score) + " over " +
-                        std::to_string(report.carryover.levels_completed) + " of " +
-                        std::to_string(report.carryover.total_levels) + " levels");
-        lines.push_back("Expedition discoveries: " +
-                        std::to_string(report.carryover.expedition_discoveries_found) + " / " +
-                        std::to_string(report.carryover.expedition_discoveries_available));
-    }
-    // A bonus is only worth announcing while there is a next level to carry it to.
-    if (report.carryover.applied_bonus != ExpeditionBonus::none) {
-        lines.emplace_back("Bonus spent: keen eye doubled this level's discoveries.");
-    }
-    if (!report.carryover.expedition_completed &&
-        report.carryover.earned_bonus != ExpeditionBonus::none) {
-        lines.emplace_back("Bonus earned: keen eye. The next level's discoveries are worth double.");
-    }
     lines.push_back("Route: " + std::to_string(report.move_count) + " " +
                     plural(report.move_count, "move", "moves") + ", " +
                     std::to_string(report.actual_stamina_spent) + " stamina (optimal " +
-                    std::to_string(report.optimal_route_cost) + ")");
-    lines.push_back("Blocked moves: " + std::to_string(report.blocked_attempts));
+                    std::to_string(report.optimal_route_cost) + "), " +
+                    std::to_string(report.blocked_attempts) + " blocked");
     lines.push_back("Stamina: " + std::to_string(report.final_stamina) + "/" +
                     std::to_string(report.max_stamina));
     lines.push_back("Explored: " + std::to_string(report.explored_reachable_cells) + " / " +
                     std::to_string(report.total_reachable_cells) + " cells");
+    return lines;
+}
+
+std::vector<std::string> format_report_expedition(const ExpeditionReport& report) {
+    // A standalone level is its own whole expedition, so repeating its figures
+    // under a second heading would say nothing new.
+    if (report.carryover.total_levels <= 1u) return {};
+
+    std::vector<std::string> lines;
+    lines.emplace_back("EXPEDITION");
+    lines.push_back("Score: " + std::to_string(report.carryover.expedition_score) + " over " +
+                    std::to_string(report.carryover.levels_completed) + " of " +
+                    std::to_string(report.carryover.total_levels) + " levels");
+    lines.push_back("Discoveries: " +
+                    std::to_string(report.carryover.expedition_discoveries_found) + " / " +
+                    std::to_string(report.carryover.expedition_discoveries_available));
+    if (report.carryover.applied_bonus != ExpeditionBonus::none) {
+        lines.emplace_back("Bonus spent: keen eye doubled this level's discoveries.");
+    }
+    // A bonus is only worth announcing while there is a next level to carry it to.
+    if (!report.carryover.expedition_completed &&
+        report.carryover.earned_bonus != ExpeditionBonus::none) {
+        lines.emplace_back("Bonus earned: keen eye. The next level's discoveries are worth double.");
+    }
     return lines;
 }
 
@@ -278,6 +285,11 @@ std::vector<std::string> format_report_lines(const ExpeditionReport& report) {
     lines.emplace_back();
     append(format_report_statistics(report));
     lines.emplace_back();
+    const std::vector<std::string> expedition = format_report_expedition(report);
+    if (!expedition.empty()) {
+        append(expedition);
+        lines.emplace_back();
+    }
     append(format_report_identity(report));
     lines.emplace_back();
     append(format_report_route_map(report));

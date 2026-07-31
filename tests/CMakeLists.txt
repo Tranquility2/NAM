@@ -142,7 +142,7 @@ if(TARGET nam_console)
     nam_add_cli_test(cli_run_level_complete
         "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_level_stdin}
         -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=EXPEDITION REPORT|ROUTE MAP|EXPEDITION JOURNAL|Score:|Route:|Blocked moves:|Explored:"
+        "-DEXPECT_CONTAINS=EXPEDITION REPORT|ROUTE MAP|EXPEDITION JOURNAL|Score:|Discoveries:|Route:|Explored:"
         -DFORBID_ESC=1)
     nam_add_cli_test(cli_run_level_deterministic
         "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_level_stdin}
@@ -168,7 +168,7 @@ if(TARGET nam_console)
     nam_add_cli_test(cli_run_phase0_level
         "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}
         -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=Result: level complete.|Blocked moves: 0|Stamina: 0/20|Explored: 55 / 55 cells|Discovered Rain Light Landmark|Reached the exit after Rain Light Landmark"
+        "-DEXPECT_CONTAINS=Result: level complete.|Route: 50 moves|0 blocked|Stamina: 0/20|Explored: 55 / 55 cells|Sighted Rain Light Landmark|Reached the exit after Rain Light Landmark"
         -DFORBID_ESC=1)
     nam_add_cli_test(cli_run_phase0_level_deterministic
         "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}

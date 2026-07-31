@@ -149,10 +149,17 @@ struct ExpeditionReport {
 // to the statistics section so the report never states the same figure twice.
 [[nodiscard]] std::string format_report_story(const ExpeditionReport& report);
 
-// The transparent statistics lines in order (REQ-143 / REQ-144): score, the route
-// summary (moves, stamina spent, optimal route cost), blocked moves, final
-// stamina, and explored reachable terrain out of the total.
+// The transparent statistics for the level this report describes (REQ-143 /
+// REQ-144): score with its route and discovery halves, discoveries found out of
+// the level's total, the route summary (moves, stamina spent, optimal route cost,
+// blocked attempts), final stamina, and explored reachable terrain out of the
+// total.
 [[nodiscard]] std::vector<std::string> format_report_statistics(const ExpeditionReport& report);
+
+// The running expedition totals carried across levels: score, discoveries, and
+// the one carried bonus as it is spent and earned. Empty for a standalone level,
+// whose own statistics already are the whole expedition.
+[[nodiscard]] std::vector<std::string> format_report_expedition(const ExpeditionReport& report);
 
 // The world-identity and replay/run-again lines (REQ-154). All user-controlled
 // bytes are escaped through format_seed_for_display.
@@ -168,7 +175,8 @@ struct ExpeditionReport {
 [[nodiscard]] std::vector<std::string> format_report_legend();
 
 // The complete ordered logical report lines (REQ-153): the `EXPEDITION REPORT`
-// banner, the result and story, the statistics, the world identity, the route map,
+// banner, the result and story, the level statistics, the expedition totals when
+// the run spans more than one level, the world identity, the route map,
 // the route legend, and the `EXPEDITION JOURNAL` section with every entry numbered
 // from 1. These are the single source of report text; the renderer only slices
 // them into a bounded viewport or joins them into a plain block.

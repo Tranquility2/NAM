@@ -22,6 +22,13 @@ using namespace nam::console;
 
 namespace {
 
+// A single-level journal context: the landmark name is all these cases need.
+JournalContext ctx(const std::string& landmark_name) {
+    JournalContext context;
+    context.landmark_name = landmark_name;
+    return context;
+}
+
 GameEvent moved_event(std::uint64_t sequence, Direction direction, Terrain terrain,
                       std::uint32_t cost, Coordinates to) {
     MoveAttemptedEvent move;
@@ -130,7 +137,7 @@ TEST_CASE("completed report shows result story statistics and legend wording") {
     for (std::uint64_t i = 0; i < 3; ++i) {
         const GameEvent event =
             moved_event(i, Direction::right, Terrain::open, 1, Coordinates{static_cast<int>(i) + 1, 0});
-        journal.record_event(event, objective.name);
+        journal.record_event(event, ctx(objective.name));
         route.record_event(event);
     }
 
@@ -144,14 +151,16 @@ TEST_CASE("completed report shows result story statistics and legend wording") {
           "The party found Glass River Exit and reached the exit in 3 moves.");
 
     const std::vector<std::string> stats = format_report_statistics(report);
-    REQUIRE(stats.size() == 7);
+    REQUIRE(stats.size() == 6);
     CHECK(stats[0] == "STATISTICS");
     CHECK(stats[1] == "Score: 980 (route 980 / 1000, discoveries 0)");
     CHECK(stats[2] == "Discoveries: 0 / 0");
-    CHECK(stats[3] == "Route: 3 moves, 3 stamina (optimal 3)");
-    CHECK(stats[4] == "Blocked moves: 1");
-    CHECK(stats[5] == "Stamina: 17/20");
-    CHECK(stats[6] == "Explored: 4 / 4 cells");
+    CHECK(stats[3] == "Route: 3 moves, 3 stamina (optimal 3), 1 blocked");
+    CHECK(stats[4] == "Stamina: 17/20");
+    CHECK(stats[5] == "Explored: 4 / 4 cells");
+
+    // A standalone level has no separate expedition section to repeat itself in.
+    CHECK(format_report_expedition(report).empty());
 
     const std::vector<std::string> legend = format_report_legend();
     REQUIRE(legend.size() == 6);
@@ -170,7 +179,7 @@ TEST_CASE("a wandering route loses five points per excess stamina point") {
     for (std::uint64_t i = 0; i < 3; ++i) {
         const GameEvent event =
             moved_event(i, Direction::right, Terrain::open, 1, Coordinates{static_cast<int>(i) + 1, 0});
-        journal.record_event(event, objective.name);
+        journal.record_event(event, ctx(objective.name));
         route.record_event(event);
     }
 
@@ -191,15 +200,15 @@ TEST_CASE("the route line uses singular grammar for a single move") {
     Journal journal;
     RouteHistory route(Coordinates{0, 0});
     const GameEvent first = moved_event(0, Direction::right, Terrain::open, 1, Coordinates{1, 0});
-    journal.record_event(first, objective.name);
+    journal.record_event(first, ctx(objective.name));
     route.record_event(first);
 
     const ExpeditionReport report =
         build_report(objective, map, visibility, journal, route, 1, 1, 1, 19, 20);
 
     const std::vector<std::string> stats = format_report_statistics(report);
-    REQUIRE(stats.size() == 7);
-    CHECK(stats[3] == "Route: 1 move, 1 stamina (optimal 1)");
+    REQUIRE(stats.size() == 6);
+    CHECK(stats[3] == "Route: 1 move, 1 stamina (optimal 1), 0 blocked");
 }
 
 TEST_CASE("report line sections appear in the required order") {
