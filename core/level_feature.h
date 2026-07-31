@@ -15,35 +15,25 @@
 // The prototype ships one family of each kind:
 //
 // - discovery:     an optional find, off the main route. Entering it the first
-//                  time records a discovery. It changes no stamina, so the
-//                  reward for detouring is score and story, never survival.
-// - hazard:        a visible cell that is expensive to cross. Entering it charges
-//                  an extra stamina penalty on top of the terrain cost. It never
-//                  blocks the step, so a hazard is a route-quality decision and
-//                  never a barrier.
-// - safe_landmark: a resting waypoint on a plausible forward route. Entering it
-//                  restores the stamina meter completely, every time, with no
-//                  command and no state to track.
+//                  time records a discovery, so the reward for detouring is score
+//                  and story.
+// - vantage_point: a viewpoint on a plausible forward route. Entering it the
+//                  first time grants one wide reveal, larger than any terrain's
+//                  own sight radius, and is then inert. It is the reward for
+//                  taking the scenic line rather than the direct one.
 enum class LevelFeatureKind {
     discovery,
-    hazard,
-    safe_landmark,
+    vantage_point,
 };
 
 // A stable, non-localized identifier. Frontends map it to their own wording.
 [[nodiscard]] constexpr std::string_view to_string(LevelFeatureKind kind) noexcept {
     switch (kind) {
         case LevelFeatureKind::discovery:     return "discovery";
-        case LevelFeatureKind::hazard:        return "hazard";
-        case LevelFeatureKind::safe_landmark: return "safe_landmark";
+        case LevelFeatureKind::vantage_point: return "vantage_point";
     }
     return "discovery";
 }
-
-// The extra stamina a hazard charges on entry, on top of the destination
-// terrain's own cost. The charge saturates at zero like every other cost, so a
-// hazard can empty the meter but can never refuse the step.
-inline constexpr std::uint32_t hazard_stamina_penalty = 6u;
 
 // One placed piece of authored content.
 struct LevelFeature {

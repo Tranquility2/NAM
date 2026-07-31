@@ -69,15 +69,13 @@ inline constexpr char objective_glyph = '*';
 // on top of terrain and never replace or mutate it, and they are chosen so they
 // collide with no terrain symbol, the actor, or the objective target.
 inline constexpr char discovery_glyph = '?';
-inline constexpr char hazard_glyph = '!';
-inline constexpr char safe_landmark_glyph = '+';
+inline constexpr char vantage_point_glyph = '+';
 
 // The overlay glyph for one authored feature kind.
 [[nodiscard]] constexpr char feature_glyph(LevelFeatureKind kind) noexcept {
     switch (kind) {
         case LevelFeatureKind::discovery:     return discovery_glyph;
-        case LevelFeatureKind::hazard:        return hazard_glyph;
-        case LevelFeatureKind::safe_landmark: return safe_landmark_glyph;
+        case LevelFeatureKind::vantage_point: return vantage_point_glyph;
     }
     return discovery_glyph;
 }

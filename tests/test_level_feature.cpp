@@ -10,6 +10,7 @@
 #include "level_feature.h"
 #include "level_template.h"
 #include "map.h"
+#include "visibility.h"
 #include "terrain.h"
 #include "world_generation.h"
 
@@ -61,71 +62,65 @@ TEST_CASE("a handcrafted map carries no authored content") {
     CHECK_FALSE(state.feature_at(Coordinates{1, 1}).has_value());
 }
 
-TEST_CASE("a hazard charges its penalty on top of the terrain cost without blocking the step") {
-    GameState state(arena({LevelFeature{Coordinates{2, 1}, LevelFeatureKind::hazard}},
+TEST_CASE("a vantage point grants one wide reveal on first entry and is then inert") {
+    GameState state(arena({LevelFeature{Coordinates{2, 1}, LevelFeatureKind::vantage_point}},
                           Coordinates{5, 3}));
-    const std::uint32_t before = state.stamina();
 
-    const MoveOutcome outcome = state.peek(Direction::right);
-    CHECK(outcome.result == MoveResult::moved);
-    REQUIRE(outcome.feature.has_value());
-    CHECK(*outcome.feature == LevelFeatureKind::hazard);
-    CHECK(outcome.stamina_cost == stamina_cost_of(Terrain::open).value() + hazard_stamina_penalty);
+    // peek stays a pure preview: it reports the feature but resolves nothing.
+    const MoveOutcome preview = state.peek(Direction::right);
+    CHECK(preview.result == MoveResult::moved);
+    REQUIRE(preview.feature.has_value());
+    CHECK(*preview.feature == LevelFeatureKind::vantage_point);
 
-    const GameEvent event = state.move(Direction::right);
-    CHECK(state.actor_position() == Coordinates{2, 1});
-    CHECK(state.stamina() < before);
-    CHECK(movement(event).outcome.stamina_after == state.stamina());
-    CHECK_FALSE(movement(event).discovery_recorded);
+    const GameEvent first = state.move(Direction::right);
+    CHECK(movement(first).wide_reveal_granted);
+    CHECK_FALSE(movement(first).discovery_recorded);
+
+    // Leaving and returning does not fire it again.
+    static_cast<void>(state.move(Direction::down));
+    const GameEvent again = state.move(Direction::up);
+    CHECK(movement(again).outcome.result == MoveResult::moved);
+    CHECK_FALSE(movement(again).wide_reveal_granted);
 }
 
-TEST_CASE("a hazard the meter cannot pay for still succeeds and saturates at zero") {
-    GameState state(arena({LevelFeature{Coordinates{2, 1}, LevelFeatureKind::hazard},
-                           LevelFeature{Coordinates{3, 1}, LevelFeatureKind::hazard},
-                           LevelFeature{Coordinates{4, 1}, LevelFeatureKind::hazard},
-                           LevelFeature{Coordinates{5, 1}, LevelFeatureKind::hazard},
-                           LevelFeature{Coordinates{5, 2}, LevelFeatureKind::hazard}},
-                          Coordinates{1, 3}));
+TEST_CASE("a vantage point costs exactly what its terrain costs and never blocks") {
+    GameState state(arena({LevelFeature{Coordinates{2, 1}, LevelFeatureKind::vantage_point}},
+                          Coordinates{5, 3}));
 
-    for (int step = 0; step < 4; ++step) {
-        const GameEvent event = state.move(Direction::right);
-        CHECK(movement(event).outcome.result == MoveResult::moved);
-    }
-    CHECK(state.actor_position() == Coordinates{5, 1});
-    // Four hazard crossings have driven the meter far below one hazard charge.
-    REQUIRE(state.stamina() < hazard_stamina_penalty);
-
-    // The fifth crossing costs more than the actor has. It is still legal: the
-    // charge saturates at zero and open ground pays its passive recovery back.
-    const std::uint32_t open_recovery = passive_recovery_of(Terrain::open).value();
-    const GameEvent event = state.move(Direction::down);
+    const GameEvent event = state.move(Direction::right);
     CHECK(movement(event).outcome.result == MoveResult::moved);
-    CHECK(movement(event).outcome.stamina_cost ==
-          stamina_cost_of(Terrain::open).value() + hazard_stamina_penalty);
-    CHECK(state.actor_position() == Coordinates{5, 2});
-    CHECK(state.stamina() == open_recovery);
+    CHECK(movement(event).outcome.stamina_cost == stamina_cost_of(Terrain::open).value());
+    CHECK(state.actor_position() == Coordinates{2, 1});
 }
 
-TEST_CASE("a safe landmark restores the meter completely every time it is entered") {
-    GameState state(arena({LevelFeature{Coordinates{2, 1}, LevelFeatureKind::hazard},
-                           LevelFeature{Coordinates{3, 1}, LevelFeatureKind::safe_landmark}},
-                          Coordinates{5, 3}));
+TEST_CASE("a vantage point reveals ground no terrain radius could reach") {
+    // A wide arena so the reveal is not clipped away by the map edges. The vantage
+    // sits far enough from the spawn that the cell checked below is outside the
+    // spawn's own sight square but inside the vantage's.
+    constexpr std::size_t width = 31;
+    constexpr std::size_t height = 25;
+    std::vector<Terrain> cells(width * height, Terrain::open);
+    for (std::size_t x = 0; x < width; ++x) {
+        cells[x] = Terrain::cliff;
+        cells[(height - 1) * width + x] = Terrain::cliff;
+    }
+    for (std::size_t y = 1; y + 1 < height; ++y) {
+        cells[y * width] = Terrain::cliff;
+        cells[y * width + width - 1] = Terrain::cliff;
+    }
+    const Coordinates spawn{15, 12};
+    LevelLayout layout;
+    layout.exit = Coordinates{1, 1};
+    layout.features = {LevelFeature{Coordinates{16, 12}, LevelFeatureKind::vantage_point}};
+    GameState state(Map(width, height, std::move(cells), spawn, std::move(layout)));
 
-    static_cast<void>(state.move(Direction::right));
-    REQUIRE(state.stamina() < state.max_stamina());
+    // Open ground sees 3, so a cell 8 away is still unexplored before the vantage.
+    const Coordinates distant{16 + 8, 12};
+    REQUIRE(state.visibility().at(distant) == CellVisibility::unexplored);
 
     const GameEvent event = state.move(Direction::right);
-    CHECK(state.stamina() == state.max_stamina());
-    REQUIRE(movement(event).outcome.feature.has_value());
-    CHECK(*movement(event).outcome.feature == LevelFeatureKind::safe_landmark);
-
-    // Leaving and returning restores again: a safe landmark is stateless.
-    static_cast<void>(state.move(Direction::down));
-    static_cast<void>(state.move(Direction::down));
-    REQUIRE(state.stamina() <= state.max_stamina());
-    static_cast<void>(state.move(Direction::up));
-    static_cast<void>(state.move(Direction::up));
-    CHECK(state.stamina() == state.max_stamina());
+    REQUIRE(movement(event).wide_reveal_granted);
+    CHECK(state.visibility().at(distant) == CellVisibility::visible);
 }
 
 TEST_CASE("a discovery is recorded once and changes no stamina") {
@@ -138,6 +133,7 @@ TEST_CASE("a discovery is recorded once and changes no stamina") {
 
     const GameEvent first = state.move(Direction::right);
     CHECK(movement(first).discovery_recorded);
+    CHECK_FALSE(movement(first).wide_reveal_granted);
     CHECK(state.discoveries_found() == 1u);
 
     // Re-entering the same cell is an ordinary step.
@@ -205,8 +201,7 @@ TEST_CASE("content placement is deterministic for one tier and seed") {
 
 TEST_CASE("the feature kind identifiers are stable and non-localized") {
     CHECK(std::string(to_string(LevelFeatureKind::discovery)) == "discovery");
-    CHECK(std::string(to_string(LevelFeatureKind::hazard)) == "hazard");
-    CHECK(std::string(to_string(LevelFeatureKind::safe_landmark)) == "safe_landmark");
+    CHECK(std::string(to_string(LevelFeatureKind::vantage_point)) == "vantage_point");
 }
 
 }  // TEST_SUITE("game")

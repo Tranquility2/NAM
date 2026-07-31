@@ -138,7 +138,7 @@ TEST_CASE("an exhausted meter never refuses a walkable step") {
                 if (outcome.result == MoveResult::blocked_by_boundary) continue;
 
                 // The only legitimate refusal is impassable terrain. Stamina, the
-                // meter's history, and hazards must never produce one.
+                // meter's history, and authored content must never produce one.
                 CHECK((outcome.result == MoveResult::moved) == is_walkable(outcome.terrain));
                 if (outcome.result != MoveResult::moved) continue;
                 if (!roughest || outcome.stamina_cost > roughest_cost) {

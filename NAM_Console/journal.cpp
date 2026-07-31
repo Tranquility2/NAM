@@ -14,8 +14,12 @@ struct EntryFormatter {
         return "Found a hidden site off the route (" + std::to_string(entry.ordinal) + " of " +
                std::to_string(entry.total) + ").";
     }
+    std::string operator()(const VantageEntry&) const {
+        return "Climbed to a vantage point and the level opened up.";
+    }
     std::string operator()(const LandmarkEntry& entry) const {
-        return "Sighted " + entry.landmark_name + "; the exit direction was revealed.";
+        return "Sighted " + entry.landmark_name +
+               "; the land opened up and the exit direction was revealed.";
     }
     std::string operator()(const CompletionEntry& entry) const {
         if (entry.total_levels <= 1u) {
@@ -41,6 +45,13 @@ void Journal::record_event(const GameEvent& event, const JournalContext& context
     if (move->discovery_recorded) {
         entries_.push_back(JournalEntry{
             DiscoveryEntry{event.sequence, context.discoveries_found, context.discovery_total}});
+    }
+
+    // A landmark grants the same wide reveal, but it is recorded below as the
+    // larger milestone rather than twice.
+    if (move->wide_reveal_granted &&
+        move->objective_update.transition != ObjectiveTransition::landmark_discovered) {
+        entries_.push_back(JournalEntry{VantageEntry{event.sequence}});
     }
 
     switch (move->objective_update.transition) {

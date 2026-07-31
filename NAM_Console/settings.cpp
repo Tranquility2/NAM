@@ -290,9 +290,8 @@ std::string usage_text() {
     text += "  -V, --version     Show version information and exit.\n\n";
     text += "Controls (interactive): arrow keys or W/A/S/D (H/K/L also move) to move,\n";
     text += "j for the expedition journal, q or Esc to quit.\n";
-    text += "Map overlay: * current objective, ? discovery (optional find), ! hazard\n";
-    text += "(costs extra stamina to cross but never blocks), + safe landmark (restores\n";
-    text += "stamina on entry).\n";
+    text += "Map overlay: * current objective, ? discovery (optional find), + vantage\n";
+    text += "point (one-off wide view of the surrounding land, on first entry).\n";
     text += "Environment: NO_COLOR and TERM=dumb disable colour; a non-terminal stdin/stdout\n";
     text += "uses plain mode automatically.\n";
     return text;

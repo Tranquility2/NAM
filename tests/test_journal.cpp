@@ -152,7 +152,7 @@ TEST_CASE("landmark and completion prose name the landmark exactly") {
         move_event(0, Direction::right, Terrain::open, 1, ObjectiveTransition::landmark_discovered),
         ctx("North Ridge"));
     CHECK(format_entry(discovery.entries().back()) ==
-          std::string("Sighted North Ridge; the exit direction was revealed."));
+          std::string("Sighted North Ridge; the land opened up and the exit direction was revealed."));
 
     Journal completion;
     completion.record_event(move_event(0, Direction::left, Terrain::open, 1,
@@ -190,7 +190,7 @@ TEST_CASE("repeated identical scripts produce byte-identical prose and structure
     CHECK(prose_of(first) == prose_of(second));
 
     const std::vector<std::string> expected{
-        "Sighted North Ridge; the exit direction was revealed.",
+        "Sighted North Ridge; the land opened up and the exit direction was revealed.",
         "Reached the exit after North Ridge; level complete.",
     };
     CHECK(prose_of(first) == expected);

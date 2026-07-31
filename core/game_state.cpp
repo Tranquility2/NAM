@@ -50,32 +50,15 @@ MoveOutcome GameState::peek(Direction direction) const {
                 0, 0, stamina_, stamina_};
     }
 
-    // A hazard adds its penalty to the terrain charge. It is part of the cost, not
-    // a separate gate, so the saturating subtraction below still cannot refuse the
-    // step however low the meter is.
-    const std::optional<LevelFeatureKind> feature = feature_at(target);
-    const bool hazardous = feature == LevelFeatureKind::hazard;
-    const std::uint32_t cost = *terrain_cost + (hazardous ? hazard_stamina_penalty : 0u);
-
     // Movement is fluid: an in-bounds walkable destination always succeeds.
     // Stamina is a terrain-pressure meter, so the destination cost is charged
     // with a saturating subtraction that can never refuse the step, and the
     // terrain's passive recovery is then added back under the cap.
+    const std::optional<LevelFeatureKind> feature = feature_at(target);
+    const std::uint32_t cost = *terrain_cost;
     const std::uint32_t drained = stamina_ >= cost ? stamina_ - cost : 0u;
-
-    // Reaching the level landmark for the first time is a safe waypoint that
-    // restores the meter completely. Deciding it here keeps peek() the single
-    // source of movement outcomes and keeps stamina_after equal to the stamina
-    // move() commits, even though the objective itself advances afterwards.
-    const bool reaches_landmark =
-        objective_.status == ObjectiveStatus::seeking_landmark && target == objective_.landmark;
-    // A safe landmark is a recovery waypoint with no command and no state: every
-    // entry restores the meter, so the rule is a pure function of the destination.
-    const bool restores = reaches_landmark || feature == LevelFeatureKind::safe_landmark;
     const std::uint32_t stamina_after =
-        restores
-            ? maximum_stamina
-            : std::min(maximum_stamina, drained + passive_recovery_of(destination).value_or(0u));
+        std::min(maximum_stamina, drained + passive_recovery_of(destination).value_or(0u));
 
     return {MoveResult::moved, from,     target,        destination,
             cost,              stamina_after - drained, stamina_, stamina_after,
@@ -92,6 +75,7 @@ GameEvent GameState::move(Direction direction) {
     const ObjectiveStatus objective_before = objective_.status;
     ObjectiveTransition objective_transition = ObjectiveTransition::none;
     bool discovery_recorded = false;
+    bool wide_reveal_granted = false;
 
     if (outcome.result == MoveResult::moved) {
         actor_position_ = outcome.to;
@@ -105,19 +89,37 @@ GameEvent GameState::move(Direction direction) {
         // committed, so a discovered landmark or completed level reflects the fully
         // updated state. Blocked attempts never advance the objective.
         objective_transition = advance_objective(objective_, actor_position_);
+        if (objective_transition == ObjectiveTransition::landmark_discovered) {
+            wide_reveal_granted = true;
+        }
 
-        // Record a discovery the first time the actor enters its cell. This is the
-        // only feature rule that carries state, and it is committed after movement
-        // so a recorded discovery always describes a position the actor holds.
+        // Resolve the authored content on the destination. Both kinds fire exactly
+        // once and are then inert, which is the only feature state the core keeps.
+        // Resolution is committed after movement, so a recorded discovery or a
+        // fired vantage point always describes a position the actor holds.
         const std::vector<LevelFeature>& placed = features();
         for (std::size_t index = 0; index < placed.size(); ++index) {
-            if (placed[index].kind != LevelFeatureKind::discovery ||
-                placed[index].position != actor_position_ || feature_resolved_[index]) {
+            if (placed[index].position != actor_position_ || feature_resolved_[index]) {
                 continue;
             }
             feature_resolved_[index] = true;
-            ++discoveries_found_;
-            discovery_recorded = true;
+            switch (placed[index].kind) {
+                case LevelFeatureKind::discovery:
+                    ++discoveries_found_;
+                    discovery_recorded = true;
+                    break;
+                case LevelFeatureKind::vantage_point:
+                    wide_reveal_granted = true;
+                    break;
+            }
+        }
+
+        // A wide reveal is applied last, over the terrain square already revealed.
+        // reveal_square demotes what it does not cover, and the wide square always
+        // contains the terrain square, so the second call widens sight without
+        // forgetting anything the first call showed.
+        if (wide_reveal_granted) {
+            visibility_.reveal_square(actor_position_, wide_reveal_radius);
         }
     }
 
@@ -126,7 +128,7 @@ GameEvent GameState::move(Direction direction) {
     event.data = MoveAttemptedEvent{direction, outcome,
                                     ObjectiveUpdate{objective_before, objective_.status,
                                                     objective_transition},
-                                    discovery_recorded};
+                                    discovery_recorded, wide_reveal_granted};
     ++next_event_sequence_;
     return event;
 }

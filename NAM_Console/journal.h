@@ -22,9 +22,10 @@ namespace nam::console {
 // through the immediate HUD message and the final statistics; only durable
 // milestones become entries, so a full run stays readable end to end.
 //
-// Entries fall into the three categories the prototype can produce: an optional
-// discovery, an objective milestone, and a level completion. A full level yields
-// about three entries, which keeps a four-tier run near its budget.
+// Entries fall into the four categories the prototype can produce: an optional
+// discovery, a notable encounter, an objective milestone, and a level completion.
+// A full level yields about three entries, which keeps a four-tier run near its
+// budget.
 
 // An optional find the actor entered for the first time. `ordinal` is its place
 // in the level's discovery order, so an entry reads as progress rather than as a
@@ -35,7 +36,15 @@ struct DiscoveryEntry {
     std::uint32_t total = 0;
 };
 
-// The move that first entered the landmark cell and revealed the exit bearing.
+// The move that first entered a vantage point, which opened the level up with a
+// one-off wide reveal. Reaching the named landmark grants the same sight but is
+// recorded as a LandmarkEntry, because that is the larger moment.
+struct VantageEntry {
+    std::uint64_t sequence = 0;
+};
+
+// The move that first entered the landmark cell, revealing the exit bearing and a
+// wide view of the level.
 struct LandmarkEntry {
     std::uint64_t sequence = 0;
     std::string landmark_name;
@@ -63,7 +72,8 @@ struct InitialCompletionEntry {
 // The payload of one journal entry. A variant so distinct entry kinds keep their
 // own typed fields and prose is rendered through one total visitor (GUD-002).
 using JournalEntryData =
-    std::variant<DiscoveryEntry, LandmarkEntry, CompletionEntry, InitialCompletionEntry>;
+    std::variant<DiscoveryEntry, VantageEntry, LandmarkEntry, CompletionEntry,
+                 InitialCompletionEntry>;
 
 // One journal entry: a structured payload with no rendered text of its own.
 struct JournalEntry {

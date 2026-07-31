@@ -32,11 +32,17 @@
 // `discovery_recorded` is true only on the move that first enters a discovery
 // cell. Re-entering an already-found discovery is an ordinary step, so a frontend
 // can log the moment once without tracking which cells it has already seen.
+//
+// `wide_reveal_granted` is true on the move that fires a vantage point for the
+// first time, and on the move that first reaches the level's named landmark. Both
+// grant the same one-off wide sight, so a frontend can report that the level
+// opened up without re-deriving which cells changed.
 struct MoveAttemptedEvent {
     Direction direction{};
     MoveOutcome outcome{};
     ObjectiveUpdate objective_update{};
     bool discovery_recorded = false;
+    bool wide_reveal_granted = false;
 };
 
 // The payload of a GameEvent. A variant so command families can add their own

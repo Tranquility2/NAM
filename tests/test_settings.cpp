@@ -139,10 +139,9 @@ TEST_CASE("usage and version text are self-describing") {
     CHECK(usage.find("--map") != std::string::npos);
     CHECK(usage.find("--plain") != std::string::npos);
     CHECK(usage.find("--help") != std::string::npos);
-    // The hazard consequence must be discoverable without first contact.
+    // Every overlay effect must be discoverable without first contact.
     CHECK(usage.find("? discovery") != std::string::npos);
-    CHECK(usage.find("! hazard") != std::string::npos);
-    CHECK(usage.find("+ safe landmark") != std::string::npos);
+    CHECK(usage.find("+ vantage") != std::string::npos);
     CHECK(usage.find("--seed") != std::string::npos);
     CHECK(usage.find("deterministic expedition") != std::string::npos);
     CHECK(usage.find("128") != std::string::npos);

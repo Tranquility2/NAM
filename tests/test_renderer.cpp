@@ -268,21 +268,20 @@ TEST_SUITE("console") {
 TEST_CASE("authored content is drawn as its own overlay glyph over terrain") {
     LevelLayout layout;
     layout.features = {LevelFeature{Coordinates{1, 0}, LevelFeatureKind::discovery},
-                       LevelFeature{Coordinates{2, 0}, LevelFeatureKind::hazard},
-                       LevelFeature{Coordinates{3, 0}, LevelFeatureKind::safe_landmark}};
+                       LevelFeature{Coordinates{3, 0}, LevelFeatureKind::vantage_point}};
     const Map map(5, 1, std::vector<Terrain>(5, Terrain::open), Coordinates{0, 0},
                   std::move(layout));
 
     Renderer renderer(RenderConfig{false, false, false, false});
     const std::string plain = renderer.render_plain(make_input(map));
 
-    CHECK(plain.find("O?!+.") != std::string::npos);
+    CHECK(plain.find("O?.+.") != std::string::npos);
 }
 
 TEST_CASE("the objective target outranks authored content sharing its cell") {
     LevelLayout layout;
     layout.exit = Coordinates{2, 0};
-    layout.features = {LevelFeature{Coordinates{2, 0}, LevelFeatureKind::hazard}};
+    layout.features = {LevelFeature{Coordinates{2, 0}, LevelFeatureKind::vantage_point}};
     const Map map(4, 1, std::vector<Terrain>(4, Terrain::open), Coordinates{0, 0},
                   std::move(layout));
 

@@ -34,18 +34,14 @@ enum class MoveResult {
 // - feature: the authored content on the outcome's destination cell, if any. It
 //            is empty on every blocked result and on any cell the level template
 //            left plain, so a frontend never re-derives content from coordinates.
-// - stamina_cost: the stamina charged for entering the outcome's terrain, plus
-//            hazard_stamina_penalty when the destination carries a hazard. On
+// - stamina_cost: the stamina charged for entering the outcome's terrain. On
 //            every blocked result it is 0 because no walkable destination cost
 //            applies. The charge saturates at zero, so it is an upper bound on the
-//            stamina actually lost rather than a guaranteed deduction. A hazard
-//            therefore makes a step expensive but never illegal.
+//            stamina actually lost rather than a guaranteed deduction.
 // - stamina_recovered: the stamina automatically regained by the step, after the
 //            cost was charged. On `moved` this is the destination terrain's
-//            passive_recovery_of amount clamped by the maximum, or the full
-//            restoration granted by reaching the level landmark for the first
-//            time or by entering a safe landmark; it is 0 on every blocked
-//            result.
+//            passive_recovery_of amount clamped by the maximum; it is 0 on every
+//            blocked result.
 // - stamina_before: the actor's current stamina before the attempt.
 // - stamina_after:  the actor's current stamina after the attempt. On `moved`
 //            this is the saturating charge of `stamina_cost` followed by

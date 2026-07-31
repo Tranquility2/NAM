@@ -27,15 +27,13 @@ constexpr int standard_min_map_rows = 3;
 constexpr int color_actor = 93;   // Bright yellow.
 constexpr int color_objective = 96;  // Bright cyan: the current objective target.
 constexpr int color_discovery = 95;     // Bright magenta: an optional find.
-constexpr int color_hazard = 91;        // Bright red: an expensive crossing.
-constexpr int color_safe_landmark = 92; // Bright green: a recovery waypoint.
+constexpr int color_vantage_point = 97; // Bright white: a one-off wide reveal.
 
 // The colour for one authored-content overlay glyph.
 [[nodiscard]] constexpr int color_for_feature(LevelFeatureKind kind) noexcept {
     switch (kind) {
         case LevelFeatureKind::discovery:     return color_discovery;
-        case LevelFeatureKind::hazard:        return color_hazard;
-        case LevelFeatureKind::safe_landmark: return color_safe_landmark;
+        case LevelFeatureKind::vantage_point: return color_vantage_point;
     }
     return color_discovery;
 }
@@ -104,7 +102,7 @@ constexpr int color_safe_landmark = 92; // Bright green: a recovery waypoint.
 // remembered overlay reuses the dim-memory style, and an unexplored overlay stays
 // blank like any other unexplored cell so hidden content never leaks. The
 // objective target outranks authored content, which outranks terrain, so the cell
-// the player must reach is never hidden by a discovery or hazard sharing it.
+// the player must reach is never hidden by a discovery or vantage point on it.
 // Plain and no-colour modes emit only the glyph with no new escape sequence.
 // ANSI style transitions explicitly reset before switching kinds so dim or
 // colour state cannot leak into adjacent cells, padding, HUD text, or later

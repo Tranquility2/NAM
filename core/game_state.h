@@ -36,9 +36,8 @@ public:
     // step: a successful move charges the destination terrain's cost with a
     // saturating subtraction and immediately adds back that terrain's
     // passive_recovery_of amount, so easy ground restores the meter and rough
-    // ground drains it. A hazard cell adds hazard_stamina_penalty to the charge
-    // without ever refusing the step. Reaching the level landmark for the first
-    // time, or entering a safe landmark at any time, restores it completely.
+    // ground drains it. Nothing else moves the meter: authored content grants
+    // sight, never recovery.
     [[nodiscard]] std::uint32_t stamina() const noexcept { return stamina_; }
     [[nodiscard]] std::uint32_t max_stamina() const noexcept { return maximum_stamina; }
 
@@ -118,8 +117,9 @@ private:
     std::uint32_t stamina_ = maximum_stamina;
     std::uint64_t next_event_sequence_ = 0;
     // Parallel to map_.layout().features: true once that feature has been entered.
-    // Only discoveries read it; hazards and safe landmarks apply every time, which
-    // is what keeps peek() a pure function of position and stamina.
+    // Both kinds fire exactly once and are then inert, so this is the whole of the
+    // core's feature state. peek() never reads it, which is what keeps peek() a
+    // pure function of position and stamina.
     std::vector<bool> feature_resolved_;
     std::uint32_t discoveries_found_ = 0;
     std::uint32_t discovery_total_ = 0;

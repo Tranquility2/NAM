@@ -183,7 +183,7 @@ TEST_CASE("the phase 0 walk emits exactly one ordered event per command") {
     }
 }
 
-TEST_CASE("the phase 0 walk restores the stamina meter on first landmark entry") {
+TEST_CASE("the phase 0 walk is granted a wide reveal on first landmark entry") {
     const Map map = load_phase0_level();
     GameState state(map);
     const Walk walk = walk_level(state);
@@ -193,7 +193,7 @@ TEST_CASE("the phase 0 walk restores the stamina meter on first landmark entry")
         const auto* move = std::get_if<MoveAttemptedEvent>(&event.data);
         REQUIRE(move != nullptr);
         if (move->objective_update.transition != ObjectiveTransition::landmark_discovered) continue;
-        CHECK(move->outcome.stamina_after == state.max_stamina());
+        CHECK(move->wide_reveal_granted);
         checked = true;
     }
     CHECK(checked);

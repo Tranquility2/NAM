@@ -833,7 +833,8 @@ TEST_CASE("plain j records prior moves and does not dismiss discovery") {
     const int code = run_plain_state(make_corridor_state(), "d\nd\nj\nq\n", output);
     CHECK(code == 0);
     CHECK(output.find("EXPEDITION JOURNAL") != std::string::npos);
-    CHECK(output.find("Sighted " + name + "; the exit direction was revealed.") !=
+    CHECK(output.find("Sighted " + name +
+                      "; the land opened up and the exit direction was revealed.") !=
           std::string::npos);
 }
 

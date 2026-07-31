@@ -38,6 +38,11 @@ namespace nam::console {
 // so the count makes the remaining reward legible without a separate HUD field.
 [[nodiscard]] std::string describe_discovery_found(std::uint32_t found, std::uint32_t total);
 
+// The latest-event message shown when a move first fires a vantage point. It
+// replaces the ordinary move wording for that command, because the wide reveal is
+// the thing that happened.
+[[nodiscard]] std::string describe_vantage_reached();
+
 // A user-facing explanation of why a map failed to load, including the source
 // and line/column when the parser reported them.
 [[nodiscard]] std::string describe_map_error(const MapLoadError& error);

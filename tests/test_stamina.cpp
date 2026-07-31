@@ -141,9 +141,9 @@ TEST_CASE("open ground gives back more stamina than it charges") {
     CHECK(state.stamina() == 17u);
 }
 
-TEST_CASE("reaching the level landmark restores the meter completely") {
-    // The landmark is the safe waypoint of the level: entering it for the first
-    // time refills the meter no matter how drained the approach was.
+TEST_CASE("reaching the level landmark grants sight and leaves the meter alone") {
+    // The landmark's reward is a wide reveal, not recovery. It charges exactly
+    // what its terrain charges, like any other step.
     GameState state(make_map("NAM-MAP 1\nwidth 4\nheight 1\nspawn 0 0\n---\n.@@.\n"));
     REQUIRE(state.objective().landmark == Coordinates{2, 0});
 
@@ -153,9 +153,9 @@ TEST_CASE("reaching the level landmark restores the meter completely") {
     CHECK(onto_landmark.result == MoveResult::moved);
     CHECK(onto_landmark.stamina_cost == 4u);
     CHECK(onto_landmark.stamina_before == 16u);
-    CHECK(onto_landmark.stamina_recovered == 8u);
-    CHECK(onto_landmark.stamina_after == 20u);
-    CHECK(state.stamina() == 20u);
+    CHECK(onto_landmark.stamina_recovered == passive_recovery_of(Terrain::mountain).value());
+    CHECK(onto_landmark.stamina_after == 16u - 4u + onto_landmark.stamina_recovered);
+    CHECK(state.stamina() == onto_landmark.stamina_after);
 }
 
 TEST_CASE("the stamina charge saturates at zero instead of refusing a step") {

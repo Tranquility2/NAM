@@ -68,22 +68,22 @@ LevelTemplate template_of(LevelTier tier, ExitCorner corner) {
         BranchSpur{Coordinates{flank_x, spawn.y}, flank_spur, 3},
         BranchSpur{Coordinates{spur_x, approach_y}, approach_spur, 1},
     };
-    // The hazard sits on the first corridor and the safe landmark on the flank, so
-    // both are on the main route: the player meets the hazard decision early and
-    // the recovery waypoint afterwards. The discovery sits in the quadrant the
-    // route never crosses -- the exit's horizontal side, the opposite vertical
-    // side -- so finding it always costs a deliberate detour.
-    const ZoneRect hazard_zone = exit_right
-                                     ? ZoneRect{spawn.x - 6, first_y, spawn.x - 4, first_y}
-                                     : ZoneRect{spawn.x + 4, first_y, spawn.x + 6, first_y};
+    // Two vantage points sit on the main route -- one on the first corridor and one
+    // on the flank -- so the player is shown what a wide reveal does early and can
+    // then judge whether the next one is worth the detour. The discovery sits in
+    // the quadrant the route never crosses -- the exit's horizontal side, the
+    // opposite vertical side -- so finding it always costs a deliberate detour.
+    const ZoneRect early_vantage_zone = exit_right
+                                            ? ZoneRect{spawn.x - 6, first_y, spawn.x - 4, first_y}
+                                            : ZoneRect{spawn.x + 4, first_y, spawn.x + 6, first_y};
     const int discovery_min_x = exit_right ? (spawn.x + 2) : 2;
     const int discovery_max_x = exit_right ? (max_x - 1) : (spawn.x - 2);
     const int discovery_min_y = exit_top ? (spawn.y + 2) : 1;
     const int discovery_max_y = exit_top ? max_y : (spawn.y - 2);
     level.content_slots = {
-        ContentSlot{hazard_zone, LevelFeatureKind::hazard, true},
+        ContentSlot{early_vantage_zone, LevelFeatureKind::vantage_point, true},
         ContentSlot{ZoneRect{flank_x, spawn.y - 1, flank_x, spawn.y + 1},
-                    LevelFeatureKind::safe_landmark, true},
+                    LevelFeatureKind::vantage_point, true},
         ContentSlot{ZoneRect{discovery_min_x, discovery_min_y, discovery_max_x, discovery_max_y},
                     LevelFeatureKind::discovery, false},
     };

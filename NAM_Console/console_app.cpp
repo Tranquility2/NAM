@@ -149,6 +149,9 @@ ObjectiveTransition ConsoleApp::apply_move(Direction direction, bool& emphasize)
     // A first discovery replaces the ordinary move wording; an objective transition
     // outranks it below, because reaching the landmark or the exit is the more
     // important thing that happened on that command.
+    if (payload.wide_reveal_granted) {
+        hud_.set_message(describe_vantage_reached());
+    }
     if (payload.discovery_recorded) {
         hud_.set_message(
             describe_discovery_found(state().discoveries_found(), state().discovery_total()));

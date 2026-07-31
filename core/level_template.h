@@ -87,7 +87,7 @@ struct BranchSpur {
 
 // One reserved place for authored content. `zone` bounds the eligible cells and
 // `on_route` records whether the slot deliberately sits on the main route, which
-// is what distinguishes a hazard the player must decide about from a discovery
+// is what distinguishes a vantage point the player passes anyway from a discovery
 // that rewards leaving the route.
 struct ContentSlot {
     ZoneRect zone{};
@@ -121,10 +121,10 @@ struct LevelTemplate {
 // back toward the exit corner. That produces a long, readable circuit whose two
 // ends are far apart, so the direct line between them is never the route.
 //
-// Content follows the same mirroring: the hazard sits on the first corridor and
-// the safe landmark on the flank, while the discovery sits in the quadrant the
-// route never crosses, which is the exit's horizontal side and the opposite
-// vertical side.
+// Content follows the same mirroring: one vantage point sits on the first corridor
+// and another on the flank, while the discovery sits in the quadrant the route
+// never crosses, which is the exit's horizontal side and the opposite vertical
+// side.
 [[nodiscard]] LevelTemplate template_of(LevelTier tier, ExitCorner corner);
 
 // The ordered cells of the main route for one seeded exit: the spawn, every
