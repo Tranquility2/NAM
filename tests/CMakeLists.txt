@@ -57,7 +57,10 @@ function(nam_add_unit_test name)
     # Note: ADD_LABELS resolves a case's suite by name, so TEST_CASE names must
     # avoid doctest filter metacharacters (',' ';' '*' '?') or the suite label
     # is skipped for that case.
-    doctest_discover_tests(${name} ADD_LABELS 1 PROPERTIES LABELS "unit")
+    # TIMEOUT bounds a hung case: every case here runs in milliseconds, so a test
+    # that reaches 60s is wedged, and without the bound CTest would wait out its
+    # 1500s default — long enough to burn a whole CI job on one hang.
+    doctest_discover_tests(${name} ADD_LABELS 1 PROPERTIES LABELS "unit" TIMEOUT 60)
 endfunction()
 
 nam_add_unit_test(nam_parser_tests
@@ -91,7 +94,10 @@ if(TARGET nam_console)
     set(_wander_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_wander.txt)
     set(_phase0_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_phase0_level.txt)
 
-    # add a CLI test: name plus driver options forwarded as -D definitions.
+    # add a CLI test: name plus driver options forwarded as -D definitions. The
+    # TIMEOUT matters more here than for unit tests: these launch the real
+    # executable with stdin redirected, so a frontend that stops consuming input
+    # blocks forever instead of failing.
     function(nam_add_cli_test name)
         add_test(
             NAME ${name}
@@ -99,7 +105,7 @@ if(TARGET nam_console)
                     -DEXE=$<TARGET_FILE:nam_console>
                     ${ARGN}
                     -P ${_cli_driver})
-        set_tests_properties(${name} PROPERTIES LABELS "cli;integration")
+        set_tests_properties(${name} PROPERTIES LABELS "cli;integration" TIMEOUT 60)
     endfunction()
 
     nam_add_cli_test(cli_help

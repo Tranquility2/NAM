@@ -16,9 +16,14 @@
 #   EXPECT_CONTAINS      substring that must appear in the output
 #   FORBID_ESC           when 1, the output must contain no ESC byte
 #   EXPECT_DETERMINISTIC when 1, run twice and require identical output
+#   TIMEOUT              seconds before a non-responsive child is killed (default 30)
 
 if(NOT DEFINED EXE)
     message(FATAL_ERROR "run_cli_test: EXE is required")
+endif()
+
+if(NOT DEFINED TIMEOUT OR TIMEOUT STREQUAL "")
+    set(TIMEOUT 30)
 endif()
 
 if(NOT DEFINED ARGS)
@@ -40,6 +45,7 @@ function(run_once out_var code_var)
     execute_process(
         COMMAND "${EXE}" ${ARGS}
         ${_input_kw}
+        TIMEOUT ${TIMEOUT}
         OUTPUT_VARIABLE _out
         ERROR_VARIABLE _err
         RESULT_VARIABLE _code)
@@ -48,6 +54,14 @@ function(run_once out_var code_var)
 endfunction()
 
 run_once(output code)
+
+# A child that stops responding (waiting on input it will never get, or blocked
+# behind a crash dialog) reports a message rather than a number here. Fail loudly
+# with whatever it managed to print, instead of letting CTest wait it out.
+if(NOT code MATCHES "^-?[0-9]+$")
+    message(FATAL_ERROR
+        "the process did not finish: ${code}\n--- output so far ---\n${output}")
+endif()
 
 if(DEFINED EXPECT_CODE AND NOT code STREQUAL EXPECT_CODE)
     message(FATAL_ERROR
