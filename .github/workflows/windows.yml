@@ -1,0 +1,108 @@
+name: Windows (MSVC)
+
+# Manual only. Native Windows runners bill at 2x and this matrix is by far the
+# most expensive thing in the repository, so it is not tied to push or pull
+# request. Run it before a release, after touching NAM_Console/terminal_windows.cpp
+# or anything platform-conditional, and whenever the MinGW cross-build or the
+# hardened Linux job in ci.yml suggests a portability problem.
+on:
+  workflow_dispatch:
+    inputs:
+      include_asan:
+        description: "Also run the best-effort MSVC AddressSanitizer job"
+        type: boolean
+        default: false
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Windows / MSVC: Debug build with /WX and the test suite (Visual Studio
+  # generator; no Ninja needed).
+  windows-msvc:
+    name: Windows MSVC (debug)
+    runs-on: windows-2022
+    # A wedged process must never hold this runner open for hours. The suite
+    # finishes in seconds once built, so the budget here is almost all build.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # A crashing debug binary otherwise raises a modal error dialog that
+      # nothing on a headless runner dismisses, turning a test failure into a
+      # hang. The test timeouts bound it too; this makes it report instead.
+      - name: Suppress Windows Error Reporting dialogs
+        shell: cmd
+        run: >-
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting"
+          /v DontShowUI /t REG_DWORD /d 1 /f
+
+      - name: Configure
+        run: cmake --preset windows-msvc-debug
+
+      - name: Build
+        run: cmake --build --preset windows-msvc-debug --parallel
+
+      - name: Test
+        run: ctest --preset windows-msvc-debug --output-on-failure
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-windows-msvc-debug
+          path: build/**/Testing/**
+          if-no-files-found: ignore
+
+  # Windows / MSVC AddressSanitizer: best-effort, since ASan runtime wiring on
+  # the hosted image can vary. Opt-in, because it doubles the cost of a run.
+  windows-msvc-asan:
+    name: Windows MSVC (asan, best-effort)
+    runs-on: windows-2022
+    if: inputs.include_asan
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Suppress Windows Error Reporting dialogs
+        shell: cmd
+        run: >-
+          reg add "HKLM\SOFTWARE\Microsoft\Windows\Windows Error Reporting"
+          /v DontShowUI /t REG_DWORD /d 1 /f
+
+      - name: Configure
+        run: cmake --preset windows-msvc-asan
+
+      - name: Build
+        run: cmake --build --preset windows-msvc-asan --parallel
+
+      - name: Add the MSVC AddressSanitizer runtime to PATH
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $visualStudioRoot = & $vswhere -latest -products * -property installationPath
+
+          if (-not $visualStudioRoot) {
+            throw "vswhere could not locate Visual Studio"
+          }
+
+          $visualStudioRoot = $visualStudioRoot.Trim()
+          $toolVersionFile = Join-Path $visualStudioRoot `
+            "VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt"
+          $toolVersion = (Get-Content $toolVersionFile).Trim()
+          $runtimeDirectory = Join-Path $visualStudioRoot `
+            "VC\Tools\MSVC\$toolVersion\bin\Hostx64\x64"
+          $runtime = Join-Path $runtimeDirectory `
+            "clang_rt.asan_dynamic-x86_64.dll"
+
+          if (-not (Test-Path $runtime)) {
+            throw "The matching AddressSanitizer runtime was not found at $runtime"
+          }
+
+          $runtimeDirectory | Out-File -FilePath $env:GITHUB_PATH `
+            -Encoding utf8 -Append
+
+      - name: Test
+        run: ctest --preset windows-msvc-asan --output-on-failure

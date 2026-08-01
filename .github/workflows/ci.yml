@@ -1,5 +1,10 @@
 name: CI
 
+# The cheap tier, run on every push and pull request: Linux toolchains plus the
+# MinGW cross-build. The expensive hosted runners are deliberately not here —
+# native Windows bills at 2x and macOS at 10x, and a single wedged Windows job
+# can hold a runner open for its whole timeout. They live in windows.yml and
+# macos.yml and are triggered by hand.
 on:
   push:
     branches: [master, main]
@@ -17,6 +22,7 @@ jobs:
   ubuntu-gcc:
     name: Ubuntu GCC (${{ matrix.preset }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -60,6 +66,7 @@ jobs:
   ubuntu-clang:
     name: Ubuntu Clang (release, -Werror)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       CC: clang
       CXX: clang++
@@ -93,113 +100,50 @@ jobs:
           path: build/**/Testing/**
           if-no-files-found: ignore
 
-  # macOS / AppleClang: Release build + tests.
-  macos:
-    name: macOS AppleClang (release)
-    runs-on: macos-latest
+  # Ubuntu / GCC with the libstdc++ hardened modes: the standard library's own
+  # precondition checks. These catch the class of undefined behaviour that a
+  # release libstdc++ silently tolerates but the MSVC debug runtime aborts on —
+  # out-of-range indices, invalid iterators, reading a disengaged optional — so
+  # the failure surfaces on a cheap Linux runner instead of a native Windows one.
+  ubuntu-hardened:
+    name: Ubuntu GCC (hardened libstdc++)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
+      CC: gcc
+      CXX: g++
       FETCHCONTENT_BASE: ${{ github.workspace }}/.deps
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Ninja
-        run: brew install ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
 
       - name: Cache fetched dependencies
         uses: actions/cache@v4
         with:
           path: .deps
-          key: deps-${{ runner.os }}-doctest-2.4.12
+          key: deps-${{ runner.os }}-hardened-doctest-2.4.12
 
       - name: Configure
-        run: cmake --preset release -DFETCHCONTENT_BASE_DIR=${{ env.FETCHCONTENT_BASE }}
+        run: >-
+          cmake --preset debug
+          -DFETCHCONTENT_BASE_DIR=${{ env.FETCHCONTENT_BASE }}
+          -DCMAKE_CXX_FLAGS="-D_GLIBCXX_DEBUG -D_GLIBCXX_ASSERTIONS"
 
       - name: Build
-        run: cmake --build --preset release
+        run: cmake --build --preset debug
 
       - name: Test
-        run: ctest --preset release --output-on-failure
+        run: ctest --preset debug --output-on-failure
 
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-macos
+          name: logs-ubuntu-hardened
           path: build/**/Testing/**
           if-no-files-found: ignore
-
-  # Windows / MSVC: Debug build with /WX and the test suite (Visual Studio
-  # generator; no Ninja needed).
-  windows-msvc:
-    name: Windows MSVC (${{ matrix.preset }})
-    runs-on: windows-2022
-    strategy:
-      fail-fast: false
-      matrix:
-        preset: [windows-msvc-debug]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure
-        run: cmake --preset ${{ matrix.preset }}
-
-      - name: Build
-        run: cmake --build --preset ${{ matrix.preset }}
-
-      - name: Test
-        run: ctest --preset ${{ matrix.preset }} --output-on-failure
-
-      - name: Upload logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-windows-${{ matrix.preset }}
-          path: build/**/Testing/**
-          if-no-files-found: ignore
-
-  # Windows / MSVC AddressSanitizer: best-effort, since ASan runtime wiring on
-  # the hosted image can vary. Does not gate the required checks.
-  windows-msvc-asan:
-    name: Windows MSVC (asan, best-effort)
-    runs-on: windows-2022
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure
-        run: cmake --preset windows-msvc-asan
-
-      - name: Build
-        run: cmake --build --preset windows-msvc-asan
-
-      - name: Add the MSVC AddressSanitizer runtime to PATH
-        shell: pwsh
-        run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $visualStudioRoot = & $vswhere -latest -products * -property installationPath
-
-          if (-not $visualStudioRoot) {
-            throw "vswhere could not locate Visual Studio"
-          }
-
-          $visualStudioRoot = $visualStudioRoot.Trim()
-          $toolVersionFile = Join-Path $visualStudioRoot `
-            "VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt"
-          $toolVersion = (Get-Content $toolVersionFile).Trim()
-          $runtimeDirectory = Join-Path $visualStudioRoot `
-            "VC\Tools\MSVC\$toolVersion\bin\Hostx64\x64"
-          $runtime = Join-Path $runtimeDirectory `
-            "clang_rt.asan_dynamic-x86_64.dll"
-
-          if (-not (Test-Path $runtime)) {
-            throw "The matching AddressSanitizer runtime was not found at $runtime"
-          }
-
-          $runtimeDirectory | Out-File -FilePath $env:GITHUB_PATH `
-            -Encoding utf8 -Append
-
-      - name: Test
-        run: ctest --preset windows-msvc-asan --output-on-failure
 
   # Linux -> Windows cross-compilation with MinGW-w64: proves the console (and
   # its Windows terminal backend) builds for Windows, and that the artifact is a
@@ -207,6 +151,7 @@ jobs:
   mingw-cross:
     name: Linux MinGW cross-build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 

@@ -1,0 +1,48 @@
+name: macOS (AppleClang)
+
+# Manual only. Hosted macOS runners bill at 10x, which is not a rate worth paying
+# on every push for a job whose value is confirming that AppleClang agrees with
+# the two Linux compilers. Run it before a release and when touching anything
+# platform-conditional, such as NAM_Console/terminal_posix.cpp.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS AppleClang (release)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      FETCHCONTENT_BASE: ${{ github.workspace }}/.deps
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: deps-${{ runner.os }}-doctest-2.4.12
+
+      - name: Configure
+        run: cmake --preset release -DFETCHCONTENT_BASE_DIR=${{ env.FETCHCONTENT_BASE }}
+
+      - name: Build
+        run: cmake --build --preset release
+
+      - name: Test
+        run: ctest --preset release --output-on-failure
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-macos
+          path: build/**/Testing/**
+          if-no-files-found: ignore
