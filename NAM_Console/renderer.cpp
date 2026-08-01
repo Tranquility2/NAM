@@ -151,10 +151,20 @@ constexpr int color_vantage_point = 97; // Bright white: a one-off wide reveal.
                 }
             }
         }
+        // Both overlay properties are read only when is_overlay holds, but they must
+        // be computed without dereferencing a feature that is not there: the ternary
+        // form evaluated *feature on every plain cell, which is undefined behaviour
+        // that libstdc++ tolerates in release and MSVC's debug runtime traps.
         const bool is_overlay = is_objective || feature.has_value();
-        const char overlay = is_objective ? objective_glyph : feature_glyph(*feature);
-        const int overlay_color =
-            is_objective ? color_objective : (feature ? color_for_feature(*feature) : 0);
+        char overlay = ' ';
+        int overlay_color = 0;
+        if (is_objective) {
+            overlay = objective_glyph;
+            overlay_color = color_objective;
+        } else if (feature.has_value()) {
+            overlay = feature_glyph(*feature);
+            overlay_color = color_for_feature(*feature);
+        }
 
         if (!ansi) {
             if (is_actor) {
