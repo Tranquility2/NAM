@@ -494,11 +494,13 @@ TEST_CASE("impassable terrain never severs a generated level on any tier") {
             const std::uint64_t seed = index * 0x9E3779B97F4A7C15ull + 0xBEEFull;
             const WorldGenerationResult result = generate_level(tier, seed);
             REQUIRE_MESSAGE(std::holds_alternative<GeneratedWorld>(result),
-                            "candidates exhausted on tier " << to_string(tier) << " index " << index);
+                            "candidates exhausted on tier "
+                                << std::string(to_string(tier)) << " index " << index);
             const GeneratedWorld& world = std::get<GeneratedWorld>(result);
             const MapInvariants inv = inspect(world.map);
-            CHECK_MESSAGE(inv.fully_connected,
-                          "severed map on tier " << to_string(tier) << " index " << index);
+            CHECK_MESSAGE(inv.fully_connected, "severed map on tier "
+                                                   << std::string(to_string(tier)) << " index "
+                                                   << index);
         }
     }
 }
@@ -514,7 +516,8 @@ TEST_CASE("deep water is always the middle of a body of shallow water") {
             const WorldGenerationResult result = generate_level(tier, seed);
             const GeneratedWorld& world = require_world(result);
             CHECK_MESSAGE(inspect(world.map).deep_water_enclosed,
-                          "exposed deep water on tier " << to_string(tier) << " index " << index);
+                          "exposed deep water on tier "
+                              << std::string(to_string(tier)) << " index " << index);
         }
     }
 }
