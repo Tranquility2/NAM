@@ -48,13 +48,13 @@ jobs:
       CC: gcc
       CXX: g++
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build
 
       - name: Cache fetched dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .deps
           key: deps-${{ runner.os }}-gcc-doctest-2.4.12
@@ -70,7 +70,7 @@ jobs:
 
       - name: Upload logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs-tests
           path: build/**/Testing/**
@@ -92,13 +92,13 @@ jobs:
       CC: gcc
       CXX: g++
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build
 
       - name: Cache fetched dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .deps
           key: deps-${{ runner.os }}-gcc-doctest-2.4.12
@@ -114,7 +114,7 @@ jobs:
 
       - name: Upload logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs-acceptance
           path: build/**/Testing/**
@@ -131,13 +131,13 @@ jobs:
       CC: gcc
       CXX: g++
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build
 
       - name: Cache fetched dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .deps
           key: deps-${{ runner.os }}-gcc-doctest-2.4.12
@@ -153,7 +153,7 @@ jobs:
 
       - name: Upload logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs-sanitizers
           path: build/**/Testing/**
@@ -173,13 +173,13 @@ jobs:
       CC: gcc
       CXX: g++
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build
 
       - name: Cache fetched dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .deps
           key: deps-${{ runner.os }}-hardened-doctest-2.4.12
@@ -198,7 +198,7 @@ jobs:
 
       - name: Upload logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs-hardened
           path: build/**/Testing/**
@@ -215,13 +215,13 @@ jobs:
       CC: clang
       CXX: clang++
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build
 
       - name: Cache fetched dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .deps
           key: deps-${{ runner.os }}-clang-doctest-2.4.12
@@ -237,7 +237,7 @@ jobs:
 
       - name: Upload logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs-clang
           path: build/**/Testing/**
@@ -257,7 +257,7 @@ jobs:
       CC: gcc
       CXX: g++
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build
@@ -278,7 +278,7 @@ jobs:
           file "$exe" | grep -q "ELF 64-bit" || { echo "not an ELF 64-bit binary"; exit 1; }
 
       - name: Upload the executable
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nam_console-linux-x86_64
           path: build/linux/NAM_Console/nam_console
@@ -293,7 +293,7 @@ jobs:
     timeout-minutes: 20
     needs: [acceptance, sanitizers, hardened, clang]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install MinGW-w64
         run: sudo apt-get update && sudo apt-get install -y g++-mingw-w64-x86-64
@@ -315,7 +315,7 @@ jobs:
           file "$exe" | grep -q "PE32+" || { echo "not a PE32+ binary"; exit 1; }
 
       - name: Upload the cross-built executable
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nam_console-windows-x86_64
           path: build/mingw/NAM_Console/nam_console.exe

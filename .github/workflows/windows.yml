@@ -27,7 +27,7 @@ jobs:
     # finishes in seconds once built, so the budget here is almost all build.
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # A crashing debug binary otherwise raises a modal error dialog that
       # nothing on a headless runner dismisses, turning a test failure into a
@@ -49,7 +49,7 @@ jobs:
 
       - name: Upload logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: logs-windows-msvc-debug
           path: build/**/Testing/**
@@ -64,7 +64,7 @@ jobs:
     continue-on-error: true
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Suppress Windows Error Reporting dialogs
         shell: cmd
