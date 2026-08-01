@@ -83,7 +83,8 @@ std::vector<Direction> path_between(const Map& map, Coordinates from, Coordinate
 // Phase 0 exit condition depends on.
 struct Walk {
     std::vector<GameEvent> events;
-    std::uint32_t lowest_stamina = 0;
+    int narrowest_sight = 0;
+    int widest_sight = 0;
     std::uint64_t blocked_attempts = 0;
     std::uint64_t discoveries = 0;
     std::uint64_t completions = 0;
@@ -91,7 +92,8 @@ struct Walk {
 
 Walk walk_level(GameState& state) {
     Walk walk;
-    walk.lowest_stamina = state.stamina();
+    walk.narrowest_sight = state.visibility_radius();
+    walk.widest_sight = state.visibility_radius();
 
     const std::vector<Direction> to_landmark =
         path_between(state.map(), state.actor_position(), state.objective().landmark);
@@ -111,7 +113,12 @@ Walk walk_level(GameState& state) {
             case ObjectiveTransition::level_completed:     ++walk.completions; break;
             case ObjectiveTransition::none:                break;
         }
-        if (state.stamina() < walk.lowest_stamina) walk.lowest_stamina = state.stamina();
+        if (state.visibility_radius() < walk.narrowest_sight) {
+            walk.narrowest_sight = state.visibility_radius();
+        }
+        if (state.visibility_radius() > walk.widest_sight) {
+            walk.widest_sight = state.visibility_radius();
+        }
         walk.events.push_back(event);
     }
     return walk;
@@ -132,7 +139,7 @@ TEST_CASE("the handcrafted phase 0 level places a landmark on the route to a dis
     CHECK(objective.exit_cell != map.spawn());
     CHECK(objective.exit_cell != objective.landmark);
     CHECK_FALSE(objective.name.empty());
-    CHECK(objective.minimum_route_stamina_cost > 0);
+    CHECK(objective.minimum_route_length > 0);
     CHECK(objective.total_reachable_walkable_cells > 1);
 
     // The landmark sits on a shortest path, so routing through it costs exactly
@@ -157,13 +164,15 @@ TEST_CASE("the handcrafted phase 0 level is completed from entry to exit by move
     CHECK(state.actor_position() == state.objective().exit_cell);
 }
 
-TEST_CASE("the phase 0 walk empties the stamina meter without ever blocking a move") {
+TEST_CASE("the phase 0 walk crosses every terrain band without ever blocking a move") {
     const Map map = load_phase0_level();
     GameState state(map);
     const Walk walk = walk_level(state);
 
-    // The expensive bands drain the meter to nothing, and every step still lands.
-    CHECK(walk.lowest_stamina == 0);
+    // The route crosses open ground, hill, water, fields and mountain, so sight
+    // spans the whole range this fixture offers, and every step still lands.
+    CHECK(walk.narrowest_sight == 3);
+    CHECK(walk.widest_sight == 7);
     CHECK(walk.blocked_attempts == 0);
     for (const GameEvent& event : walk.events) {
         const auto* move = std::get_if<MoveAttemptedEvent>(&event.data);
@@ -209,7 +218,8 @@ TEST_CASE("the phase 0 level replays byte-identically from the same fixture") {
     REQUIRE(a.events.size() == b.events.size());
     CHECK(first.objective().name == second.objective().name);
     CHECK(first.objective().exit_cell == second.objective().exit_cell);
-    CHECK(a.lowest_stamina == b.lowest_stamina);
+    CHECK(a.narrowest_sight == b.narrowest_sight);
+    CHECK(a.widest_sight == b.widest_sight);
     for (std::size_t i = 0; i < a.events.size(); ++i) {
         const auto* left = std::get_if<MoveAttemptedEvent>(&a.events[i].data);
         const auto* right = std::get_if<MoveAttemptedEvent>(&b.events[i].data);
@@ -218,7 +228,7 @@ TEST_CASE("the phase 0 level replays byte-identically from the same fixture") {
         CHECK(a.events[i].sequence == b.events[i].sequence);
         CHECK(left->outcome.result == right->outcome.result);
         CHECK(left->outcome.to == right->outcome.to);
-        CHECK(left->outcome.stamina_after == right->outcome.stamina_after);
+        CHECK(left->outcome.terrain == right->outcome.terrain);
     }
 }
 

@@ -119,16 +119,13 @@ struct ExpeditionReport {
     Journal journal;            // Structured journal snapshot for the journal section.
     std::uint64_t move_count = 0;
     std::uint64_t blocked_attempts = 0;
-    std::uint64_t actual_stamina_spent = 0;
-    std::uint64_t optimal_route_cost = 0;
-    std::uint32_t final_stamina = 0;
-    std::uint32_t max_stamina = 0;
+    std::uint64_t optimal_route_length = 0;
     std::uint64_t explored_reachable_cells = 0;
     std::uint64_t total_reachable_cells = 0;
     ExpeditionCarryover carryover;
 };
 
-// Build the final report. Stamina spent is the HUD's cumulative movement cost,
+// Build the final report. The move count is the HUD's successful-move tally,
 // since routine travel no longer reaches the journal (REQ-143). Blocked attempts
 // are attempt_count minus move_count via comparison-before-subtraction. Explored
 // reachable terrain is computed from the map and visibility snapshot by the core,
@@ -137,8 +134,7 @@ struct ExpeditionReport {
 [[nodiscard]] ExpeditionReport build_expedition_report(
     const LevelObjective& objective, const Map& map, const VisibilityMap& visibility,
     const Journal& journal, const RouteHistory& route, const WorldIdentity& identity,
-    std::uint64_t move_count, std::uint64_t attempt_count, std::uint64_t stamina_spent,
-    std::uint32_t final_stamina, std::uint32_t max_stamina,
+    std::uint64_t move_count, std::uint64_t attempt_count,
     const ExpeditionCarryover& carryover = ExpeditionCarryover{});
 
 // The single result/status line (REQ-133).
@@ -151,9 +147,8 @@ struct ExpeditionReport {
 
 // The transparent statistics for the level this report describes (REQ-143 /
 // REQ-144): score with its route and discovery halves, discoveries found out of
-// the level's total, the route summary (moves, stamina spent, optimal route cost,
-// blocked attempts), final stamina, and explored reachable terrain out of the
-// total.
+// the level's total, the route summary (moves, the shortest legal route length,
+// blocked attempts), and explored reachable terrain out of the total.
 [[nodiscard]] std::vector<std::string> format_report_statistics(const ExpeditionReport& report);
 
 // The running expedition totals carried across levels: score, discoveries, and

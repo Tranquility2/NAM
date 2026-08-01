@@ -31,8 +31,8 @@ LevelTransition Expedition::complete_level(const LevelPerformance& performance) 
     }
 
     CompletedScoreInput input;
-    input.optimal_route_cost = state_.objective().minimum_route_stamina_cost;
-    input.actual_stamina_spent = performance.stamina_spent;
+    input.optimal_route_length = state_.objective().minimum_route_length;
+    input.actual_moves = performance.moves_taken;
     input.blocked_attempts = performance.blocked_attempts;
     input.discoveries_found = state_.discoveries_found();
     input.discovery_multiplier = discovery_multiplier_of(active_bonus_);

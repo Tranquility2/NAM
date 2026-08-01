@@ -57,9 +57,9 @@ GameState make_hill_state() {
         "NAM-MAP 1\nwidth 9\nheight 3\nspawn 1 1\n---\n#########\n..^..~...\n#########\n"));
 }
 
-// A long corridor of fields leading to a distant water glyph. Fields neither
-// drain nor restore stamina, so the march never stalls and entering the water
-// finally reveals it.
+// A long corridor of fields leading to a distant water glyph. Nothing accumulates
+// over the march, so it never stalls and walking far enough finally reveals the
+// water.
 GameState make_mountain_reach_state() {
     return GameState(make_map(
         "NAM-MAP 1\nwidth 14\nheight 4\nspawn 0 1\n---\n##############\n.xxxxxxxxxxx.~\n.#############\n..............\n"));
@@ -357,9 +357,8 @@ TEST_CASE("entering a hill reveals a far glyph that persists as memory after lea
 }
 
 TEST_CASE("a long fields march reveals a far glyph without ever stalling") {
-    // Fields charge two stamina and immediately return two, so a long march is
-    // stamina-neutral: the actor simply walks until the distant water is in sight,
-    // with no block and no camp in between.
+    // Nothing accumulates over a route, so the actor simply walks until the
+    // distant water is in sight, with no block and no interruption in between.
     const std::string eleven_fields = R"(d
 d
 d
@@ -376,15 +375,13 @@ d
     std::string reached;
     const int code = run_plain_state(make_mountain_reach_state(), eleven_fields + "q\n", reached);
     CHECK(code == 0);
-    CHECK(reached.find("Moved onto fields for 2 stamina. Recovered 2 stamina.") !=
-          std::string::npos);
-    CHECK(reached.find("Stamina: 20/20") != std::string::npos);
-    CHECK(reached.find("Stamina: 18/20") == std::string::npos);
+    CHECK(reached.find("Moved onto fields. Sight 3.") != std::string::npos);
+    CHECK(reached.find("Blocked") == std::string::npos);
     CHECK(reached.find('~') != std::string::npos);
     CHECK(reached.find('\x1b') == std::string::npos);
 }
 
-TEST_CASE("a water step is affordable straight after a long fields march") {
+TEST_CASE("stepping off fields into water widens the reported sight") {
     const auto make_zero_water_state = [] {
         return GameState(make_map(R"(NAM-MAP 1
 width 14
@@ -411,10 +408,11 @@ d
     std::string travelled;
     const int code = run_plain_state(make_zero_water_state(), ten_fields + "d\nq\n", travelled);
     CHECK(code == 0);
-    // The fields march is stamina-neutral, so the water step is charged from the
-    // cap and simply succeeds.
-    CHECK(travelled.find("Moved onto shallow water for 3 stamina.") != std::string::npos);
-    CHECK(travelled.find("Stamina: 17/20") != std::string::npos);
+    // Fields see three cells and shallow water sees four, so the last step both
+    // succeeds and reports the wider sight it bought.
+    CHECK(travelled.find("Moved onto fields. Sight 3.") != std::string::npos);
+    CHECK(travelled.find("Moved onto shallow water. Sight 4.") != std::string::npos);
+    CHECK(travelled.find("Sight: 4") != std::string::npos);
     CHECK(travelled.find('\x1b') == std::string::npos);
 }
 
@@ -438,7 +436,7 @@ TEST_CASE("plain mode shows the discovery block only when a move enters the exit
     std::string approach;
     run_plain_state(make_corridor_state(), "d\nq\n", approach);
     CHECK(approach.find("LANDMARK DISCOVERED") == std::string::npos);
-    CHECK(approach.find("Moved onto open ground for 1 stamina.") != std::string::npos);
+    CHECK(approach.find("Moved onto open ground. Sight 3.") != std::string::npos);
 
     // The second move enters the landmark and prints the exact discovery block.
     std::string entered;
@@ -533,8 +531,7 @@ TEST_CASE("plain single-cell map prints the report once and exits immediately") 
     CHECK(output.find("The party found " + name + " and reached the exit in 0 moves.") !=
           std::string::npos);
     CHECK(output.find("Score: 1000 (route 1000 / 1000, discoveries 0)") != std::string::npos);
-    CHECK(output.find("Route: 0 moves, 0 stamina (optimal 0)") != std::string::npos);
-    CHECK(output.find("Stamina: 20/20") != std::string::npos);
+    CHECK(output.find("Route: 0 moves (shortest 0)") != std::string::npos);
     CHECK(output.find("Goodbye") == std::string::npos);  // immediate quiet exit.
 }
 
@@ -942,7 +939,7 @@ TEST_CASE("a plain expedition reports each level and continues into the next") {
     CHECK(output.find("Result: expedition complete. All 2 levels finished.") !=
           std::string::npos);
     // The second level is announced with its tier and position in the chain.
-    CHECK(output.find("Medium level (2 of 2). Stamina restored.") != std::string::npos);
+    CHECK(output.find("Medium level (2 of 2).") != std::string::npos);
     CHECK(count_substr(output, "EXPEDITION REPORT") == 2u);
 }
 
@@ -1019,7 +1016,7 @@ TEST_CASE("an interactive interlude returns to gameplay on the next level") {
         }
     }
     CHECK(count_substr(frames, "EXPEDITION REPORT") >= 2u);
-    CHECK(frames.find("Medium level (2 of 2). Stamina restored.") != std::string::npos);
+    CHECK(frames.find("Medium level (2 of 2).") != std::string::npos);
 }
 
 TEST_CASE("a standalone level is a one-level expedition with no carryover lines") {

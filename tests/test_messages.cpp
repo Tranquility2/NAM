@@ -52,11 +52,11 @@ TEST_CASE("direction letters and names are consistent") {
 }
 
 TEST_CASE("a move onto authored content keeps the ordinary terrain wording") {
-    // Content grants sight, not stamina, so it no longer changes the move line.
-    // The wide reveal is announced by its own message instead.
-    MoveOutcome vantage{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 1, 2, 12, 13};
+    // Content grants a one-off reveal, so it no longer changes the move line. The
+    // wide reveal is announced by its own message instead.
+    MoveOutcome vantage{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open};
     vantage.feature = LevelFeatureKind::vantage_point;
-    MoveOutcome plain{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 1, 2, 12, 13};
+    MoveOutcome plain{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open};
     CHECK(plain.feature.has_value() == false);
     CHECK(describe_move(vantage) == describe_move(plain));
 
@@ -64,47 +64,37 @@ TEST_CASE("a move onto authored content keeps the ordinary terrain wording") {
 }
 
 TEST_CASE("move outcomes map to distinct human-readable sentences") {
-    MoveOutcome moved{MoveResult::moved, {0, 0}, {1, 0}, Terrain::shallow_water, 3, 0, 12, 9};
+    MoveOutcome moved{MoveResult::moved, {0, 0}, {1, 0}, Terrain::shallow_water};
     CHECK(describe_move(moved).find("water") != std::string::npos);
 
-    MoveOutcome boundary{MoveResult::blocked_by_boundary, {0, 0}, {0, 0}, Terrain::open,
-                         0, 0, 12, 12};
+    MoveOutcome boundary{MoveResult::blocked_by_boundary, {0, 0}, {0, 0}, Terrain::open};
     CHECK(describe_move(boundary).find("edge") != std::string::npos);
 
-    MoveOutcome terrain{MoveResult::blocked_by_terrain, {0, 0}, {0, 0}, Terrain::cliff,
-                        0, 0, 12, 12};
+    MoveOutcome terrain{MoveResult::blocked_by_terrain, {0, 0}, {0, 0}, Terrain::cliff};
     CHECK(describe_move(terrain).find("Blocked") != std::string::npos);
 }
 
-TEST_CASE("successful move messages state the destination terrain and cost") {
-    // A one-point cost onto open ground, whose passive recovery is reported
-    // alongside the charge.
-    MoveOutcome one{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 1, 2, 12, 13};
-    CHECK(describe_move(one) == "Moved onto open ground for 1 stamina. Recovered 2 stamina.");
+TEST_CASE("successful move messages state the destination terrain and its sight") {
+    // Sight is the only thing terrain governs now, so it is the only number the
+    // move line carries. Forest is the one terrain that sees less than baseline.
+    MoveOutcome forest{MoveResult::moved, {0, 0}, {1, 0}, Terrain::forest};
+    CHECK(describe_move(forest) == "Moved onto forest. Sight 1.");
 
-    // A multi-point step onto a mountain, which gives nothing back and therefore
-    // reports no recovery.
-    MoveOutcome four{MoveResult::moved, {0, 0}, {1, 0}, Terrain::mountain, 4, 0, 12, 8};
-    CHECK(describe_move(four) == "Moved onto mountain for 4 stamina.");
+    MoveOutcome open{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open};
+    CHECK(describe_move(open) == "Moved onto open ground. Sight 3.");
+
+    MoveOutcome mountain{MoveResult::moved, {0, 0}, {1, 0}, Terrain::mountain};
+    CHECK(describe_move(mountain) == "Moved onto mountain. Sight 7.");
 }
 
-TEST_CASE("a fully restoring step reports the recovery it granted") {
-    // Reaching the landmark refills the meter, so the recovery dwarfs the charge.
-    MoveOutcome landmark{MoveResult::moved, {3, 0}, {4, 0}, Terrain::hill, 2, 8, 14, 20};
-    CHECK(describe_move(landmark) == "Moved onto hill for 2 stamina. Recovered 8 stamina.");
-}
-
-TEST_CASE("boundary and impassable-terrain wording carries no stamina cost") {
-    MoveOutcome boundary{MoveResult::blocked_by_boundary, {0, 0}, {0, 0}, Terrain::open,
-                         0, 0, 7, 7};
+TEST_CASE("boundary and impassable-terrain wording names no sight range") {
+    MoveOutcome boundary{MoveResult::blocked_by_boundary, {0, 0}, {0, 0}, Terrain::open};
     CHECK(describe_move(boundary) == "Blocked by the edge of the map.");
 
-    MoveOutcome cliff{MoveResult::blocked_by_terrain, {0, 0}, {0, 0}, Terrain::cliff,
-                      0, 0, 7, 7};
+    MoveOutcome cliff{MoveResult::blocked_by_terrain, {0, 0}, {0, 0}, Terrain::cliff};
     CHECK(describe_move(cliff) == "Blocked by cliff.");
 
-    MoveOutcome deep{MoveResult::blocked_by_terrain, {0, 0}, {0, 0}, Terrain::deep_water,
-                     0, 0, 7, 7};
+    MoveOutcome deep{MoveResult::blocked_by_terrain, {0, 0}, {0, 0}, Terrain::deep_water};
     CHECK(describe_move(deep) == "Blocked by deep water.");
 }
 

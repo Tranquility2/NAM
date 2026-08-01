@@ -30,7 +30,7 @@ public:
 
     // Record a game event, updating the counters, the bounded history, and the
     // latest-event message. For a MoveAttemptedEvent this counts an attempt,
-    // updates the success flag, move count and cumulative stamina cost, appends
+    // updates the success flag and the move count, appends
     // to the successful-only history when the move landed, and sets the movement
     // message. The event's sequence is not consumed or displayed yet.
     void record_event(const GameEvent& event);
@@ -41,9 +41,6 @@ public:
 
     [[nodiscard]] std::size_t move_count() const noexcept { return move_count_; }
     [[nodiscard]] std::size_t attempt_count() const noexcept { return attempt_count_; }
-    // The total stamina every successful move has cost, before passive recovery.
-    // Accumulated here because routine movement no longer reaches the journal.
-    [[nodiscard]] std::uint64_t stamina_spent() const noexcept { return stamina_spent_; }
     [[nodiscard]] const std::string& message() const noexcept { return message_; }
     [[nodiscard]] const std::deque<RecentMove>& recent() const noexcept { return recent_; }
 
@@ -54,7 +51,6 @@ public:
 private:
     std::size_t move_count_ = 0;
     std::size_t attempt_count_ = 0;
-    std::uint64_t stamina_spent_ = 0;
     std::deque<RecentMove> recent_;
     std::string message_;
     bool last_move_succeeded_ = false;

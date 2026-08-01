@@ -15,7 +15,6 @@ void Hud::record_event(const GameEvent& event) {
         last_move_succeeded_ = outcome.result == MoveResult::moved;
         if (last_move_succeeded_) {
             ++move_count_;
-            stamina_spent_ += outcome.stamina_cost;
             // Only a successful move enters the route history.
             recent_.push_back(RecentMove{move->direction});
             while (recent_.size() > recent_capacity) {

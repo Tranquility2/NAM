@@ -16,11 +16,10 @@
 
 // The single event a movement command produces, whether the actor moved or was
 // blocked. `direction` is the requested command; `outcome` preserves the exact
-// rule-level result computed by the core, including the outcome terrain, the
-// stamina the terrain charged, the stamina it gave back, and the stamina before
-// and after. A blocked attempt (boundary or impassable terrain) still carries
-// these fields with unchanged before/after values, so consumers never re-derive
-// movement cost from the map.
+// rule-level result computed by the core, including the outcome terrain and any
+// authored content on the destination. A blocked attempt (boundary or impassable
+// terrain) still carries these fields, so consumers never re-derive the result
+// from the map.
 //
 // `objective_update` nests the typed level-objective change for this exact
 // command: its before/after status brackets the objective around the move, and

@@ -80,15 +80,13 @@ constexpr std::array<Coordinates, 4> kCardinalOffsets{
     return distance;
 }
 
-// The deterministic cheapest stamina cost of a walkable cardinal path from
-// `source` to `target`, where entering a cell costs stamina_cost_of(that cell).
-// This is a Dijkstra shortest-path search: only the scalar minimum total cost is
-// returned, so equal-cost path tie ordering can never affect the result. The
-// source cell is free (it is already occupied); every step adds the destination
-// terrain's entry cost. Returns 0 when source == target and the unreachable
-// sentinel (uint64 max) when no walkable path exists.
-[[nodiscard]] std::uint64_t minimum_travel_cost(const Map& map, Coordinates source,
-                                                Coordinates target) {
+// The length in moves of a shortest walkable cardinal path from `source` to
+// `target`. Every step costs exactly one, so this is a breadth-first search and
+// only the scalar minimum is returned: path tie ordering can never affect the
+// result. Returns 0 when source == target and the unreachable sentinel (uint64
+// max) when no walkable path exists.
+[[nodiscard]] std::uint64_t minimum_travel_length(const Map& map, Coordinates source,
+                                                  Coordinates target) {
     constexpr std::uint64_t unreachable = std::numeric_limits<std::uint64_t>::max();
     const int width = static_cast<int>(map.width());
     const int height = static_cast<int>(map.height());
@@ -101,45 +99,30 @@ constexpr std::array<Coordinates, 4> kCardinalOffsets{
     std::vector<std::uint64_t> best(static_cast<std::size_t>(width) *
                                         static_cast<std::size_t>(height),
                                     unreachable);
-    std::vector<bool> settled(best.size(), false);
     best[flat_index(source)] = 0;
 
-    // A plain array scan for the next unsettled minimum keeps the search free of
-    // <queue>/<functional> and any comparator ordering: the settled cost of each
-    // cell is a pure function of the terrain, independent of scan order.
-    for (std::size_t processed = 0; processed < best.size(); ++processed) {
-        std::size_t current = best.size();
-        std::uint64_t current_cost = unreachable;
-        for (std::size_t i = 0; i < best.size(); ++i) {
-            if (!settled[i] && best[i] < current_cost) {
-                current_cost = best[i];
-                current = i;
-            }
-        }
-        if (current == best.size()) {
-            break;  // Every remaining cell is unreachable.
-        }
-        settled[current] = true;
-
-        const Coordinates here{static_cast<int>(current % static_cast<std::size_t>(width)),
-                               static_cast<int>(current / static_cast<std::size_t>(width))};
+    // Iterative breadth-first search with an explicit queue (no recursion). A read
+    // cursor over a growing vector keeps the frontier in FIFO order, so the first
+    // time a cell is reached is by a shortest path.
+    std::vector<Coordinates> frontier;
+    frontier.push_back(source);
+    for (std::size_t head = 0; head < frontier.size(); ++head) {
+        const Coordinates here = frontier[head];
+        const std::uint64_t next_length = best[flat_index(here)] + 1u;
         for (const Coordinates offset : kCardinalOffsets) {
             const Coordinates neighbour = here + offset;
             if (!map.contains(neighbour)) {
                 continue;
             }
-            const std::optional<std::uint32_t> step = stamina_cost_of(map.terrain_at(neighbour));
-            if (!step.has_value()) {
+            if (!is_walkable(map.terrain_at(neighbour))) {
                 continue;  // Impassable terrain is not a graph edge.
             }
             const std::size_t neighbour_index = flat_index(neighbour);
-            if (settled[neighbour_index]) {
+            if (best[neighbour_index] != unreachable) {
                 continue;
             }
-            const std::uint64_t candidate = current_cost + static_cast<std::uint64_t>(*step);
-            if (candidate < best[neighbour_index]) {
-                best[neighbour_index] = candidate;
-            }
+            best[neighbour_index] = next_length;
+            frontier.push_back(neighbour);
         }
     }
 
@@ -350,18 +333,17 @@ LevelObjective create_level_objective(const Map& map) {
     } else {
         objective.status = ObjectiveStatus::seeking_landmark;
     }
-    // The cheapest route is computed only after the landmark and exit are fixed,
-    // so it can never influence selection or naming (RISK-001). Both legs use
-    // stamina_cost_of as the sole terrain-entry cost, and they are summed
-    // independently because entry costs are asymmetric. A level whose exit is at
-    // spawn has a zero-cost route.
+    // The shortest route is computed only after the landmark and exit are fixed,
+    // so it can never influence selection or naming (RISK-001). Both legs are
+    // summed because the route must pass through the landmark. A level whose exit
+    // is at spawn has a zero-length route.
     if (exit_cell == spawn) {
-        objective.minimum_route_stamina_cost = 0;
+        objective.minimum_route_length = 0;
     } else {
         constexpr std::uint64_t unreachable = std::numeric_limits<std::uint64_t>::max();
-        const std::uint64_t to_landmark = minimum_travel_cost(map, spawn, objective.landmark);
-        const std::uint64_t to_exit = minimum_travel_cost(map, objective.landmark, exit_cell);
-        objective.minimum_route_stamina_cost =
+        const std::uint64_t to_landmark = minimum_travel_length(map, spawn, objective.landmark);
+        const std::uint64_t to_exit = minimum_travel_length(map, objective.landmark, exit_cell);
+        objective.minimum_route_length =
             (to_landmark == unreachable || to_exit == unreachable) ? 0 : to_landmark + to_exit;
     }
 

@@ -52,14 +52,9 @@ std::string direction_name(Direction direction) {
 
 std::string describe_move(const MoveOutcome& outcome) {
     switch (outcome.result) {
-        case MoveResult::moved: {
-            std::string line = "Moved onto " + terrain_name(outcome.terrain) + " for " +
-                               std::to_string(outcome.stamina_cost) + " stamina.";
-            if (outcome.stamina_recovered > 0) {
-                line += " Recovered " + std::to_string(outcome.stamina_recovered) + " stamina.";
-            }
-            return line;
-        }
+        case MoveResult::moved:
+            return "Moved onto " + terrain_name(outcome.terrain) + ". Sight " +
+                   std::to_string(visibility_radius_of(outcome.terrain)) + ".";
         case MoveResult::blocked_by_boundary:
             return "Blocked by the edge of the map.";
         case MoveResult::blocked_by_terrain:
@@ -141,8 +136,7 @@ std::string completion_reminder() {
 std::string describe_level_started(LevelTier tier, std::uint32_t level_number,
                                    std::uint32_t total_levels, ExpeditionBonus bonus) {
     std::string text = std::string(to_string(tier)) + " level (" +
-                       std::to_string(level_number) + " of " + std::to_string(total_levels) +
-                       "). Stamina restored.";
+                       std::to_string(level_number) + " of " + std::to_string(total_levels) + ").";
     if (bonus == ExpeditionBonus::keen_eye) {
         text += " Keen eye: discoveries here are worth double.";
     }

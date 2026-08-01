@@ -68,8 +68,7 @@ WorldIdentity world_identity_from(const Settings& settings) {
 ExpeditionReport build_expedition_report(
     const LevelObjective& objective, const Map& map, const VisibilityMap& visibility,
     const Journal& journal, const RouteHistory& route, const WorldIdentity& identity,
-    std::uint64_t move_count, std::uint64_t attempt_count, std::uint64_t stamina_spent,
-    std::uint32_t final_stamina, std::uint32_t max_stamina,
+    std::uint64_t move_count, std::uint64_t attempt_count,
     const ExpeditionCarryover& carryover) {
     // Blocked attempts are total movement attempts minus successful moves, via
     // comparison-before-subtraction so the count never underflows.
@@ -83,8 +82,8 @@ ExpeditionReport build_expedition_report(
     const std::uint64_t total = objective.total_reachable_walkable_cells;
 
     CompletedScoreInput score_input;
-    score_input.optimal_route_cost = objective.minimum_route_stamina_cost;
-    score_input.actual_stamina_spent = stamina_spent;
+    score_input.optimal_route_length = objective.minimum_route_length;
+    score_input.actual_moves = move_count;
     score_input.blocked_attempts = blocked_attempts;
     score_input.discoveries_found = carryover.discoveries_found;
     score_input.discovery_multiplier = discovery_multiplier_of(carryover.applied_bonus);
@@ -100,10 +99,7 @@ ExpeditionReport build_expedition_report(
     report.journal = journal;
     report.move_count = move_count;
     report.blocked_attempts = blocked_attempts;
-    report.actual_stamina_spent = stamina_spent;
-    report.optimal_route_cost = objective.minimum_route_stamina_cost;
-    report.final_stamina = final_stamina;
-    report.max_stamina = max_stamina;
+    report.optimal_route_length = objective.minimum_route_length;
     report.explored_reachable_cells = explored;
     report.total_reachable_cells = total;
     report.carryover = carryover;
@@ -148,12 +144,9 @@ std::vector<std::string> format_report_statistics(const ExpeditionReport& report
     lines.push_back("Discoveries: " + std::to_string(report.carryover.discoveries_found) + " / " +
                     std::to_string(report.carryover.discovery_total));
     lines.push_back("Route: " + std::to_string(report.move_count) + " " +
-                    plural(report.move_count, "move", "moves") + ", " +
-                    std::to_string(report.actual_stamina_spent) + " stamina (optimal " +
-                    std::to_string(report.optimal_route_cost) + "), " +
+                    plural(report.move_count, "move", "moves") + " (shortest " +
+                    std::to_string(report.optimal_route_length) + "), " +
                     std::to_string(report.blocked_attempts) + " blocked");
-    lines.push_back("Stamina: " + std::to_string(report.final_stamina) + "/" +
-                    std::to_string(report.max_stamina));
     lines.push_back("Explored: " + std::to_string(report.explored_reachable_cells) + " / " +
                     std::to_string(report.total_reachable_cells) + " cells");
     return lines;

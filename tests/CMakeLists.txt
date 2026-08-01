@@ -66,7 +66,7 @@ nam_add_unit_test(nam_parser_tests
 nam_add_unit_test(nam_game_tests
     SOURCES test_movement.cpp test_rendering.cpp test_determinism.cpp
             test_pcg32.cpp test_game_events.cpp test_level_tier.cpp test_world_generation.cpp
-            test_visibility.cpp test_stamina.cpp test_objective.cpp
+            test_visibility.cpp test_objective.cpp
             test_expedition_score.cpp test_phase0_level.cpp test_level_feature.cpp
             test_expedition.cpp test_prototype_acceptance.cpp)
 
@@ -148,13 +148,13 @@ if(TARGET nam_console)
         "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_level_stdin}
         -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
 
-    # The same corridor driven by a long wandering script: movement never fails for
-    # want of stamina, so the real executable keeps travelling, stays ANSI-free when
+    # The same corridor driven by a long wandering script: no meter can refuse a
+    # step, so the real executable keeps travelling, stays ANSI-free when
     # redirected, and is deterministic across identical runs.
     nam_add_cli_test(cli_run_level_wander
         "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_wander_stdin}
         -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=Moved onto|Stamina:|Objective:"
+        "-DEXPECT_CONTAINS=Moved onto|Sight:|Objective:"
         -DFORBID_ESC=1)
     nam_add_cli_test(cli_run_level_wander_deterministic
         "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_wander_stdin}
@@ -162,13 +162,12 @@ if(TARGET nam_console)
 
     # The Phase 0 exit condition end to end: the handcrafted serpentine level is
     # completed from entry to exit by the real executable using movement alone. The
-    # script crosses hill, water, fields and mountain bands, so the meter empties
-    # without a single blocked move and without any recovery command, and the run
-    # ends on the concise report and journal.
+    # script crosses hill, water, fields and mountain bands without a single
+    # blocked move, and the run ends on the concise report and journal.
     nam_add_cli_test(cli_run_phase0_level
         "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}
         -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=Result: level complete.|Route: 46 moves|0 blocked|Stamina: 4/20|Explored: 55 / 55 cells|Sighted Moon Way Landmark|Reached the exit after Moon Way Landmark"
+        "-DEXPECT_CONTAINS=Result: level complete.|Route: 46 moves|0 blocked|Explored: 55 / 55 cells|Sighted Moon Way Landmark|Reached the exit after Moon Way Landmark"
         -DFORBID_ESC=1)
     nam_add_cli_test(cli_run_phase0_level_deterministic
         "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}

@@ -622,7 +622,7 @@ TEST_CASE("the objective ends the level at the authored exit rather than a deriv
             const LevelObjective objective = create_level_objective(world.map);
             CHECK(objective.exit_cell == world.exit_cell);
             CHECK(objective.status == ObjectiveStatus::seeking_landmark);
-            CHECK(objective.minimum_route_stamina_cost > 0u);
+            CHECK(objective.minimum_route_length > 0u);
         }
     }
 }

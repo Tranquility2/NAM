@@ -27,20 +27,6 @@ public:
     [[nodiscard]] Coordinates actor_position() const noexcept { return actor_position_; }
     [[nodiscard]] Terrain actor_terrain() const { return map_.terrain_at(actor_position_); }
 
-    // The stamina a new expedition starts with and can never exceed in this
-    // release. Kept here as a core constant so movement affordability, replay,
-    // SDL, and tests share one authoritative maximum.
-    static constexpr std::uint32_t maximum_stamina = 20;
-
-    // The actor's current stamina and the fixed maximum. Stamina never refuses a
-    // step: a successful move charges the destination terrain's cost with a
-    // saturating subtraction and immediately adds back that terrain's
-    // passive_recovery_of amount, so easy ground restores the meter and rough
-    // ground drains it. Nothing else moves the meter: authored content grants
-    // sight, never recovery.
-    [[nodiscard]] std::uint32_t stamina() const noexcept { return stamina_; }
-    [[nodiscard]] std::uint32_t max_stamina() const noexcept { return maximum_stamina; }
-
     // The exploration/sight radius revealed around the actor is selected from
     // the actor's current terrain via visibility_radius_of, so terrain, replay,
     // SDL, and tests share one authoritative mapping instead of a fixed literal.
@@ -63,8 +49,7 @@ public:
 
     // The core-owned level objective: its landmark, exit, generated name, and
     // current status. Every GameState receives one deterministic objective,
-    // and a successful move advances it after position, stamina, and visibility
-    // commit. Frontends only present this state and react to the typed
+    // and a successful move advances it after position and visibility commit. Frontends only present this state and react to the typed
     // transitions carried on movement events.
     [[nodiscard]] const LevelObjective& objective() const noexcept { return objective_; }
 
@@ -83,8 +68,8 @@ public:
     // The authored content on a cell, if any. Cells carry at most one feature.
     [[nodiscard]] std::optional<LevelFeatureKind> feature_at(Coordinates position) const;
 
-    // How many distinct discoveries the actor has entered. Hazards and safe
-    // landmarks are stateless rules, so only discoveries are counted.
+    // How many distinct discoveries the actor has entered. Vantage points are
+    // stateless one-off reveals, so only discoveries are counted.
     [[nodiscard]] std::uint32_t discoveries_found() const noexcept { return discoveries_found_; }
 
     // How many discoveries this level placed, i.e. the denominator of the
@@ -96,8 +81,8 @@ public:
 
     // Attempt to move one step and emit exactly one ordered event describing the
     // attempt. The destination is validated for bounds and terrain passability
-    // only: a walkable in-bounds step always succeeds, because stamina can never
-    // block movement. A blocked or out-of-bounds move leaves all state unchanged —
+    // only: a walkable in-bounds step always succeeds, because no meter can block
+    // movement. A blocked or out-of-bounds move leaves all state unchanged —
     // but still emits an event and consumes a sequence number. The returned event
     // carries the requested direction and the full MoveOutcome.
     [[nodiscard]] GameEvent move(Direction direction);
@@ -114,12 +99,11 @@ private:
     LevelObjective objective_;
     Coordinates actor_position_;
     VisibilityMap visibility_;
-    std::uint32_t stamina_ = maximum_stamina;
     std::uint64_t next_event_sequence_ = 0;
     // Parallel to map_.layout().features: true once that feature has been entered.
     // Both kinds fire exactly once and are then inert, so this is the whole of the
     // core's feature state. peek() never reads it, which is what keeps peek() a
-    // pure function of position and stamina.
+    // pure function of position.
     std::vector<bool> feature_resolved_;
     std::uint32_t discoveries_found_ = 0;
     std::uint32_t discovery_total_ = 0;

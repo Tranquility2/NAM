@@ -240,9 +240,11 @@ constexpr int color_vantage_point = 97; // Bright white: a one-off wide reveal.
     return "(" + std::to_string(actor.x) + "," + std::to_string(actor.y) + ")";
 }
 
-// The current/maximum stamina pair shared by every HUD layout.
-[[nodiscard]] std::string stamina_text(const RenderInput& input) {
-    return std::to_string(input.stamina) + "/" + std::to_string(input.max_stamina);
+// The sight range the actor's current terrain grants, shared by every HUD layout.
+// Terrain governs sight and nothing else, so this is the one number that tells a
+// player what standing here is worth.
+[[nodiscard]] std::string sight_text(const RenderInput& input) {
+    return std::to_string(visibility_radius_of(input.terrain));
 }
 
 [[nodiscard]] std::string recent_text(const std::vector<RecentMove>& recent) {
@@ -298,8 +300,9 @@ constexpr int color_vantage_point = 97; // Bright white: a one-off wide reveal.
 
     std::vector<std::string> hud;
     if (standard) {
-        hud.push_back("Pos " + position_text(input.actor) + "   Stamina: " + stamina_text(input) +
+        hud.push_back("Pos " + position_text(input.actor) +
                       "   Terrain: " + terrain_name(input.terrain) +
+                      "   Sight: " + sight_text(input) +
                       "   Moves: " + std::to_string(input.move_count));
         // The objective line sits after the status line and before the latest
         // event message.
@@ -312,9 +315,9 @@ constexpr int color_vantage_point = 97; // Bright white: a one-off wide reveal.
             hud.push_back(debug_text(input, size));
         }
     } else {
-        std::string status = position_text(input.actor) + " S:" + stamina_text(input) + " " +
-                             terrain_name(input.terrain) + "  M:" + std::to_string(input.move_count) +
-                             "  " + input.message;
+        std::string status = position_text(input.actor) + " S:" + sight_text(input) + " " +
+                             terrain_name(input.terrain) +
+                             "  M:" + std::to_string(input.move_count) + "  " + input.message;
         hud.push_back(std::move(status));
         // Compact layout adds one bounded Goal line for the objective phase.
         if (input.objective != nullptr) {
@@ -526,9 +529,9 @@ std::string Renderer::render_plain(const RenderInput& input) const {
                               static_cast<int>(map.width()));
         text.push_back('\n');
     }
-    text += "Pos " + position_text(input.actor) + "  Stamina: " + stamina_text(input) +
-            "  Terrain: " + terrain_name(input.terrain) +
-            "  Moves: " + std::to_string(input.move_count) + "\n";
+    text += "Pos " + position_text(input.actor) + "  Terrain: " + terrain_name(input.terrain) +
+            "  Sight: " + sight_text(input) + "  Moves: " + std::to_string(input.move_count) +
+            "\n";
     // The objective line sits after the status line and before the latest event
     // message, matching the standard interactive layout order.
     if (input.objective != nullptr) {

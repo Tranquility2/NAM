@@ -18,9 +18,9 @@ enum class MoveResult {
 
 // A structured description of a move attempt.
 //
-// Movement is fluid: a walkable in-bounds destination always succeeds. Stamina
-// can never refuse a step, so the only two failures are the map's edge and
-// impassable terrain.
+// Movement is fluid: a walkable in-bounds destination always succeeds. No meter
+// can refuse a step, so the only two failures are the map's edge and impassable
+// terrain.
 //
 // - from:    the actor position before the attempt.
 // - to:      the actor position after the attempt. On `moved` this is the new
@@ -34,29 +34,10 @@ enum class MoveResult {
 // - feature: the authored content on the outcome's destination cell, if any. It
 //            is empty on every blocked result and on any cell the level template
 //            left plain, so a frontend never re-derives content from coordinates.
-// - stamina_cost: the stamina charged for entering the outcome's terrain. On
-//            every blocked result it is 0 because no walkable destination cost
-//            applies. The charge saturates at zero, so it is an upper bound on the
-//            stamina actually lost rather than a guaranteed deduction.
-// - stamina_recovered: the stamina automatically regained by the step, after the
-//            cost was charged. On `moved` this is the destination terrain's
-//            passive_recovery_of amount clamped by the maximum; it is 0 on every
-//            blocked result.
-// - stamina_before: the actor's current stamina before the attempt.
-// - stamina_after:  the actor's current stamina after the attempt. On `moved`
-//            this is the saturating charge of `stamina_cost` followed by
-//            `stamina_recovered`; on every blocked result it equals
-//            `stamina_before` because no stamina changes.
 struct MoveOutcome {
     MoveResult result{};
     Coordinates from{};
     Coordinates to{};
     Terrain terrain{};
-    std::uint32_t stamina_cost{};
-    std::uint32_t stamina_recovered{};
-    std::uint32_t stamina_before{};
-    std::uint32_t stamina_after{};
-    // Declared last and default-initialized so existing positional construction of
-    // a MoveOutcome stays valid.
     std::optional<LevelFeatureKind> feature{};
 };

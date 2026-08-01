@@ -18,13 +18,11 @@ using namespace nam::console;
 namespace {
 
 GameEvent move_event(std::uint64_t sequence, Direction direction, Terrain terrain,
-                     std::uint32_t cost,
                      ObjectiveTransition transition = ObjectiveTransition::none) {
     MoveAttemptedEvent move;
     move.direction = direction;
     move.outcome.result = MoveResult::moved;
     move.outcome.terrain = terrain;
-    move.outcome.stamina_cost = cost;
     move.objective_update.transition = transition;
     return GameEvent{sequence, move};
 }
@@ -32,7 +30,7 @@ GameEvent move_event(std::uint64_t sequence, Direction direction, Terrain terrai
 // A move that first entered a discovery cell.
 GameEvent discovery_event(std::uint64_t sequence, Direction direction,
                           ObjectiveTransition transition = ObjectiveTransition::none) {
-    GameEvent event = move_event(sequence, direction, Terrain::open, 1, transition);
+    GameEvent event = move_event(sequence, direction, Terrain::open, transition);
     std::get<MoveAttemptedEvent>(event.data).discovery_recorded = true;
     return event;
 }
@@ -75,10 +73,10 @@ TEST_CASE("a new journal is empty") {
 
 TEST_CASE("routine movement never becomes a journal entry") {
     Journal journal;
-    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), ctx("North Ridge"));
-    journal.record_event(move_event(1, Direction::right, Terrain::open, 1), ctx("North Ridge"));
-    journal.record_event(move_event(2, Direction::up, Terrain::hill, 2), ctx("North Ridge"));
-    journal.record_event(move_event(3, Direction::down, Terrain::fields, 2), ctx("North Ridge"));
+    journal.record_event(move_event(0, Direction::right, Terrain::open), ctx("North Ridge"));
+    journal.record_event(move_event(1, Direction::right, Terrain::open), ctx("North Ridge"));
+    journal.record_event(move_event(2, Direction::up, Terrain::hill), ctx("North Ridge"));
+    journal.record_event(move_event(3, Direction::down, Terrain::fields), ctx("North Ridge"));
 
     CHECK(journal.empty());
 }
@@ -94,9 +92,9 @@ TEST_CASE("a blocked attempt never becomes a journal entry") {
 
 TEST_CASE("a landmark move appends exactly one objective entry") {
     Journal journal;
-    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), ctx("North Ridge"));
+    journal.record_event(move_event(0, Direction::right, Terrain::open), ctx("North Ridge"));
     journal.record_event(
-        move_event(1, Direction::right, Terrain::open, 1, ObjectiveTransition::landmark_discovered),
+        move_event(1, Direction::right, Terrain::open, ObjectiveTransition::landmark_discovered),
         ctx("North Ridge"));
 
     REQUIRE(journal.size() == 1);
@@ -108,8 +106,8 @@ TEST_CASE("a landmark move appends exactly one objective entry") {
 
 TEST_CASE("a completing move appends exactly one completion entry") {
     Journal journal;
-    journal.record_event(move_event(0, Direction::left, Terrain::open, 1), ctx("North Ridge"));
-    journal.record_event(move_event(1, Direction::left, Terrain::open, 1,
+    journal.record_event(move_event(0, Direction::left, Terrain::open), ctx("North Ridge"));
+    journal.record_event(move_event(1, Direction::left, Terrain::open,
                                     ObjectiveTransition::level_completed),
                          ctx("North Ridge"));
 
@@ -122,13 +120,13 @@ TEST_CASE("a completing move appends exactly one completion entry") {
 
 TEST_CASE("a full level produces exactly two milestone entries in order") {
     Journal journal;
-    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), ctx("North Ridge"));
+    journal.record_event(move_event(0, Direction::right, Terrain::open), ctx("North Ridge"));
     journal.record_event(
-        move_event(1, Direction::right, Terrain::open, 1, ObjectiveTransition::landmark_discovered),
+        move_event(1, Direction::right, Terrain::open, ObjectiveTransition::landmark_discovered),
         ctx("North Ridge"));
-    journal.record_event(move_event(2, Direction::right, Terrain::open, 1), ctx("North Ridge"));
+    journal.record_event(move_event(2, Direction::right, Terrain::open), ctx("North Ridge"));
     journal.record_event(
-        move_event(3, Direction::right, Terrain::open, 1, ObjectiveTransition::level_completed),
+        move_event(3, Direction::right, Terrain::open, ObjectiveTransition::level_completed),
         ctx("North Ridge"));
 
     REQUIRE(journal.size() == 2);
@@ -149,13 +147,13 @@ TEST_CASE("initial completion creates exactly one special entry") {
 TEST_CASE("landmark and completion prose name the landmark exactly") {
     Journal discovery;
     discovery.record_event(
-        move_event(0, Direction::right, Terrain::open, 1, ObjectiveTransition::landmark_discovered),
+        move_event(0, Direction::right, Terrain::open, ObjectiveTransition::landmark_discovered),
         ctx("North Ridge"));
     CHECK(format_entry(discovery.entries().back()) ==
           std::string("Sighted North Ridge; the land opened up and the exit direction was revealed."));
 
     Journal completion;
-    completion.record_event(move_event(0, Direction::left, Terrain::open, 1,
+    completion.record_event(move_event(0, Direction::left, Terrain::open,
                                        ObjectiveTransition::level_completed),
                             ctx("North Ridge"));
     CHECK(format_entry(completion.entries().back()) ==
@@ -172,13 +170,13 @@ TEST_CASE("initial completion prose is exact") {
 TEST_CASE("repeated identical scripts produce byte-identical prose and structure") {
     const auto build = [] {
         Journal journal;
-        journal.record_event(move_event(0, Direction::right, Terrain::open, 1), ctx("North Ridge"));
-        journal.record_event(move_event(1, Direction::right, Terrain::open, 1), ctx("North Ridge"));
+        journal.record_event(move_event(0, Direction::right, Terrain::open), ctx("North Ridge"));
+        journal.record_event(move_event(1, Direction::right, Terrain::open), ctx("North Ridge"));
         journal.record_event(blocked_event(2, Direction::right), ctx("North Ridge"));
-        journal.record_event(move_event(3, Direction::up, Terrain::hill, 2,
+        journal.record_event(move_event(3, Direction::up, Terrain::hill,
                                         ObjectiveTransition::landmark_discovered),
                              ctx("North Ridge"));
-        journal.record_event(move_event(4, Direction::down, Terrain::hill, 2,
+        journal.record_event(move_event(4, Direction::down, Terrain::hill,
                                         ObjectiveTransition::level_completed),
                              ctx("North Ridge"));
         return journal;
@@ -202,7 +200,7 @@ TEST_CASE("a first discovery appends one entry that counts the level's finds") {
     context.discovery_total = 2;
 
     // A routine step over an already-found discovery cell records nothing.
-    journal.record_event(move_event(0, Direction::right, Terrain::open, 1), context);
+    journal.record_event(move_event(0, Direction::right, Terrain::open), context);
     CHECK(journal.empty());
 
     context.discoveries_found = 1;
@@ -240,7 +238,7 @@ TEST_CASE("a completion inside an expedition names the tier and the level number
     context.discoveries_found = 1;
     context.discovery_total = 2;
     journal.record_event(
-        move_event(3, Direction::right, Terrain::open, 1, ObjectiveTransition::level_completed),
+        move_event(3, Direction::right, Terrain::open, ObjectiveTransition::level_completed),
         context);
 
     REQUIRE(journal.size() == 1);
@@ -260,15 +258,15 @@ TEST_CASE("a whole level stays within three journal entries") {
     context.total_levels = 2;
     context.discovery_total = 1;
     for (std::uint64_t i = 0; i < 12; ++i) {
-        journal.record_event(move_event(i, Direction::right, Terrain::open, 1), context);
+        journal.record_event(move_event(i, Direction::right, Terrain::open), context);
     }
     context.discoveries_found = 1;
     journal.record_event(discovery_event(12, Direction::right), context);
     journal.record_event(
-        move_event(13, Direction::up, Terrain::hill, 2, ObjectiveTransition::landmark_discovered),
+        move_event(13, Direction::up, Terrain::hill, ObjectiveTransition::landmark_discovered),
         context);
     journal.record_event(
-        move_event(14, Direction::up, Terrain::hill, 2, ObjectiveTransition::level_completed),
+        move_event(14, Direction::up, Terrain::hill, ObjectiveTransition::level_completed),
         context);
 
     CHECK(journal.size() == 3);

@@ -49,13 +49,12 @@ struct LevelObjective {
     // cardinal component only, so it halves the search rather than solving it.
     Direction exit_bearing = Direction::right;
     ObjectiveStatus status = ObjectiveStatus::seeking_landmark;
-    // The deterministic cheapest stamina cost of the level route: the minimum
-    // terrain-entry cost from spawn to the landmark plus the minimum cost from the
-    // landmark to the exit. Edge weights are stamina_cost_of(destination), the
-    // single terrain-cost/walkability source, so this scalar is a pure objective
-    // property every frontend can reuse to score a run. It is 0 when the exit
-    // coincides with spawn (a single-cell map).
-    std::uint64_t minimum_route_stamina_cost = 0;
+    // The deterministic length in moves of the shortest legal level route: the
+    // fewest walkable cardinal steps from spawn to the landmark plus the fewest
+    // from the landmark to the exit. It is a pure objective property every
+    // frontend can reuse to score a run, and it is 0 when the exit coincides with
+    // spawn (a single-cell map).
+    std::uint64_t minimum_route_length = 0;
     // The number of walkable cells reachable from spawn over cardinal walkable
     // steps, including spawn itself. A pure map/objective property used as the
     // denominator of the exploration statistic, so every frontend agrees on

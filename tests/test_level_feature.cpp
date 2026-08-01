@@ -83,13 +83,13 @@ TEST_CASE("a vantage point grants one wide reveal on first entry and is then ine
     CHECK_FALSE(movement(again).wide_reveal_granted);
 }
 
-TEST_CASE("a vantage point costs exactly what its terrain costs and never blocks") {
+TEST_CASE("a vantage point is an ordinary walkable cell and never blocks") {
     GameState state(arena({LevelFeature{Coordinates{2, 1}, LevelFeatureKind::vantage_point}},
                           Coordinates{5, 3}));
 
     const GameEvent event = state.move(Direction::right);
     CHECK(movement(event).outcome.result == MoveResult::moved);
-    CHECK(movement(event).outcome.stamina_cost == stamina_cost_of(Terrain::open).value());
+    CHECK(movement(event).outcome.terrain == Terrain::open);
     CHECK(state.actor_position() == Coordinates{2, 1});
 }
 
@@ -123,13 +123,14 @@ TEST_CASE("a vantage point reveals ground no terrain radius could reach") {
     CHECK(state.visibility().at(distant) == CellVisibility::visible);
 }
 
-TEST_CASE("a discovery is recorded once and changes no stamina") {
+TEST_CASE("a discovery is recorded once and grants no wide reveal") {
     GameState state(arena({LevelFeature{Coordinates{2, 1}, LevelFeatureKind::discovery}},
                           Coordinates{5, 3}));
     CHECK(state.discovery_total() == 1u);
 
     const MoveOutcome preview = state.peek(Direction::right);
-    CHECK(preview.stamina_cost == stamina_cost_of(Terrain::open).value());
+    CHECK(preview.result == MoveResult::moved);
+    CHECK(preview.feature == LevelFeatureKind::discovery);
 
     const GameEvent first = state.move(Direction::right);
     CHECK(movement(first).discovery_recorded);
@@ -169,7 +170,7 @@ TEST_CASE("every generated level places its whole content budget on reachable wa
             for (std::size_t slot = 0; slot < placed.size(); ++slot) {
                 CHECK(placed[slot].kind == level.content_slots[slot].kind);
                 CHECK(level.content_slots[slot].zone.contains(placed[slot].position));
-                CHECK(stamina_cost_of(world.map.terrain_at(placed[slot].position)).has_value());
+                CHECK(is_walkable(world.map.terrain_at(placed[slot].position)));
                 CHECK(placed[slot].position != world.map.spawn());
                 CHECK(placed[slot].position != world.exit_cell);
             }

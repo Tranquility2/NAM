@@ -58,9 +58,7 @@ RenderInput make_input(const Map& map) {
     input.terrain = map.terrain_at(map.spawn());
     input.move_count = 3;
     input.attempt_count = 5;
-    input.stamina = 7;
-    input.max_stamina = 12;
-    input.message = "Moved onto open ground for 1 stamina.";
+    input.message = "Moved onto open ground. Sight 3.";
     input.recent = {RecentMove{Direction::up}, RecentMove{Direction::left}};
     return input;
 }
@@ -119,7 +117,6 @@ Journal make_milestone_journal(std::uint32_t count) {
         move.direction = Direction::right;
         move.outcome.result = MoveResult::moved;
         move.outcome.terrain = Terrain::open;
-        move.outcome.stamina_cost = 1;
         move.objective_update.transition = ObjectiveTransition::landmark_discovered;
         journal.record_event(GameEvent{i, move}, ctx("Landmark " + std::to_string(i + 1)));
     }
@@ -152,7 +149,6 @@ ExpeditionReport build_test_report(std::size_t interior_width) {
     move.direction = Direction::right;
     move.outcome.result = MoveResult::moved;
     move.outcome.terrain = Terrain::open;
-    move.outcome.stamina_cost = 1;
     journal.record_event(GameEvent{0, move}, ctx(objective.name));
     journal.record_initial_completion(objective.name);
 
@@ -160,8 +156,7 @@ ExpeditionReport build_test_report(std::size_t interior_width) {
     Settings settings;  // Built-in identity.
     return build_expedition_report(objective, map, visibility, journal, route,
                                    world_identity_from(settings), /*move_count=*/1,
-                                   /*attempt_count=*/1, /*stamina_spent=*/1,
-                                   /*final_stamina=*/11, /*max_stamina=*/12);
+                                   /*attempt_count=*/1);
 }
 
 // Concatenate a frame's raw rows so escape sequences can be searched globally.
@@ -318,19 +313,19 @@ TEST_CASE("unexplored authored content never leaks its glyph") {
 }
 
 
-TEST_CASE("standard status shows stamina terrain and moves in order") {
+TEST_CASE("standard status shows terrain sight and moves in order") {
     const Map map = open_map(8, 4);
     const Renderer renderer(plain_config());
     const Frame frame = renderer.render(make_input(map), TerminalSize{80, 24});
     const std::string visible = join_visible(frame);
-    const std::size_t stam = visible.find("Stamina: 7/12");
     const std::size_t terr = visible.find("Terrain:");
+    const std::size_t sight = visible.find("Sight: 3");
     const std::size_t moves = visible.find("Moves:");
-    REQUIRE(stam != std::string::npos);
     REQUIRE(terr != std::string::npos);
+    REQUIRE(sight != std::string::npos);
     REQUIRE(moves != std::string::npos);
-    CHECK(stam < terr);
-    CHECK(terr < moves);
+    CHECK(terr < sight);
+    CHECK(sight < moves);
     CHECK(frame.size() == 24);
     CHECK_FALSE(any_esc(frame));
 }
@@ -443,30 +438,30 @@ TEST_CASE("debug mode adds a diagnostics line in the standard layout") {
     CHECK(has_debug);
 }
 
-TEST_CASE("stamina stays visible at the minimum compact width") {
+TEST_CASE("the sight range stays visible at the minimum compact width") {
     const Map map = open_map(8, 4);
     const Renderer renderer(plain_config());
     const Frame frame = renderer.render(make_input(map), TerminalSize{12, 6});
     const std::string visible = join_visible(frame);
-    CHECK(visible.find("S:7/12") != std::string::npos);  // still visible before clipping.
+    CHECK(visible.find("S:3") != std::string::npos);  // still visible before clipping.
     CHECK(frame.size() == 6);
     for (const std::string& row : frame) {
         CHECK(strip_ansi(row).size() <= 12);
     }
 }
 
-TEST_CASE("plain-mode status exposes stamina before terrain and moves") {
+TEST_CASE("plain-mode status exposes terrain before sight and moves") {
     const Map map = open_map(8, 4);
     const Renderer renderer(plain_config());
     const std::string text = renderer.render_plain(make_input(map));
-    const std::size_t stam = text.find("Stamina: 7/12");
     const std::size_t terr = text.find("Terrain:");
+    const std::size_t sight = text.find("Sight: 3");
     const std::size_t moves = text.find("Moves:");
-    REQUIRE(stam != std::string::npos);
     REQUIRE(terr != std::string::npos);
+    REQUIRE(sight != std::string::npos);
     REQUIRE(moves != std::string::npos);
-    CHECK(stam < terr);
-    CHECK(terr < moves);
+    CHECK(terr < sight);
+    CHECK(sight < moves);
     CHECK(text.find('\x1b') == std::string::npos);  // plain mode stays ANSI-free.
 }
 
@@ -697,7 +692,7 @@ TEST_CASE("the standard layout shows the objective line after status and before 
     const Frame frame = renderer.render(input, TerminalSize{80, 24});
     const std::string visible = join_visible(frame);
 
-    const std::size_t status = visible.find("Stamina: 7/12");
+    const std::size_t status = visible.find("Sight: 3");
     const std::size_t objline = visible.find(
         "Objective: Reach Glass River Exit (*).");
     const std::size_t message = visible.find("> Moved onto open ground");
@@ -739,7 +734,7 @@ TEST_CASE("plain rendering places the objective line after status and before the
     const Renderer renderer(plain_config());
     const std::string text = renderer.render_plain(input);
 
-    const std::size_t status = text.find("Stamina: 7/12");
+    const std::size_t status = text.find("Sight: 3");
     const std::size_t objline = text.find("Objective: Reach the exit to the east (*).");
     const std::size_t message = text.find("Moved onto open ground");
     REQUIRE(status != std::string::npos);

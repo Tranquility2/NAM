@@ -122,37 +122,41 @@ TEST_CASE("the same seed replays the same prototype run exactly") {
     }
 }
 
-TEST_CASE("an exhausted meter never refuses a walkable step") {
-    // Recovery bookkeeping must never gate movement. Wander onto the roughest
-    // ground available, which is the fastest way to empty the meter, and check
-    // that every in-bounds walkable step still succeeds all the way down to zero.
-    bool observed_empty_meter = false;
+TEST_CASE("impassable terrain is the only thing that ever refuses a step") {
+    // Movement is fluid: nothing but the map's edge and a barrier may block a
+    // command. Wander towards the tightest sight available, which is the terrain a
+    // player is most likely to be forced through, and check the equality holds on
+    // every peek along the way.
+    bool observed_terrain_block = false;
     for (const std::uint64_t seed : gate_seeds()) {
         GameState state = make_level_state(LevelTier::medium, seed);
         for (int step = 0; step < 200; ++step) {
-            std::optional<Direction> roughest;
-            std::uint32_t roughest_cost = 0;
+            std::optional<Direction> tightest;
+            int tightest_sight = 0;
             for (const Direction direction :
                  {Direction::up, Direction::down, Direction::left, Direction::right}) {
                 const MoveOutcome outcome = state.peek(direction);
                 if (outcome.result == MoveResult::blocked_by_boundary) continue;
 
-                // The only legitimate refusal is impassable terrain. Stamina, the
-                // meter's history, and authored content must never produce one.
+                // The only legitimate refusal is impassable terrain. Authored
+                // content and the route so far must never produce one.
                 CHECK((outcome.result == MoveResult::moved) == is_walkable(outcome.terrain));
-                if (outcome.result != MoveResult::moved) continue;
-                if (!roughest || outcome.stamina_cost > roughest_cost) {
-                    roughest = direction;
-                    roughest_cost = outcome.stamina_cost;
+                if (outcome.result != MoveResult::moved) {
+                    observed_terrain_block = true;
+                    continue;
+                }
+                const int sight = visibility_radius_of(outcome.terrain);
+                if (!tightest || sight < tightest_sight) {
+                    tightest = direction;
+                    tightest_sight = sight;
                 }
             }
-            REQUIRE(roughest.has_value());
-            static_cast<void>(state.move(*roughest));
-            if (state.stamina() == 0) observed_empty_meter = true;
+            REQUIRE(tightest.has_value());
+            static_cast<void>(state.move(*tightest));
         }
     }
-    // The check above is only meaningful if the wander really did empty the meter.
-    CHECK(observed_empty_meter);
+    // The equality above is only meaningful if the wander really did meet a barrier.
+    CHECK(observed_terrain_block);
 }
 
 TEST_CASE("the first landmark points truthfully at the exit") {
@@ -208,9 +212,9 @@ TEST_CASE("a level score is exactly its published parts") {
             CHECK(score.route_value <= completed_score_maximum);
             CHECK(score.discovery_value == score.discoveries_found * completed_score_per_discovery *
                                                score.discovery_multiplier);
-            CHECK(score.excess_stamina ==
-                  (score.actual_stamina_spent > score.optimal_route_cost
-                       ? score.actual_stamina_spent - score.optimal_route_cost
+            CHECK(score.excess_moves ==
+                  (score.actual_moves > score.optimal_route_length
+                       ? score.actual_moves - score.optimal_route_length
                        : 0));
             summed += score.value;
         }
@@ -241,7 +245,7 @@ TEST_CASE("the prototype run is a proportionate slice of the full four-tier chai
              {LevelTier::small, LevelTier::medium, LevelTier::large, LevelTier::x_large}) {
             const GameState state = make_level_state(tier, seed);
             reachable.push_back(state.objective().total_reachable_walkable_cells);
-            total_route_cost[index_of(tier)] += state.objective().minimum_route_stamina_cost;
+            total_route_cost[index_of(tier)] += state.objective().minimum_route_length;
         }
         REQUIRE(reachable.size() == 4u);
         CHECK(reachable[0] < reachable[1]);

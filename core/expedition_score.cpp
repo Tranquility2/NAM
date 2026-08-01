@@ -39,18 +39,18 @@ namespace {
 
 ExpeditionScore compute_completed_score(const CompletedScoreInput& input) noexcept {
     ExpeditionScore score;
-    score.optimal_route_cost = input.optimal_route_cost;
-    score.actual_stamina_spent = input.actual_stamina_spent;
+    score.optimal_route_length = input.optimal_route_length;
+    score.actual_moves = input.actual_moves;
     score.blocked_attempts = input.blocked_attempts;
 
-    // Excess stamina is every actual stamina point beyond the cheapest route.
-    score.excess_stamina = saturating_sub(input.actual_stamina_spent, input.optimal_route_cost);
+    // Excess moves are every move taken beyond the shortest legal route.
+    score.excess_moves = saturating_sub(input.actual_moves, input.optimal_route_length);
 
     // Accumulate penalties with saturating arithmetic, then subtract with
     // comparison-before-subtraction.
     std::uint64_t penalty = 0;
     penalty = saturating_add(
-        penalty, saturating_mul(score.excess_stamina, completed_penalty_per_excess_stamina));
+        penalty, saturating_mul(score.excess_moves, completed_penalty_per_excess_move));
     penalty = saturating_add(
         penalty, saturating_mul(score.blocked_attempts, completed_penalty_per_blocked_attempt));
 

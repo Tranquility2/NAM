@@ -30,12 +30,11 @@ JournalContext ctx(const std::string& landmark_name) {
 }
 
 GameEvent moved_event(std::uint64_t sequence, Direction direction, Terrain terrain,
-                      std::uint32_t cost, Coordinates to) {
+                      Coordinates to) {
     MoveAttemptedEvent move;
     move.direction = direction;
     move.outcome.result = MoveResult::moved;
     move.outcome.terrain = terrain;
-    move.outcome.stamina_cost = cost;
     move.outcome.to = to;
     return GameEvent{sequence, move};
 }
@@ -57,12 +56,12 @@ Map row_map(const std::string& glyphs, Coordinates spawn) {
 }
 
 LevelObjective make_objective(Coordinates exit_cell, std::string name, ObjectiveStatus status,
-                              std::uint64_t route_cost, std::uint64_t reachable_cells) {
+                              std::uint64_t route_length, std::uint64_t reachable_cells) {
     LevelObjective objective;
     objective.exit_cell = exit_cell;
     objective.name = std::move(name);
     objective.status = status;
-    objective.minimum_route_stamina_cost = route_cost;
+    objective.minimum_route_length = route_length;
     objective.total_reachable_walkable_cells = reachable_cells;
     return objective;
 }
@@ -80,11 +79,9 @@ std::string route_map_first_row(const ExpeditionReport& report) {
 ExpeditionReport build_report(const LevelObjective& objective, const Map& map,
                               const VisibilityMap& visibility, const Journal& journal,
                               const RouteHistory& route, std::uint64_t move_count,
-                              std::uint64_t attempt_count, std::uint64_t stamina_spent,
-                              std::uint32_t final_stamina, std::uint32_t max_stamina) {
+                              std::uint64_t attempt_count) {
     return build_expedition_report(objective, map, visibility, journal, route,
-                                   world_identity_from(Settings{}), move_count, attempt_count,
-                                   stamina_spent, final_stamina, max_stamina);
+                                   world_identity_from(Settings{}), move_count, attempt_count);
 }
 
 }  // namespace
@@ -93,9 +90,9 @@ TEST_SUITE("console") {
 
 TEST_CASE("route history starts at spawn and appends only successful destinations") {
     RouteHistory route(Coordinates{0, 0});
-    route.record_event(moved_event(0, Direction::right, Terrain::open, 1, Coordinates{1, 0}));
+    route.record_event(moved_event(0, Direction::right, Terrain::open, Coordinates{1, 0}));
     route.record_event(blocked_event(1, Direction::right));
-    route.record_event(moved_event(2, Direction::right, Terrain::open, 1, Coordinates{2, 0}));
+    route.record_event(moved_event(2, Direction::right, Terrain::open, Coordinates{2, 0}));
 
     const std::vector<Coordinates>& cells = route.cells();
     REQUIRE(cells.size() == 3);
@@ -116,11 +113,11 @@ TEST_CASE("the route map applies F over X over S over star over fog terrain") {
 
     Journal journal;
     RouteHistory route(Coordinates{0, 0});
-    route.record_event(moved_event(0, Direction::right, Terrain::open, 1, Coordinates{1, 0}));
-    route.record_event(moved_event(1, Direction::right, Terrain::open, 1, Coordinates{2, 0}));
+    route.record_event(moved_event(0, Direction::right, Terrain::open, Coordinates{1, 0}));
+    route.record_event(moved_event(1, Direction::right, Terrain::open, Coordinates{2, 0}));
 
     const ExpeditionReport report =
-        build_report(objective, map, visibility, journal, route, 2, 2, 2, 18, 20);
+        build_report(objective, map, visibility, journal, route, 2, 2);
     CHECK(report.final_position == Coordinates{2, 0});
     CHECK(route_map_first_row(report) == "S*FX?");
 }
@@ -136,28 +133,26 @@ TEST_CASE("completed report shows result story statistics and legend wording") {
     RouteHistory route(Coordinates{0, 0});
     for (std::uint64_t i = 0; i < 3; ++i) {
         const GameEvent event =
-            moved_event(i, Direction::right, Terrain::open, 1, Coordinates{static_cast<int>(i) + 1, 0});
+            moved_event(i, Direction::right, Terrain::open, Coordinates{static_cast<int>(i) + 1, 0});
         journal.record_event(event, ctx(objective.name));
         route.record_event(event);
     }
 
     const ExpeditionReport report =
         build_report(objective, map, visibility, journal, route, /*move_count=*/3,
-                     /*attempt_count=*/4, /*stamina_spent=*/3, /*final_stamina=*/17,
-                     /*max_stamina=*/20);
+                     /*attempt_count=*/4);
 
     CHECK(format_report_result(report) == "Result: level complete.");
     CHECK(format_report_story(report) ==
           "The party found Glass River Exit and reached the exit in 3 moves.");
 
     const std::vector<std::string> stats = format_report_statistics(report);
-    REQUIRE(stats.size() == 6);
+    REQUIRE(stats.size() == 5);
     CHECK(stats[0] == "STATISTICS");
     CHECK(stats[1] == "Score: 980 (route 980 / 1000, discoveries 0)");
     CHECK(stats[2] == "Discoveries: 0 / 0");
-    CHECK(stats[3] == "Route: 3 moves, 3 stamina (optimal 3), 1 blocked");
-    CHECK(stats[4] == "Stamina: 17/20");
-    CHECK(stats[5] == "Explored: 4 / 4 cells");
+    CHECK(stats[3] == "Route: 3 moves (shortest 3), 1 blocked");
+    CHECK(stats[4] == "Explored: 4 / 4 cells");
 
     // A standalone level has no separate expedition section to repeat itself in.
     CHECK(format_report_expedition(report).empty());
@@ -167,7 +162,7 @@ TEST_CASE("completed report shows result story statistics and legend wording") {
     CHECK(legend[1] == "F = final position");
 }
 
-TEST_CASE("a wandering route loses five points per excess stamina point") {
+TEST_CASE("a wandering route loses five points per excess move") {
     const Map map = row_map("....", Coordinates{0, 0});
     const LevelObjective objective =
         make_objective(Coordinates{3, 0}, "North Ridge", ObjectiveStatus::completed, 1, 4);
@@ -178,15 +173,15 @@ TEST_CASE("a wandering route loses five points per excess stamina point") {
     RouteHistory route(Coordinates{0, 0});
     for (std::uint64_t i = 0; i < 3; ++i) {
         const GameEvent event =
-            moved_event(i, Direction::right, Terrain::open, 1, Coordinates{static_cast<int>(i) + 1, 0});
+            moved_event(i, Direction::right, Terrain::open, Coordinates{static_cast<int>(i) + 1, 0});
         journal.record_event(event, ctx(objective.name));
         route.record_event(event);
     }
 
-    // Three stamina spent against a one-point optimal route is two excess points.
+    // Three moves against a one-move shortest route is two excess moves.
     const ExpeditionReport report =
-        build_report(objective, map, visibility, journal, route, 3, 3, 3, 17, 20);
-    CHECK(report.score.excess_stamina == 2);
+        build_report(objective, map, visibility, journal, route, 3, 3);
+    CHECK(report.score.excess_moves == 2);
     CHECK(report.score.value == 990);
 }
 
@@ -199,16 +194,16 @@ TEST_CASE("the route line uses singular grammar for a single move") {
 
     Journal journal;
     RouteHistory route(Coordinates{0, 0});
-    const GameEvent first = moved_event(0, Direction::right, Terrain::open, 1, Coordinates{1, 0});
+    const GameEvent first = moved_event(0, Direction::right, Terrain::open, Coordinates{1, 0});
     journal.record_event(first, ctx(objective.name));
     route.record_event(first);
 
     const ExpeditionReport report =
-        build_report(objective, map, visibility, journal, route, 1, 1, 1, 19, 20);
+        build_report(objective, map, visibility, journal, route, 1, 1);
 
     const std::vector<std::string> stats = format_report_statistics(report);
-    REQUIRE(stats.size() == 6);
-    CHECK(stats[3] == "Route: 1 move, 1 stamina (optimal 1), 0 blocked");
+    REQUIRE(stats.size() == 5);
+    CHECK(stats[3] == "Route: 1 move (shortest 1), 0 blocked");
 }
 
 TEST_CASE("report line sections appear in the required order") {
@@ -222,7 +217,7 @@ TEST_CASE("report line sections appear in the required order") {
     RouteHistory route(Coordinates{0, 0});
 
     const ExpeditionReport report =
-        build_report(objective, map, visibility, journal, route, 0, 0, 0, 20, 20);
+        build_report(objective, map, visibility, journal, route, 0, 0);
     const std::vector<std::string> lines = format_report_lines(report);
 
     const auto index_of = [&lines](const std::string& header) -> int {
@@ -257,7 +252,7 @@ TEST_CASE("plain report block ends with one newline has no ansi and is determini
     RouteHistory route(Coordinates{0, 0});
 
     const ExpeditionReport report =
-        build_report(objective, map, visibility, journal, route, 0, 0, 0, 20, 20);
+        build_report(objective, map, visibility, journal, route, 0, 0);
 
     const Renderer renderer(RenderConfig{false, false, false, false});
     const std::string first = renderer.render_report_plain(report);

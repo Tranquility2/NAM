@@ -18,7 +18,7 @@ namespace nam::console {
 // anything from the map.
 //
 // The journal is a collection of memorable moments, not an event log. Routine
-// movement, stamina changes, passive recovery, and blocked input are reported
+// movement, sight changes, and blocked input are reported
 // through the immediate HUD message and the final statistics; only durable
 // milestones become entries, so a full run stays readable end to end.
 //

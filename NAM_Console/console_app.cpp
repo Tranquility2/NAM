@@ -117,8 +117,6 @@ RenderInput ConsoleApp::make_input(bool emphasize) const {
     input.terrain = state().actor_terrain();
     input.move_count = hud_.move_count();
     input.attempt_count = hud_.attempt_count();
-    input.stamina = state().stamina();
-    input.max_stamina = state().max_stamina();
     input.message = hud_.message();
     input.recent.assign(hud_.recent().begin(), hud_.recent().end());
     input.emphasize_actor = emphasize;
@@ -179,15 +177,13 @@ void ConsoleApp::enter_completion() {
     // totals, and on a multi-level run this also generates the next level.
     const std::uint64_t blocked_attempts =
         hud_.attempt_count() > hud_.move_count() ? hud_.attempt_count() - hud_.move_count() : 0u;
-    const LevelPerformance performance{hud_.stamina_spent(), blocked_attempts};
+    const LevelPerformance performance{hud_.move_count(), blocked_attempts};
 
     // Snapshot everything the report needs before complete_level replaces the
     // level, because on an advance `state()` becomes the *next* level.
     const LevelObjective objective = state().objective();
     const Map map = state().map();
     const VisibilityMap visibility = state().visibility();
-    const std::uint32_t final_stamina = state().stamina();
-    const std::uint32_t max_stamina = state().max_stamina();
 
     static_cast<void>(expedition_.complete_level(performance));
 
@@ -210,12 +206,11 @@ void ConsoleApp::enter_completion() {
     }
 
     // Build the report only after the completing event has updated the HUD,
-    // journal, route history, objective state, visibility, and stamina.
+    // journal, route history, objective state, and visibility.
     report_.emplace(build_expedition_report(
         objective, map, visibility, journal_, route_history_, world_identity_from(settings_),
         static_cast<std::uint64_t>(hud_.move_count()),
-        static_cast<std::uint64_t>(hud_.attempt_count()), hud_.stamina_spent(), final_stamina,
-        max_stamina, carryover));
+        static_cast<std::uint64_t>(hud_.attempt_count()), carryover));
     report_viewport_ = ReportViewport{};  // Open at (0, 0) (REQ-150).
     restored_message_ = restored_completion_message(objective.name);
 }

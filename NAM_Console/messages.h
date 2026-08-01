@@ -28,9 +28,9 @@ namespace nam::console {
 [[nodiscard]] std::string direction_name(Direction direction);
 
 // A sentence describing the outcome of a move attempt, suitable for the HUD's
-// latest-event line. A successful move reports the rule-provided stamina cost
-// carried in the MoveOutcome and any passive recovery; boundary and
-// impassable-terrain outcomes have no cost and keep their existing wording.
+// latest-event line. A successful move names the terrain entered and the sight
+// range that terrain grants, because sight is the only thing terrain now governs;
+// boundary and impassable-terrain outcomes keep their existing wording.
 [[nodiscard]] std::string describe_move(const MoveOutcome& outcome);
 
 // The latest-event message shown when a move first enters a discovery cell,

@@ -17,7 +17,7 @@
 //
 // Carryover is deliberately narrow (roadmap section 3): the shared score, the
 // discovery tally, one simple bonus, the current tier, and the run identity.
-// Stamina resets with every level because each level owns a fresh GameState.
+// Nothing else survives a level, because each level owns a fresh GameState.
 
 // The one simple carried bonus the prototype grants. It must stay immediately
 // understandable and must never grow into an inventory.
@@ -62,7 +62,7 @@ struct LevelSummary {
 // What the frontend measured over one level. The core does not observe input, so
 // the counters a run accumulates are handed back at completion time.
 struct LevelPerformance {
-    std::uint64_t stamina_spent = 0;
+    std::uint64_t moves_taken = 0;
     std::uint64_t blocked_attempts = 0;
 };
 

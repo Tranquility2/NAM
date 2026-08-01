@@ -101,33 +101,28 @@ TEST_CASE("an event outcome equals the pure peek for the same command") {
         CHECK(emitted.from == peeked.from);
         CHECK(emitted.to == peeked.to);
         CHECK(emitted.terrain == peeked.terrain);
-        CHECK(emitted.stamina_cost == peeked.stamina_cost);
-        CHECK(emitted.stamina_before == peeked.stamina_before);
-        CHECK(emitted.stamina_after == peeked.stamina_after);
+        CHECK(emitted.feature == peeked.feature);
     }
 }
 
-TEST_CASE("an event preserves the destination cost and before after stamina") {
+TEST_CASE("an event preserves the destination terrain the peek predicted") {
     GameState state(mountain_corridor());
     const MoveOutcome peeked = state.peek(Direction::right);
     const GameEvent event = state.move(Direction::right);
     const MoveOutcome& emitted = payload_of(event).outcome;
     CHECK(emitted.result == MoveResult::moved);
     CHECK(emitted.terrain == Terrain::mountain);
-    CHECK(emitted.stamina_cost == 4);
-    CHECK(emitted.stamina_before == 20);
-    CHECK(emitted.stamina_after == 16);
+    CHECK(emitted.to == Coordinates{1, 0});
     // The emitted outcome still equals the immediately preceding pure peek.
-    CHECK(emitted.stamina_cost == peeked.stamina_cost);
-    CHECK(emitted.stamina_before == peeked.stamina_before);
-    CHECK(emitted.stamina_after == peeked.stamina_after);
+    CHECK(emitted.result == peeked.result);
+    CHECK(emitted.terrain == peeked.terrain);
+    CHECK(emitted.to == peeked.to);
 }
 
-TEST_CASE("stamina never blocks a walkable step") {
-    // A two-cell water channel drains 3 stamina per step and grants no passive
-    // recovery, so the meter saturates at zero. Movement stays fluid: the step
-    // taken at zero stamina still succeeds and still consumes exactly one
-    // contiguous sequence number.
+TEST_CASE("a long route over the same rough ground never stops succeeding") {
+    // Movement is fluid and stateless: nothing accumulates that could eventually
+    // refuse a step. Pace a two-cell water channel and check every crossing still
+    // succeeds and still consumes exactly one contiguous sequence number.
     GameState state(make_map("NAM-MAP 1\nwidth 2\nheight 1\nspawn 0 0\n---\n~~\n"));
     Direction next = Direction::right;
     for (std::uint64_t i = 0; i < 7; ++i) {
@@ -136,17 +131,12 @@ TEST_CASE("stamina never blocks a walkable step") {
         REQUIRE(payload_of(step).outcome.result == MoveResult::moved);
         next = next == Direction::right ? Direction::left : Direction::right;
     }
-    CHECK(state.stamina() == 0);
 
-    const GameEvent exhausted = state.move(next);
-    CHECK(exhausted.sequence == 7);
-    const MoveOutcome& outcome = payload_of(exhausted).outcome;
+    const GameEvent late = state.move(next);
+    CHECK(late.sequence == 7);
+    const MoveOutcome& outcome = payload_of(late).outcome;
     CHECK(outcome.result == MoveResult::moved);
     CHECK(outcome.terrain == Terrain::shallow_water);
-    CHECK(outcome.stamina_cost == 3);
-    CHECK(outcome.stamina_before == 0);
-    CHECK(outcome.stamina_recovered == 0);
-    CHECK(outcome.stamina_after == 0);
     CHECK(state.actor_position() == Coordinates{0, 0});
 
     // The next command continues the contiguous sequence with no gap.
@@ -193,7 +183,7 @@ TEST_CASE("two-field movement-event aggregate construction keeps a default objec
     // REQ-015: adding the nested ObjectiveUpdate must not break existing
     // two-field aggregate initialization of a movement event. The third member is
     // value-initialized: equal seeking before/after and no transition.
-    const MoveOutcome outcome{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open, 1, 20, 19};
+    const MoveOutcome outcome{MoveResult::moved, {0, 0}, {1, 0}, Terrain::open};
     const MoveAttemptedEvent event{Direction::right, outcome};
     CHECK(event.objective_update.before == ObjectiveStatus::seeking_landmark);
     CHECK(event.objective_update.after == ObjectiveStatus::seeking_landmark);

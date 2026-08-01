@@ -39,30 +39,18 @@ MoveOutcome GameState::peek(Direction direction) const {
     const Coordinates target = from + direction_delta(direction);
 
     if (!map_.contains(target)) {
-        return {MoveResult::blocked_by_boundary, from, from, map_.terrain_at(from),
-                0, 0, stamina_, stamina_};
+        return {MoveResult::blocked_by_boundary, from, from, map_.terrain_at(from), std::nullopt};
     }
 
     const Terrain destination = map_.terrain_at(target);
-    const std::optional<std::uint32_t> terrain_cost = stamina_cost_of(destination);
-    if (!terrain_cost.has_value()) {
-        return {MoveResult::blocked_by_terrain, from, from, destination,
-                0, 0, stamina_, stamina_};
+    if (!is_walkable(destination)) {
+        return {MoveResult::blocked_by_terrain, from, from, destination, std::nullopt};
     }
 
-    // Movement is fluid: an in-bounds walkable destination always succeeds.
-    // Stamina is a terrain-pressure meter, so the destination cost is charged
-    // with a saturating subtraction that can never refuse the step, and the
-    // terrain's passive recovery is then added back under the cap.
-    const std::optional<LevelFeatureKind> feature = feature_at(target);
-    const std::uint32_t cost = *terrain_cost;
-    const std::uint32_t drained = stamina_ >= cost ? stamina_ - cost : 0u;
-    const std::uint32_t stamina_after =
-        std::min(maximum_stamina, drained + passive_recovery_of(destination).value_or(0u));
-
-    return {MoveResult::moved, from,     target,        destination,
-            cost,              stamina_after - drained, stamina_, stamina_after,
-            feature};
+    // Movement is fluid: an in-bounds walkable destination always succeeds. No
+    // meter gates a step, so terrain shapes a route through the sight it grants
+    // rather than through a cost it charges.
+    return {MoveResult::moved, from, target, destination, feature_at(target)};
 }
 
 GameEvent GameState::move(Direction direction) {
@@ -79,15 +67,14 @@ GameEvent GameState::move(Direction direction) {
 
     if (outcome.result == MoveResult::moved) {
         actor_position_ = outcome.to;
-        stamina_ = outcome.stamina_after;
         // Only a successful move refreshes visibility, and only after the actor
-        // position and stamina are committed. The radius is selected from the
-        // destination terrain the actor now stands on, so elevated terrain reveals
-        // farther. Blocked attempts and peek leave fog and stamina unchanged.
+        // position is committed. The radius is selected from the destination
+        // terrain the actor now stands on, so elevated terrain reveals farther.
+        // Blocked attempts and peek leave fog unchanged.
         visibility_.reveal_square(actor_position_, visibility_radius());
-        // Advance the objective only after position, stamina, and visibility have
-        // committed, so a discovered landmark or completed level reflects the fully
-        // updated state. Blocked attempts never advance the objective.
+        // Advance the objective only after position and visibility have committed,
+        // so a discovered landmark or completed level reflects the fully updated
+        // state. Blocked attempts never advance the objective.
         objective_transition = advance_objective(objective_, actor_position_);
         if (objective_transition == ObjectiveTransition::landmark_discovered) {
             wide_reveal_granted = true;

@@ -803,7 +803,7 @@ std::uint64_t hash_seed_text(std::string_view text) noexcept {
                 if (!is_interior(profile, ux, uy)) {
                     continue;
                 }
-                if (!stamina_cost_of(cells[cell_index(profile, ux, uy)]).has_value()) {
+                if (!is_walkable(cells[cell_index(profile, ux, uy)])) {
                     continue;
                 }
                 const Coordinates position{x, y};

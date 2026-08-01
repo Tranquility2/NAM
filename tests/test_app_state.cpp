@@ -16,16 +16,15 @@ using namespace nam::console;
 namespace {
 
 MoveOutcome moved_to(Coordinates from, Coordinates to, Terrain terrain) {
-    const std::uint32_t cost = stamina_cost_of(terrain).value_or(0);
-    return MoveOutcome{MoveResult::moved, from, to, terrain, cost, 0, 12, 12 - cost};
+    return MoveOutcome{MoveResult::moved, from, to, terrain};
 }
 
 MoveOutcome blocked(Coordinates at, Terrain terrain) {
-    return MoveOutcome{MoveResult::blocked_by_terrain, at, at, terrain, 0, 0};
+    return MoveOutcome{MoveResult::blocked_by_terrain, at, at, terrain};
 }
 
 MoveOutcome boundary_blocked(Coordinates at, Terrain terrain) {
-    return MoveOutcome{MoveResult::blocked_by_boundary, at, at, terrain, 0, 0};
+    return MoveOutcome{MoveResult::blocked_by_boundary, at, at, terrain};
 }
 
 // Wrap a direction and outcome into the movement event the HUD now consumes. The

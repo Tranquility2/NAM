@@ -81,10 +81,9 @@ TEST_CASE("completing a level advances the tier and generates the next level") {
     CHECK(expedition.current_tier() == LevelTier::medium);
     CHECK(expedition.completed_levels() == 1u);
     CHECK_FALSE(expedition.completed());
-    // The next level is live and unplayed, so stamina reset with it.
+    // The next level is live and unplayed, standing on its own spawn.
     CHECK(expedition.state().map().width() == dimensions_of(LevelTier::medium).width);
     CHECK(expedition.state().actor_position() == expedition.state().map().spawn());
-    CHECK(expedition.state().stamina() == GameState::maximum_stamina);
     CHECK_FALSE(expedition.state().objective_completed());
 }
 
@@ -222,7 +221,6 @@ TEST_CASE("make_level_state builds a playable level for every tier") {
         CHECK(state.map().width() == dimensions_of(tier).width);
         CHECK(state.map().height() == dimensions_of(tier).height);
         CHECK(state.actor_position() == center_spawn_of(tier));
-        CHECK(state.stamina() == GameState::maximum_stamina);
         CHECK(state.discovery_total() > 0u);
     }
 }

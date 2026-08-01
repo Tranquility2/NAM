@@ -80,55 +80,6 @@ enum class Terrain : unsigned char {
     return !is_walkable(terrain);
 }
 
-// The stamina an actor must spend to enter a cell of this terrain.
-//
-// Deprecated: stamina is being removed from the game. Terrain sight range has
-// already taken over as the signal that makes a route worth choosing, and this
-// mapping survives only so the meter can be deleted in its own commit rather
-// than inside the terrain rewrite. It is no longer the source of walkability;
-// see is_walkable above and the static_assert block below.
-[[nodiscard]] constexpr std::optional<std::uint32_t> stamina_cost_of(Terrain terrain) noexcept {
-    switch (terrain) {
-        case Terrain::open:          return 1;
-        case Terrain::fields:        return 2;
-        case Terrain::forest:        return 2;
-        case Terrain::hill:          return 2;
-        case Terrain::shallow_water: return 3;
-        case Terrain::mountain:      return 4;
-        case Terrain::deep_water:    return std::nullopt;
-        case Terrain::cliff:         return std::nullopt;
-    }
-    return std::nullopt;
-}
-
-// The stamina an actor automatically regains for entering a cell of this
-// terrain. Deprecated for the same reason as stamina_cost_of.
-[[nodiscard]] constexpr std::optional<std::uint32_t> passive_recovery_of(Terrain terrain) noexcept {
-    switch (terrain) {
-        case Terrain::open:          return 2;
-        case Terrain::fields:        return 2;
-        case Terrain::forest:        return 2;
-        case Terrain::hill:          return 1;
-        case Terrain::shallow_water: return 0;
-        case Terrain::mountain:      return 0;
-        case Terrain::deep_water:    return std::nullopt;
-        case Terrain::cliff:         return std::nullopt;
-    }
-    return std::nullopt;
-}
-
-// While the deprecated stamina mappings still exist they must agree with the
-// walkability rule, so the two cannot drift apart during the transition. These
-// assertions are deleted along with the stamina mappings themselves.
-static_assert(is_walkable(Terrain::open) == stamina_cost_of(Terrain::open).has_value());
-static_assert(is_walkable(Terrain::mountain) == stamina_cost_of(Terrain::mountain).has_value());
-static_assert(is_walkable(Terrain::shallow_water) == stamina_cost_of(Terrain::shallow_water).has_value());
-static_assert(is_walkable(Terrain::fields) == stamina_cost_of(Terrain::fields).has_value());
-static_assert(is_walkable(Terrain::hill) == stamina_cost_of(Terrain::hill).has_value());
-static_assert(is_walkable(Terrain::forest) == stamina_cost_of(Terrain::forest).has_value());
-static_assert(is_walkable(Terrain::deep_water) == stamina_cost_of(Terrain::deep_water).has_value());
-static_assert(is_walkable(Terrain::cliff) == stamina_cost_of(Terrain::cliff).has_value());
-
 // The canonical ASCII glyph used to serialize a terrain value.
 [[nodiscard]] constexpr char symbol_of(Terrain terrain) noexcept {
     switch (terrain) {
