@@ -5,6 +5,20 @@ name: CI
 # native Windows bills at 2x and macOS at 10x, and a single wedged Windows job
 # can hold a runner open for its whole timeout. They live in windows.yml and
 # macos.yml and are triggered by hand.
+#
+# The run is staged through `needs:`, so the Actions graph reads left to right:
+#
+#   Tests                  Advanced tests                Build
+#   -----                  --------------                -----
+#                     ┌──▶ acceptance sweeps        ┐
+#   unit + integration├──▶ ASan + UBSan             ├──▶ Linux release
+#   (the fast tier)   ├──▶ hardened libstdc++       │
+#                     └──▶ Clang warnings-as-errors ┘──▶ Windows (MinGW cross)
+#
+# The fast tier is the gate: nothing expensive starts until the sub-second cases
+# pass, and no shippable binary is produced until everything does. Each job
+# configures its own tree — CMake has to compile before ctest can run anything —
+# so the Build stage is where artifacts come from, not where compilation starts.
 on:
   push:
     branches: [master, main]
@@ -16,17 +30,23 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # One shared, cacheable location for FetchContent downloads (doctest).
+  FETCHCONTENT_BASE: ${{ github.workspace }}/.deps
+
 jobs:
-  # Ubuntu / GCC: the plain release build and the full test suite.
-  ubuntu-gcc-release:
-    name: Ubuntu GCC (release)
+  # ===========================================================================
+  # Stage 1 — Tests. The whole suite except the seeded sweeps, on the debug
+  # preset so assertions are live. Everything else waits on it, so a broken
+  # build or an obvious regression costs one job rather than six.
+  # ===========================================================================
+  tests:
+    name: Tests / unit + integration
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       CC: gcc
       CXX: g++
-      # One shared, cacheable location for FetchContent downloads (doctest).
-      FETCHCONTENT_BASE: ${{ github.workspace }}/.deps
     steps:
       - uses: actions/checkout@v4
 
@@ -37,7 +57,51 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .deps
-          key: deps-${{ runner.os }}-doctest-2.4.12
+          key: deps-${{ runner.os }}-gcc-doctest-2.4.12
+
+      - name: Configure
+        run: cmake --preset debug -DFETCHCONTENT_BASE_DIR=${{ env.FETCHCONTENT_BASE }}
+
+      - name: Build
+        run: cmake --build --preset debug
+
+      - name: Run the fast tier
+        run: ctest --preset debug -LE slow --output-on-failure
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-tests
+          path: build/**/Testing/**
+          if-no-files-found: ignore
+
+  # ===========================================================================
+  # Stage 2 — Advanced tests. Four independent ways of being more suspicious
+  # than the fast tier: more seeds, instrumented runtimes, and a second compiler.
+  # ===========================================================================
+
+  # The seeded property sweeps and the acceptance gate. Release, because these
+  # walk many generated levels and debug codegen makes that slow.
+  acceptance:
+    name: Advanced / acceptance sweeps
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: tests
+    env:
+      CC: gcc
+      CXX: g++
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: deps-${{ runner.os }}-gcc-doctest-2.4.12
 
       - name: Configure
         run: cmake --preset release -DFETCHCONTENT_BASE_DIR=${{ env.FETCHCONTENT_BASE }}
@@ -45,27 +109,27 @@ jobs:
       - name: Build
         run: cmake --build --preset release
 
-      - name: Test
-        run: ctest --preset release --output-on-failure
+      - name: Run the seeded sweeps
+        run: ctest --preset release -L slow --output-on-failure
 
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-ubuntu-gcc-release
+          name: logs-acceptance
           path: build/**/Testing/**
           if-no-files-found: ignore
 
-  # Ubuntu / GCC: the same suite under AddressSanitizer and
-  # UndefinedBehaviorSanitizer, both configured to halt on the first error.
-  ubuntu-gcc-asan-ubsan:
-    name: Ubuntu GCC (asan-ubsan)
+  # The full suite under AddressSanitizer and UndefinedBehaviorSanitizer, both
+  # configured by the preset to halt on the first error.
+  sanitizers:
+    name: Advanced / ASan + UBSan
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: tests
     env:
       CC: gcc
       CXX: g++
-      FETCHCONTENT_BASE: ${{ github.workspace }}/.deps
     steps:
       - uses: actions/checkout@v4
 
@@ -76,7 +140,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .deps
-          key: deps-${{ runner.os }}-doctest-2.4.12
+          key: deps-${{ runner.os }}-gcc-doctest-2.4.12
 
       - name: Configure
         run: cmake --preset asan-ubsan -DFETCHCONTENT_BASE_DIR=${{ env.FETCHCONTENT_BASE }}
@@ -91,61 +155,23 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-ubuntu-gcc-asan-ubsan
+          name: logs-sanitizers
           path: build/**/Testing/**
           if-no-files-found: ignore
 
-  # Ubuntu / Clang: warnings-as-errors and the full test suite.
-  ubuntu-clang:
-    name: Ubuntu Clang (release, -Werror)
+  # The standard library's own precondition checks. These catch the class of
+  # undefined behaviour that a release libstdc++ silently tolerates but the MSVC
+  # debug runtime aborts on — out-of-range indices, invalid iterators, reading a
+  # disengaged optional — so the failure surfaces on a runner that bills at 1x
+  # rather than on a native Windows one that bills at 2x and hangs on the abort.
+  hardened:
+    name: Advanced / hardened libstdc++
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      CC: clang
-      CXX: clang++
-      FETCHCONTENT_BASE: ${{ github.workspace }}/.deps
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Ninja
-        run: sudo apt-get update && sudo apt-get install -y ninja-build
-
-      - name: Cache fetched dependencies
-        uses: actions/cache@v4
-        with:
-          path: .deps
-          key: deps-${{ runner.os }}-clang-doctest-2.4.12
-
-      - name: Configure
-        run: cmake --preset release -DFETCHCONTENT_BASE_DIR=${{ env.FETCHCONTENT_BASE }}
-
-      - name: Build
-        run: cmake --build --preset release
-
-      - name: Test
-        run: ctest --preset release --output-on-failure
-
-      - name: Upload logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-ubuntu-clang
-          path: build/**/Testing/**
-          if-no-files-found: ignore
-
-  # Ubuntu / GCC with the libstdc++ hardened modes: the standard library's own
-  # precondition checks. These catch the class of undefined behaviour that a
-  # release libstdc++ silently tolerates but the MSVC debug runtime aborts on —
-  # out-of-range indices, invalid iterators, reading a disengaged optional — so
-  # the failure surfaces on a cheap Linux runner instead of a native Windows one.
-  ubuntu-hardened:
-    name: Ubuntu GCC (hardened libstdc++)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    needs: tests
     env:
       CC: gcc
       CXX: g++
-      FETCHCONTENT_BASE: ${{ github.workspace }}/.deps
     steps:
       - uses: actions/checkout@v4
 
@@ -174,17 +200,98 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-ubuntu-hardened
+          name: logs-hardened
           path: build/**/Testing/**
           if-no-files-found: ignore
 
-  # Linux -> Windows cross-compilation with MinGW-w64: proves the console (and
-  # its Windows terminal backend) builds for Windows, and that the artifact is a
-  # PE executable. Complements — does not replace — the native MSVC job.
-  mingw-cross:
-    name: Linux MinGW cross-build
+  # A second compiler held to the warnings-as-errors policy, running the whole
+  # suite so codegen differences show up as test failures rather than surprises.
+  clang:
+    name: Advanced / Clang warnings-as-errors
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: tests
+    env:
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: .deps
+          key: deps-${{ runner.os }}-clang-doctest-2.4.12
+
+      - name: Configure
+        run: cmake --preset release -DFETCHCONTENT_BASE_DIR=${{ env.FETCHCONTENT_BASE }}
+
+      - name: Build
+        run: cmake --build --preset release
+
+      - name: Test
+        run: ctest --preset release --output-on-failure
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-clang
+          path: build/**/Testing/**
+          if-no-files-found: ignore
+
+  # ===========================================================================
+  # Stage 3 — Build. The shippable console executables, built with the tests
+  # switched off, and only once every check above has passed.
+  # ===========================================================================
+
+  build-linux:
+    name: Build / Linux (release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [acceptance, sanitizers, hardened, clang]
+    env:
+      CC: gcc
+      CXX: g++
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build/linux -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DNAM_BUILD_TESTS=OFF
+
+      - name: Build console executable
+        run: cmake --build build/linux --target nam_console -j$(nproc)
+
+      - name: Verify the artifact is an ELF binary
+        run: |
+          exe=build/linux/NAM_Console/nam_console
+          file "$exe"
+          file "$exe" | grep -q "ELF 64-bit" || { echo "not an ELF 64-bit binary"; exit 1; }
+
+      - name: Upload the executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: nam_console-linux-x86_64
+          path: build/linux/NAM_Console/nam_console
+          if-no-files-found: error
+
+  # Linux -> Windows cross-compilation with MinGW-w64: proves the console (and
+  # its Windows terminal backend) builds for Windows, and that the artifact is a
+  # PE executable. Complements — does not replace — the native MSVC workflow.
+  build-mingw:
+    name: Build / Windows (MinGW cross)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [acceptance, sanitizers, hardened, clang]
     steps:
       - uses: actions/checkout@v4
 
