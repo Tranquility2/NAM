@@ -167,7 +167,7 @@ private:
 
 }  // namespace
 
-TEST_SUITE("console") {
+TEST_SUITE("console_app") {
 
 TEST_CASE("movement keys and command letters map to directions") {
     CHECK(direction_for(KeyEvent::of(Key::up)) == Direction::up);
@@ -848,7 +848,7 @@ TEST_CASE("plain j on a completed single-cell map prints the initial completion 
     CHECK(output.find("Goodbye") == std::string::npos);  // EOF acknowledgement stays quiet.
 }
 
-}  // TEST_SUITE("console")
+}  // TEST_SUITE("console_app")
 
 namespace {
 
@@ -924,7 +924,7 @@ constexpr std::uint64_t kExpeditionSeed = 0x0F4289EAF4A1813Cull;
 
 }  // namespace
 
-TEST_SUITE("console") {
+TEST_SUITE("console_app") {
 
 TEST_CASE("a plain expedition reports each level and continues into the next") {
     ConsoleApp app(Expedition(kExpeditionSeed), Settings{});
@@ -1028,4 +1028,4 @@ TEST_CASE("a standalone level is a one-level expedition with no carryover lines"
     CHECK(output.find("level ahead") == std::string::npos);
 }
 
-}  // TEST_SUITE("console")
+}  // TEST_SUITE("console_app")

@@ -258,7 +258,7 @@ LevelObjective exit_at(Coordinates cell, ObjectiveStatus status) {
 
 }  // namespace
 
-TEST_SUITE("console") {
+TEST_SUITE("renderer") {
 
 TEST_CASE("authored content is drawn as its own overlay glyph over terrain") {
     LevelLayout layout;
@@ -1117,4 +1117,4 @@ TEST_CASE("journal rendering is deterministic for identical inputs") {
     CHECK(renderer.render_journal_plain(journal) == renderer.render_journal_plain(journal));
 }
 
-}  // TEST_SUITE("console")
+}  // TEST_SUITE("renderer")

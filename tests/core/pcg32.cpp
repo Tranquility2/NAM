@@ -23,7 +23,7 @@ std::vector<std::uint32_t> draw(Pcg32& engine, int count) {
 
 }  // namespace
 
-TEST_SUITE("game") {
+TEST_SUITE("pcg32") {
 
 TEST_CASE("Pcg32 reproduces the reference PCG-XSH-RR 64/32 vector") {
     Pcg32 engine(42u, 54u);
@@ -189,4 +189,4 @@ TEST_CASE("error codes map to stable identifier strings") {
     CHECK(std::string(to_string(Pcg32StateErrorCode::invalid_increment)) == "invalid_increment");
 }
 
-}  // TEST_SUITE("game")
+}  // TEST_SUITE("pcg32")

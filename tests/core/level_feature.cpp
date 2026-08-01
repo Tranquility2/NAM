@@ -45,7 +45,7 @@ const MoveAttemptedEvent& movement(const GameEvent& event) {
 
 }  // namespace
 
-TEST_SUITE("game") {
+TEST_SUITE("level_feature") {
 
 TEST_CASE("a handcrafted map carries no authored content") {
     GameState state(Map(3, 3,
@@ -205,4 +205,4 @@ TEST_CASE("the feature kind identifiers are stable and non-localized") {
     CHECK(std::string(to_string(LevelFeatureKind::vantage_point)) == "vantage_point");
 }
 
-}  // TEST_SUITE("game")
+}  // TEST_SUITE("level_feature")

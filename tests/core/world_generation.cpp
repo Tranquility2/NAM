@@ -345,7 +345,7 @@ bool satisfies_all_invariants(const Map& map) {
 
 }  // namespace
 
-TEST_SUITE("game") {
+TEST_SUITE("world_generation") {
 
 TEST_CASE("hash_seed_text reproduces the locked FNV-1a vectors") {
     CHECK(hash_seed_text("") == 0xCBF29CE484222325ull);        // TEST-001
@@ -686,4 +686,4 @@ TEST_CASE("the generation error code maps to a stable identifier string") {
           "candidate_limit_exhausted");
 }
 
-}  // TEST_SUITE("game")
+}  // TEST_SUITE("world_generation")

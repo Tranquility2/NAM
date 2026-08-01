@@ -36,7 +36,7 @@ GameEvent move_event(Direction direction, const MoveOutcome& outcome, std::uint6
 
 }  // namespace
 
-TEST_SUITE("console") {
+TEST_SUITE("app_state") {
 
 TEST_CASE("attempts always count while only successful moves advance the move count") {
     Hud hud;
@@ -145,4 +145,4 @@ TEST_CASE("a terrain block is an attempt, not a move, and records no history") {
     CHECK(hud.message() == "Blocked by cliff.");
 }
 
-}  // TEST_SUITE("console")
+}  // TEST_SUITE("app_state")

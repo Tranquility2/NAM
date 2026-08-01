@@ -161,7 +161,7 @@ Coordinates expected_exit(const Map& map) {
 
 }  // namespace
 
-TEST_SUITE("game") {
+TEST_SUITE("objective") {
 
 TEST_CASE("the minimum eligible distance is the exact integer ceiling of 75 percent") {
     // TEST-001 / REQ-004: maximum_distance - maximum_distance / 4 equals the exact
@@ -461,7 +461,7 @@ TEST_CASE("returning to spawn before the landmark does not transition") {
     CHECK(state.objective().status == ObjectiveStatus::seeking_landmark);
 }
 
-}  // TEST_SUITE("game")
+}  // TEST_SUITE("objective")
 
 TEST_CASE("the revealed exit bearing is truthful on every generated level") {
     for (const LevelTier tier : {LevelTier::small, LevelTier::medium}) {

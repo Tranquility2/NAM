@@ -46,7 +46,7 @@ Map mountain_corridor() {
 
 }  // namespace
 
-TEST_SUITE("game") {
+TEST_SUITE("game_events") {
 
 TEST_CASE("sequences are contiguous across success terrain and boundary blocks") {
     GameState state(mixed_map());
@@ -228,4 +228,4 @@ TEST_CASE("a blocked movement event reports no objective transition") {
           payload_of(blocked).objective_update.after);
 }
 
-}  // TEST_SUITE("game")
+}  // TEST_SUITE("game_events")

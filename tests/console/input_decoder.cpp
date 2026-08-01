@@ -22,7 +22,7 @@ constexpr char ESC = '\x1b';
 
 }  // namespace
 
-TEST_SUITE("input") {
+TEST_SUITE("input_decoder") {
 
 TEST_CASE("printable bytes decode to character events") {
     CHECK(decode("a") == KeyEvent::of_character('a'));
@@ -147,4 +147,4 @@ TEST_CASE("decoding is deterministic for a fixed script") {
     CHECK(decode(script) == decode(script));
 }
 
-}  // TEST_SUITE("input")
+}  // TEST_SUITE("input_decoder")

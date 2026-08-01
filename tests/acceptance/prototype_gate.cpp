@@ -93,7 +93,7 @@ std::vector<Direction> walk_to(GameState& state, Coordinates target) {
 
 }  // namespace
 
-TEST_SUITE("acceptance") {
+TEST_SUITE("prototype_gate") {
 
 TEST_CASE("every seeded prototype run is solvable end to end") {
     for (const std::uint64_t seed : gate_seeds()) {
@@ -267,4 +267,4 @@ TEST_CASE("the prototype run is a proportionate slice of the full four-tier chai
     CHECK(total_route_cost[2] < total_route_cost[3]);
 }
 
-}  // TEST_SUITE("acceptance")
+}  // TEST_SUITE("prototype_gate")

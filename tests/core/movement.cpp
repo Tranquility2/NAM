@@ -41,7 +41,7 @@ Map boxed_centre() {
 
 }  // namespace
 
-TEST_SUITE("game") {
+TEST_SUITE("movement") {
 
 TEST_CASE("a new game starts the actor on the map spawn") {
     GameState state(open_field());
@@ -119,4 +119,4 @@ TEST_CASE("blocked-by-boundary reports the terrain the actor stands on") {
     CHECK(outcome.terrain == Terrain::open);  // the spawn cell's terrain.
 }
 
-}  // TEST_SUITE("game")
+}  // TEST_SUITE("movement")

@@ -126,7 +126,7 @@ Walk walk_level(GameState& state) {
 
 }  // namespace
 
-TEST_SUITE("game") {
+TEST_SUITE("phase0_level") {
 
 TEST_CASE("the handcrafted phase 0 level places a landmark on the route to a distant exit") {
     const Map map = load_phase0_level();
@@ -232,4 +232,4 @@ TEST_CASE("the phase 0 level replays byte-identically from the same fixture") {
     }
 }
 
-}  // TEST_SUITE("game")
+}  // TEST_SUITE("phase0_level")

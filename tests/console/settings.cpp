@@ -29,7 +29,7 @@ CliResult parse(const std::vector<std::string>& args, const Environment& env) {
 
 }  // namespace
 
-TEST_SUITE("console") {
+TEST_SUITE("settings") {
 
 TEST_CASE("no arguments selects the run action with the built-in map") {
     const CliResult result = parse({}, good_env());
@@ -333,4 +333,4 @@ TEST_CASE("format_seed_for_display never emits a raw control or high byte") {
     CHECK(escaped.find('\x1b') == std::string::npos);
 }
 
-}  // TEST_SUITE("console")
+}  // TEST_SUITE("settings")

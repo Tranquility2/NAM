@@ -55,6 +55,8 @@ constexpr std::uint64_t kSeed = 0x0F4289EAF4A1813Cull;
 
 }  // namespace
 
+TEST_SUITE("expedition") {
+
 TEST_CASE("an expedition starts on the small tier with no carried state") {
     const Expedition expedition(kSeed);
 
@@ -224,3 +226,5 @@ TEST_CASE("make_level_state builds a playable level for every tier") {
         CHECK(state.discovery_total() > 0u);
     }
 }
+
+}  // TEST_SUITE("expedition")

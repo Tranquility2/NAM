@@ -31,7 +31,7 @@ Map make_map(std::string_view text) {
 
 }  // namespace
 
-TEST_SUITE("game") {
+TEST_SUITE("expedition_score") {
 
 // --- Objective route baseline -----------------------------------------------
 
@@ -163,4 +163,4 @@ TEST_CASE("scoring is overflow-safe at extreme counters") {
     CHECK(score.excess_moves == huge);
 }
 
-}  // TEST_SUITE("game")
+}  // TEST_SUITE("expedition_score")

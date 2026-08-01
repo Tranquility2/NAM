@@ -86,7 +86,7 @@ ExpeditionReport build_report(const LevelObjective& objective, const Map& map,
 
 }  // namespace
 
-TEST_SUITE("console") {
+TEST_SUITE("expedition_report") {
 
 TEST_CASE("route history starts at spawn and appends only successful destinations") {
     RouteHistory route(Coordinates{0, 0});
@@ -264,4 +264,4 @@ TEST_CASE("plain report block ends with one newline has no ansi and is determini
     CHECK(first[first.size() - 2] != '\n');
 }
 
-}  // TEST_SUITE("console")
+}  // TEST_SUITE("expedition_report")

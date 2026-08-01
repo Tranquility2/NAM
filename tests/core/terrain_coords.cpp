@@ -10,7 +10,7 @@
 #include "map.h"
 #include "terrain.h"
 
-TEST_SUITE("parser") {
+TEST_SUITE("terrain_coords") {
 
 TEST_CASE("every terrain symbol round-trips through the glyph table") {
     constexpr std::array<Terrain, 8> all{
@@ -126,4 +126,4 @@ TEST_CASE("Map rejects malformed geometry at construction") {
                     std::invalid_argument);
 }
 
-}  // TEST_SUITE("parser")
+}  // TEST_SUITE("terrain_coords")

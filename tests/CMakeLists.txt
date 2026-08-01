@@ -1,16 +1,27 @@
-# Unit and integration tests.
+# Unit, acceptance and integration tests.
+#
+# The tree mirrors the architecture rather than the test framework:
+#
+#   core/        rules that must hold with no frontend present; links nam_core
+#                only, so a core test that reaches for console code fails to
+#                link and the frontend-neutrality rule is enforced, not assumed.
+#   console/     frontend behaviour; links nam_console_lib, which is the whole
+#                console minus main(), so settings, input decoding, rendering,
+#                messages, the HUD and both app loops are exercised without a
+#                real terminal.
+#   acceptance/  slow property and gate sweeps over many seeds. Separated so the
+#                fast suites stay fast and CI can run the two tiers apart.
+#   cli/         the real nam_console executable driven end to end.
+#
+# Every case carries three kinds of label: its module (from the doctest suite
+# name, one per file), its layer (core/console/acceptance/cli), and its kind
+# (unit/integration) or cost (slow). So `ctest -L objective` runs one module,
+# `ctest -L core` one layer, and `ctest -LE slow` everything but the sweeps.
 #
 # A pinned, lightweight framework (doctest) is fetched reproducibly with
 # FetchContent. doctest is header-only and compiles into each test binary; it is
 # never subject to the nam_warnings policy (its include is added as SYSTEM), so
 # warnings-as-errors applies only to our own code.
-#
-# Tests link nam_console_lib, which is the whole frontend minus main(), so every
-# behaviour — parsing, movement, rendering, the input decoder, settings, the
-# HUD, message mapping, and the plain/interactive app loop — is exercised
-# without a real terminal. CLI exit codes and "no ANSI when redirected" are
-# checked by running the real nam_console binary through a portable CMake driver
-# script (no live TTY required).
 
 if(NOT TARGET nam_console_lib)
     message(FATAL_ERROR "NAM tests require the console frontend; configure with -DNAM_BUILD_CONSOLE=ON")
@@ -42,199 +53,45 @@ target_include_directories(nam_doctest SYSTEM INTERFACE ${doctest_SOURCE_DIR})
 add_library(nam_doctest_main STATIC doctest_main.cpp)
 target_link_libraries(nam_doctest_main PUBLIC nam_doctest)
 
+# Map fixtures are shared: the same files feed core parsing, console rendering
+# and the CLI runs, so they stay in one place and are addressed by absolute path.
 set(NAM_FIXTURES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/fixtures)
 
-# Build a doctest executable from SOURCES and register its cases with the given
-# CTest LABELS. NAM_FIXTURES_DIR is passed as a compile definition so tests open
+# Build a doctest executable from SOURCES against LINK, and register its cases
+# with LABELS. NAM_FIXTURES_DIR is passed as a compile definition so tests open
 # fixtures by absolute path regardless of the working directory.
-function(nam_add_unit_test name)
-    cmake_parse_arguments(ARG "" "" "SOURCES;LABELS" ${ARGN})
+#
+# Labels arrive on two axes and need two mechanisms. doctest's ADD_LABELS gives
+# the module axis (one suite per file), but it writes its own LABELS entry into
+# the same set_tests_properties call as anything passed through PROPERTIES, and
+# the duplicate key silently drops one of the two — which is why the old blanket
+# "unit" label was never actually applied. The layer and kind labels are
+# therefore applied by a companion CTest include file that walks the case list
+# doctest publishes; a second set_tests_properties call adds to the labels
+# already on a test rather than replacing them.
+function(nam_add_test_executable name)
+    cmake_parse_arguments(ARG "" "LINK" "SOURCES;LABELS" ${ARGN})
     add_executable(${name} ${ARG_SOURCES})
-    target_link_libraries(${name} PRIVATE nam_console_lib nam_doctest_main nam_warnings)
+    target_link_libraries(${name} PRIVATE ${ARG_LINK} nam_doctest_main nam_warnings)
     target_compile_definitions(${name} PRIVATE NAM_FIXTURES_DIR="${NAM_FIXTURES_DIR}")
-    # ADD_LABELS 1 turns each test's TEST_SUITE name into a CTest label
-    # (parser/game/input/console); PROPERTIES LABELS adds the shared "unit" tag.
     # Note: ADD_LABELS resolves a case's suite by name, so TEST_CASE names must
     # avoid doctest filter metacharacters (',' ';' '*' '?') or the suite label
     # is skipped for that case.
     # TIMEOUT bounds a hung case: every case here runs in milliseconds, so a test
     # that reaches 60s is wedged, and without the bound CTest would wait out its
     # 1500s default — long enough to burn a whole CI job on one hang.
-    doctest_discover_tests(${name} ADD_LABELS 1 PROPERTIES LABELS "unit" TIMEOUT 60)
+    doctest_discover_tests(${name} ADD_LABELS 1 PROPERTIES TIMEOUT 60)
+
+    set(_extra_labels ${CMAKE_CURRENT_BINARY_DIR}/${name}_labels.cmake)
+    file(WRITE ${_extra_labels}
+         "foreach(_case IN LISTS ${name}_TESTS)\n"
+         "    set_tests_properties(\"\${_case}\" PROPERTIES LABELS \"${ARG_LABELS}\")\n"
+         "endforeach()\n")
+    # Appended after doctest's own include file so the case list already exists.
+    set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES ${_extra_labels})
 endfunction()
 
-nam_add_unit_test(nam_parser_tests
-    SOURCES test_map_parser.cpp test_terrain_coords.cpp)
-
-nam_add_unit_test(nam_game_tests
-    SOURCES test_movement.cpp test_rendering.cpp test_determinism.cpp
-            test_pcg32.cpp test_game_events.cpp test_level_tier.cpp test_world_generation.cpp
-            test_visibility.cpp test_objective.cpp
-            test_expedition_score.cpp test_phase0_level.cpp test_level_feature.cpp
-            test_expedition.cpp test_prototype_acceptance.cpp)
-
-nam_add_unit_test(nam_input_tests
-    SOURCES test_input_decoder.cpp)
-
-nam_add_unit_test(nam_console_tests
-    SOURCES test_settings.cpp test_renderer.cpp test_messages.cpp
-            test_app_state.cpp test_console_app.cpp test_journal.cpp
-            test_expedition_report.cpp)
-
-# --- CLI integration tests --------------------------------------------------
-#
-# These run the real executable with stdin/stdout redirected (never a TTY), so
-# the app takes its plain, ANSI-free path. The driver script asserts the exit
-# code and, where relevant, that no ESC byte was emitted.
-if(TARGET nam_console)
-    set(_cli_driver ${CMAKE_CURRENT_SOURCE_DIR}/cli/run_cli_test.cmake)
-    set(_quit_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_quit.txt)
-    set(_moves_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_moves.txt)
-    set(_level_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_level.txt)
-    set(_wander_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_wander.txt)
-    set(_phase0_stdin ${CMAKE_CURRENT_SOURCE_DIR}/cli/stdin_phase0_level.txt)
-
-    # add a CLI test: name plus driver options forwarded as -D definitions. The
-    # TIMEOUT matters more here than for unit tests: these launch the real
-    # executable with stdin redirected, so a frontend that stops consuming input
-    # blocks forever instead of failing.
-    function(nam_add_cli_test name)
-        add_test(
-            NAME ${name}
-            COMMAND ${CMAKE_COMMAND}
-                    -DEXE=$<TARGET_FILE:nam_console>
-                    ${ARGN}
-                    -P ${_cli_driver})
-        set_tests_properties(${name} PROPERTIES LABELS "cli;integration" TIMEOUT 60)
-    endfunction()
-
-    nam_add_cli_test(cli_help
-        "-DARGS=--help" -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=Usage:" -DFORBID_ESC=1)
-    nam_add_cli_test(cli_help_short
-        "-DARGS=-h" -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=Usage:")
-    nam_add_cli_test(cli_version
-        "-DARGS=--version" -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=nam_console 0.2.0" -DFORBID_ESC=1)
-    nam_add_cli_test(cli_unknown_option
-        "-DARGS=--definitely-not-an-option" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=unknown option")
-    nam_add_cli_test(cli_conflicting_map
-        "-DARGS=--map|a.map|b.map" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=not both")
-    nam_add_cli_test(cli_missing_map_value
-        "-DARGS=--map" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=requires a path")
-    nam_add_cli_test(cli_missing_map_file
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/does-not-exist.map" -DEXPECT_CODE=1
-        "-DEXPECT_CONTAINS=map")
-    nam_add_cli_test(cli_malformed_map
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/malformed-header.map" -DEXPECT_CODE=1)
-    nam_add_cli_test(cli_unknown_symbol_map
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/unknown-terrain.map" -DEXPECT_CODE=1
-        "-DEXPECT_CONTAINS=symbol")
-    nam_add_cli_test(cli_run_builtin_plain
-        "-DARGS=--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=Goodbye" -DFORBID_ESC=1)
-    nam_add_cli_test(cli_run_builtin_redirected
-        -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0 -DFORBID_ESC=1)
-    nam_add_cli_test(cli_run_valid_map
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/valid-lf.map" -DINPUT_FILE=${_moves_stdin}
-        -DEXPECT_CODE=0 -DFORBID_ESC=1)
-    nam_add_cli_test(cli_run_deterministic
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/valid-lf.map" -DINPUT_FILE=${_moves_stdin}
-        -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
-
-    # A scripted expedition on a dedicated corridor map walks from spawn through
-    # the landmark to the exit, so the real executable completes the objective and
-    # prints the final report, then exits 0 on the end-of-input acknowledgement
-    # with the report banners present and no ANSI when redirected. The run is also
-    # deterministic across identical runs.
-    nam_add_cli_test(cli_run_level_complete
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_level_stdin}
-        -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=EXPEDITION REPORT|ROUTE MAP|EXPEDITION JOURNAL|Score:|Discoveries:|Route:|Explored:"
-        -DFORBID_ESC=1)
-    nam_add_cli_test(cli_run_level_deterministic
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_level_stdin}
-        -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
-
-    # The same corridor driven by a long wandering script: no meter can refuse a
-    # step, so the real executable keeps travelling, stays ANSI-free when
-    # redirected, and is deterministic across identical runs.
-    nam_add_cli_test(cli_run_level_wander
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_wander_stdin}
-        -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=Moved onto|Sight:|Objective:"
-        -DFORBID_ESC=1)
-    nam_add_cli_test(cli_run_level_wander_deterministic
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_wander_stdin}
-        -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
-
-    # The Phase 0 exit condition end to end: the handcrafted serpentine level is
-    # completed from entry to exit by the real executable using movement alone. The
-    # script crosses hill, water, fields and mountain bands without a single
-    # blocked move, and the run ends on the concise report and journal.
-    nam_add_cli_test(cli_run_phase0_level
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}
-        -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=Result: level complete.|Route: 46 moves|0 blocked|Explored: 55 / 55 cells|Sighted Moon Way Landmark|Reached the exit after Moon Way Landmark"
-        -DFORBID_ESC=1)
-    nam_add_cli_test(cli_run_phase0_level_deterministic
-        "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}
-        -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
-
-    # --- seeded expedition integration -------------------------------------
-    #
-    # Exercise the real executable's seeded path: a plain seeded session prints
-    # the safely escaped seed and no ANSI, is deterministic across runs, and the
-    # usage errors (map conflict, overlong seed) exit 2. An empty seed is valid.
-    nam_add_cli_test(cli_seed_plain
-        "-DARGS=--seed=glass-river|--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=Expedition seed:" -DFORBID_ESC=1)
-    nam_add_cli_test(cli_seed_deterministic
-        "-DARGS=--seed=glass-river|--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
-        -DEXPECT_DETERMINISTIC=1)
-    nam_add_cli_test(cli_seed_empty
-        "-DARGS=--seed=|--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=Expedition seed" -DFORBID_ESC=1)
-    nam_add_cli_test(cli_seed_map_conflict
-        "-DARGS=--seed=glass-river|--map|${NAM_FIXTURES_DIR}/valid-lf.map" -DEXPECT_CODE=2
-        "-DEXPECT_CONTAINS=not both")
-    string(REPEAT "a" 129 _overlong_seed)
-    nam_add_cli_test(cli_seed_overlong
-        "-DARGS=--seed=${_overlong_seed}" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=128 bytes")
-
-    # --- numeric seed replay integration -----------------------------------
-    #
-    # The numeric-seed forms exercise the strict decimal parse and the direct
-    # generation path: boundary values are accepted, the world is deterministic,
-    # and every malformed/overflow/repeat/conflict case exits 2.
-    nam_add_cli_test(cli_seed_number_min
-        "-DARGS=--seed-number=0|--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
-        "-DEXPECT_CONTAINS=Expedition seed number: 0" -DFORBID_ESC=1)
-    nam_add_cli_test(cli_seed_number_max
-        "-DARGS=--seed-number|18446744073709551615|--plain" -DINPUT_FILE=${_quit_stdin}
-        -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=Expedition seed number: 18446744073709551615"
-        -DFORBID_ESC=1)
-    nam_add_cli_test(cli_seed_number_deterministic
-        "-DARGS=--seed-number=42|--plain" -DINPUT_FILE=${_quit_stdin} -DEXPECT_CODE=0
-        -DEXPECT_DETERMINISTIC=1)
-    # The decimal hash of "glass-river" reproduces the same expedition as
-    # --seed glass-river (verified by the settings unit tests); here it must at
-    # least generate and report its numeric identity.
-    nam_add_cli_test(cli_seed_number_equivalent
-        "-DARGS=--seed-number=1099592901251399996|--plain" -DINPUT_FILE=${_quit_stdin}
-        -DEXPECT_CODE=0 "-DEXPECT_CONTAINS=Expedition seed number: 1099592901251399996"
-        -DFORBID_ESC=1)
-    nam_add_cli_test(cli_seed_number_malformed
-        "-DARGS=--seed-number=12x" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=decimal integer")
-    nam_add_cli_test(cli_seed_number_negative
-        "-DARGS=--seed-number|-5" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=decimal integer")
-    nam_add_cli_test(cli_seed_number_overflow
-        "-DARGS=--seed-number=18446744073709551616" -DEXPECT_CODE=2
-        "-DEXPECT_CONTAINS=decimal integer")
-    nam_add_cli_test(cli_seed_number_repeat
-        "-DARGS=--seed-number=1|--seed-number=2" -DEXPECT_CODE=2
-        "-DEXPECT_CONTAINS=more than once")
-    nam_add_cli_test(cli_seed_number_conflict_seed
-        "-DARGS=--seed-number=1|--seed=a" -DEXPECT_CODE=2 "-DEXPECT_CONTAINS=not both")
-    nam_add_cli_test(cli_seed_number_conflict_map
-        "-DARGS=--seed-number=1|--map|${NAM_FIXTURES_DIR}/valid-lf.map" -DEXPECT_CODE=2
-        "-DEXPECT_CONTAINS=not both")
-endif()
+add_subdirectory(core)
+add_subdirectory(console)
+add_subdirectory(acceptance)
+add_subdirectory(cli)

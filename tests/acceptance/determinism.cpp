@@ -59,7 +59,7 @@ std::string visibility_signature(const GameState& state) {
 
 }  // namespace
 
-TEST_SUITE("game") {
+TEST_SUITE("determinism") {
 
 TEST_CASE("identical map and input produce identical event streams") {
     const std::vector<Direction> script{
@@ -207,4 +207,4 @@ TEST_CASE("peek is a pure function of state and direction") {
     CHECK(state.actor_position() == Coordinates{2, 2});
 }
 
-}  // TEST_SUITE("game")
+}  // TEST_SUITE("determinism")

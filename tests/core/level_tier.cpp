@@ -6,7 +6,7 @@
 #include "expedition_progress.h"
 #include "level_tier.h"
 
-TEST_SUITE("game") {
+TEST_SUITE("level_tier") {
 
 TEST_CASE("V2 level tiers expose the approved fixed dimensions") {
     const LevelDimensions small = dimensions_of(LevelTier::small);
@@ -78,4 +78,4 @@ TEST_CASE("expedition progress advances once through all four tiers") {
     CHECK(progress.completed_levels() == 4u);
 }
 
-}  // TEST_SUITE("game")
+}  // TEST_SUITE("level_tier")

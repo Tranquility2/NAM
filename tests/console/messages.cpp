@@ -26,7 +26,7 @@ LevelObjective objective_with(ObjectiveStatus status) {
 
 }  // namespace
 
-TEST_SUITE("console") {
+TEST_SUITE("messages") {
 
 TEST_CASE("terrain names are provided for every terrain") {
     CHECK(terrain_name(Terrain::open) == "open ground");
@@ -164,4 +164,4 @@ TEST_CASE("objective-screen reminders and restored completion wording are exact"
     CHECK(restored_completion_message("Glass River Exit").find("Goodbye") == std::string::npos);
 }
 
-}  // TEST_SUITE("console")
+}  // TEST_SUITE("messages")

@@ -34,7 +34,7 @@ MapLoadError expect_error(const MapLoadResult& result) {
 
 }  // namespace
 
-TEST_SUITE("parser") {
+TEST_SUITE("map_parser") {
 
 TEST_CASE("the built-in map parses and is well formed") {
     const Map map = builtin_map();
@@ -276,4 +276,4 @@ TEST_CASE("error codes have stable identifier strings") {
     CHECK(to_string(MapLoadErrorCode::file_open_error) == "file_open_error");
 }
 
-}  // TEST_SUITE("parser")
+}  // TEST_SUITE("map_parser")

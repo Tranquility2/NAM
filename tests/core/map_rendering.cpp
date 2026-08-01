@@ -24,7 +24,7 @@ std::size_t count_newlines(const std::string& text) {
 
 }  // namespace
 
-TEST_SUITE("game") {
+TEST_SUITE("map_rendering") {
 
 TEST_CASE("to_string inserts explicit row separators and no trailing newline") {
     const Map map = make_map("NAM-MAP 1\nwidth 3\nheight 2\nspawn 0 0\n---\n.@~\n^x.\n");
@@ -82,4 +82,4 @@ TEST_CASE("GameState::render overlays the actor without moving it") {
     CHECK(state.render('O') == frame);
 }
 
-}  // TEST_SUITE("game")
+}  // TEST_SUITE("map_rendering")

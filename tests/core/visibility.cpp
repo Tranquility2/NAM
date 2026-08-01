@@ -56,7 +56,7 @@ std::size_t count_state(const VisibilityMap& visibility, CellVisibility state) {
 
 }  // namespace
 
-TEST_SUITE("game") {
+TEST_SUITE("visibility") {
 
 TEST_CASE("a centered spawn reveals exactly the clipped 7x7 square") {
     // TASK-006 / TEST-001: spawn (5,5) on an 11x11 map reveals x=2..8, y=2..8.
@@ -543,4 +543,4 @@ TEST_CASE("failed moves apply no terrain radius on hill or mountain terrain") {
     }
 }
 
-}  // TEST_SUITE("game")
+}  // TEST_SUITE("visibility")
