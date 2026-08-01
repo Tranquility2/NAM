@@ -1,6 +1,6 @@
 name: Windows (MSVC)
 
-# Manual only. Native Windows runners bill at 2x and this matrix is by far the
+# Manual only. Native Windows runners bill at 2x and these jobs are by far the
 # most expensive thing in the repository, so it is not tied to push or pull
 # request. Run it before a release, after touching NAM_Console/terminal_windows.cpp
 # or anything platform-conditional, and whenever the MinGW cross-build or the
