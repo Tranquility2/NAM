@@ -23,10 +23,18 @@
 // understandable and must never grow into an inventory.
 enum class ExpeditionBonus {
     none,
-    // Earned by finding every discovery on a level: the next level's discoveries
+    // Earned by sweeping a level: uncovering at least keen_eye_explored_percent
+    // of it *and* entering every discovery on it. The next level's discoveries
     // are worth double.
     keen_eye,
 };
+
+// The share of a level that must be uncovered to earn keen_eye. Finding every
+// discovery is not enough on its own: a generated level places a single vantage
+// point, so a discovery sweep alone is a short walk rather than an achievement.
+// Pairing it with an exploration threshold makes the bonus mean what its name
+// says.
+inline constexpr std::uint64_t keen_eye_explored_percent = 90;
 
 // The multiplier a bonus applies to the next level's discovery score.
 [[nodiscard]] constexpr std::uint64_t discovery_multiplier_of(ExpeditionBonus bonus) noexcept {
@@ -60,10 +68,11 @@ struct LevelSummary {
 };
 
 // What the frontend measured over one level. The core does not observe input, so
-// the counters a run accumulates are handed back at completion time.
+// the counters a run accumulates are handed back at completion time. Only the
+// move count is scored; blocked attempts cost a run nothing, because bumping
+// into a cliff is how a player learns where the cliff is.
 struct LevelPerformance {
     std::uint64_t moves_taken = 0;
-    std::uint64_t blocked_attempts = 0;
 };
 
 // The prototype plays Small then Medium. Phase 2 extends this to x_large.

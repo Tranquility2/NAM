@@ -23,6 +23,8 @@
 #include "settings.h"
 #include "terminal.h"
 
+#include "scripted_walk.h"
+
 using namespace nam::console;
 
 namespace {
@@ -522,7 +524,8 @@ TEST_CASE("plain completion exits without a goodbye on end of input") {
 TEST_CASE("plain single-cell map prints the report once and exits immediately") {
     // REQ-002 / REQ-009 / TEST-006: a single reachable cell starts completed, so
     // plain mode writes the full report once and returns 0 immediately without
-    // reading stdin. The report scores the maximum with zero moves.
+    // reading stdin. One reachable cell is a fully explored level, so the report
+    // scores the maximum with zero moves.
     const std::string name = single_cell_landmark_name();
     std::string output;
     const int code = run_plain_state(make_single_cell_state(), "d\nq\n", output);
@@ -530,8 +533,9 @@ TEST_CASE("plain single-cell map prints the report once and exits immediately") 
     CHECK(count_substr(output, "EXPEDITION REPORT") == 1);
     CHECK(output.find("The party found " + name + " and reached the exit in 0 moves.") !=
           std::string::npos);
-    CHECK(output.find("Score: 1000 (route 1000 / 1000, discoveries 0)") != std::string::npos);
-    CHECK(output.find("Route: 0 moves (shortest 0)") != std::string::npos);
+    CHECK(output.find("Score: 2000 (exit 1000, explored 800 / 800, discoveries 0, budget 200)") !=
+          std::string::npos);
+    CHECK(output.find("Moves: 0 moves of 1 budgeted, 0 blocked") != std::string::npos);
     CHECK(output.find("Goodbye") == std::string::npos);  // immediate quiet exit.
 }
 
@@ -868,7 +872,9 @@ namespace {
 // line. Driving a copy keeps the real app's state untouched.
 // The route a level asks for: every discovery when `thorough`, then the landmark,
 // then the exit. Read fresh for each level because the state is replaced on an
-// advance.
+// advance. A thorough run also sweeps the level first, which is what the carried
+// bonus now asks for, but that leg is walked separately because its targets are
+// only known one at a time.
 [[nodiscard]] std::vector<Coordinates> targets_for_level(const Expedition& scout, bool thorough) {
     std::vector<Coordinates> targets;
     if (thorough) {
@@ -884,21 +890,32 @@ namespace {
 [[nodiscard]] std::string commands_to_finish(std::uint64_t seed, bool thorough = false) {
     Expedition scout(seed);
     std::string commands;
-    for (std::uint32_t level = 0; level < scout.total_levels(); ++level) {
-        for (const Coordinates target : targets_for_level(scout, thorough)) {
-            while (scout.state().actor_position() != target) {
-                const std::vector<Coordinates> path =
-                    shortest_path(scout.state().map(), scout.state().actor_position(), target);
-                REQUIRE(path.size() >= 2u);
-                for (std::size_t step = 1; step < path.size(); ++step) {
-                    const Coordinates delta{path[step].x - path[step - 1u].x,
-                                            path[step].y - path[step - 1u].y};
-                    const std::optional<Direction> direction = direction_of(delta);
-                    REQUIRE(direction.has_value());
-                    commands += plain_command_for(*direction);
-                    static_cast<void>(scout.state().move(*direction));
-                }
+    // One leg of the walk, appended as plain-mode command letters.
+    const auto walk_to = [&commands, &scout](Coordinates target) {
+        while (scout.state().actor_position() != target) {
+            const std::vector<Coordinates> path =
+                shortest_path(scout.state().map(), scout.state().actor_position(), target);
+            REQUIRE(path.size() >= 2u);
+            for (std::size_t step = 1; step < path.size(); ++step) {
+                const Coordinates delta{path[step].x - path[step - 1u].x,
+                                        path[step].y - path[step - 1u].y};
+                const std::optional<Direction> direction = direction_of(delta);
+                REQUIRE(direction.has_value());
+                commands += plain_command_for(*direction);
+                static_cast<void>(scout.state().move(*direction));
             }
+        }
+    };
+
+    for (std::uint32_t level = 0; level < scout.total_levels(); ++level) {
+        if (thorough) {
+            while (const std::optional<Coordinates> unexplored =
+                       nam::test::nearest_unexplored(scout.state())) {
+                walk_to(*unexplored);
+            }
+        }
+        for (const Coordinates target : targets_for_level(scout, thorough)) {
+            walk_to(target);
         }
         commands += "\n";  // Acknowledge the interlude or the final report.
         static_cast<void>(scout.complete_level(LevelPerformance{}));
@@ -976,9 +993,11 @@ TEST_CASE("a thorough run logs its discoveries and keeps the journal within budg
     const std::string final_journal = output.substr(journal);
     CHECK(count_substr(final_journal, "Found a hidden site off the route (1 of 1).") == 2u);
 
-    // Three entries per level keeps a four-tier run near its twelve-entry budget.
-    CHECK(count_substr(final_journal, "\n6. ") == 1u);
-    CHECK(count_substr(final_journal, "\n7. ") == 0u);
+    // Three entries per level, plus one for each vantage point a sweep happens to
+    // step on: this run climbs one, so seven entries cover both levels. A route
+    // that only passes vantage points without entering them still logs six.
+    CHECK(count_substr(final_journal, "\n7. ") == 1u);
+    CHECK(count_substr(final_journal, "\n8. ") == 0u);
 }
 
 TEST_CASE("quitting at an interlude ends the run without playing the next level") {

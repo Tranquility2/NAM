@@ -94,73 +94,167 @@ TEST_CASE("exploration counts reflect reachable walkable cells and explored memo
 
 // --- Level scoring -----------------------------------------------------------
 
-TEST_CASE("an optimal run with no blocked moves scores the maximum") {
+TEST_CASE("a fully explored level inside the budget scores every component") {
     CompletedScoreInput input;
-    input.optimal_route_length = 12;
-    input.actual_moves = 12;
-    input.blocked_attempts = 0;
+    input.explored_reachable_cells = 160;
+    input.total_reachable_cells = 160;
+    input.actual_moves = 40;
+    input.discoveries_found = 1;
 
     const ExpeditionScore score = compute_completed_score(input);
-    CHECK(score.value == completed_score_maximum);
-    CHECK(score.value == 1000);
-    CHECK(score.excess_moves == 0);
-    CHECK(score.optimal_route_length == 12);
-    CHECK(score.actual_moves == 12);
+    CHECK(score.completion_value == completed_exit_award);
+    CHECK(score.exploration_value == completed_exploration_maximum);
+    CHECK(score.explored_percent == 100);
+    CHECK(score.discovery_value == completed_score_per_discovery);
+    CHECK(score.budget_value == completed_budget_award);
+    CHECK(score.value == 1000 + 800 + 200 + 200);
 }
 
-TEST_CASE("spending less than the optimal route never scores above the maximum") {
-    CompletedScoreInput input;
-    input.optimal_route_length = 12;
-    input.actual_moves = 5;
+TEST_CASE("reaching the exit is worth more than a perfect sweep") {
+    // The priority order has to hold in the arithmetic: finishing levels is
+    // always the largest single contribution a level can make.
+    CHECK(completed_exit_award > completed_exploration_maximum);
+    CHECK(completed_exploration_maximum > completed_budget_award);
 
-    const ExpeditionScore score = compute_completed_score(input);
-    CHECK(score.excess_moves == 0);
-    CHECK(score.value == completed_score_maximum);
+    CompletedScoreInput blind;
+    blind.total_reachable_cells = 100;
+    blind.actual_moves = 10;
+    CHECK(compute_completed_score(blind).value == completed_exit_award + completed_budget_award);
 }
 
-TEST_CASE("each excess stamina point subtracts five") {
+TEST_CASE("the exploration award scales linearly with the explored fraction") {
     CompletedScoreInput input;
-    input.optimal_route_length = 10;
-    input.actual_moves = 13;
-
-    const ExpeditionScore score = compute_completed_score(input);
-    CHECK(score.excess_moves == 3);
-    CHECK(score.value == completed_score_base - 3 * completed_penalty_per_excess_move);
-    CHECK(score.value == 985);
-}
-
-TEST_CASE("each blocked move subtracts twenty") {
-    CompletedScoreInput input;
-    input.optimal_route_length = 10;
+    input.total_reachable_cells = 200;
     input.actual_moves = 10;
-    input.blocked_attempts = 4;
 
-    const ExpeditionScore score = compute_completed_score(input);
-    CHECK(score.blocked_attempts == 4);
-    CHECK(score.value == completed_score_base - 4 * completed_penalty_per_blocked_attempt);
-    CHECK(score.value == 920);
+    input.explored_reachable_cells = 50;
+    CHECK(compute_completed_score(input).exploration_value == completed_exploration_maximum / 4);
+    input.explored_reachable_cells = 100;
+    CHECK(compute_completed_score(input).exploration_value == completed_exploration_maximum / 2);
+    input.explored_reachable_cells = 150;
+    CHECK(compute_completed_score(input).exploration_value ==
+          completed_exploration_maximum * 3 / 4);
 }
 
-TEST_CASE("penalties accumulate and clamp at zero") {
+TEST_CASE("uncovering more of a level never scores less than uncovering less") {
+    // The design's central invariant. Exploring costs moves, so the only bucket
+    // that can push back is the budget one - and it is bounded well below what a
+    // meaningful gain in coverage is worth.
+    CompletedScoreInput rushed;
+    rushed.total_reachable_cells = 163;
+    rushed.explored_reachable_cells = 60;
+    rushed.actual_moves = 10;
+
+    CompletedScoreInput thorough = rushed;
+    thorough.explored_reachable_cells = 163;
+    // A wandering route far past the budget, so the budget bucket is empty.
+    thorough.actual_moves = 163 * 4;
+
+    const ExpeditionScore rushed_score = compute_completed_score(rushed);
+    const ExpeditionScore thorough_score = compute_completed_score(thorough);
+    CHECK(rushed_score.budget_value == completed_budget_award);
+    CHECK(thorough_score.budget_value == 0);
+    CHECK(thorough_score.value > rushed_score.value);
+}
+
+TEST_CASE("the explored percentage floors rather than rounding up") {
     CompletedScoreInput input;
-    input.optimal_route_length = 0;
-    input.actual_moves = 100;   // 500 points of excess stamina.
-    input.blocked_attempts = 100;       // 2000 points of blocked moves.
-
+    input.total_reachable_cells = 3;
+    input.explored_reachable_cells = 2;
     const ExpeditionScore score = compute_completed_score(input);
-    CHECK(score.value == 0);
+    CHECK(score.explored_percent == 66);
+    CHECK(score.exploration_value == 533);
 }
+
+TEST_CASE("an explored count above the total cannot inflate the fraction") {
+    CompletedScoreInput input;
+    input.total_reachable_cells = 10;
+    input.explored_reachable_cells = 999;
+    const ExpeditionScore score = compute_completed_score(input);
+    CHECK(score.explored_reachable_cells == 10);
+    CHECK(score.explored_percent == 100);
+    CHECK(score.exploration_value == completed_exploration_maximum);
+}
+
+TEST_CASE("a level with no reachable cells scores no exploration and no budget") {
+    CompletedScoreInput input;
+    input.actual_moves = 4;
+    const ExpeditionScore score = compute_completed_score(input);
+    CHECK(score.explored_percent == 0);
+    CHECK(score.exploration_value == 0);
+    CHECK(score.move_budget == 0);
+    CHECK(score.moves_over_budget == 4);
+    CHECK(score.budget_value == completed_budget_award - 4 * completed_penalty_per_move_over_budget);
+}
+
+// --- The soft move budget ----------------------------------------------------
+
+TEST_CASE("the move budget is one move per reachable walkable cell") {
+    CHECK(move_budget_for(163) == 163);
+
+    CompletedScoreInput input;
+    input.total_reachable_cells = 163;
+    input.actual_moves = 163;
+    const ExpeditionScore score = compute_completed_score(input);
+    CHECK(score.move_budget == 163);
+    CHECK(score.moves_over_budget == 0);
+    CHECK(score.budget_value == completed_budget_award);
+}
+
+TEST_CASE("every move past the budget costs five and the loss stops at zero") {
+    CompletedScoreInput input;
+    input.total_reachable_cells = 100;
+
+    input.actual_moves = 110;
+    CHECK(compute_completed_score(input).budget_value ==
+          completed_budget_award - 10 * completed_penalty_per_move_over_budget);
+
+    // 40 moves over empties the bucket; nothing beyond that can be taken.
+    input.actual_moves = 140;
+    CHECK(compute_completed_score(input).budget_value == 0);
+    input.actual_moves = 100000;
+    const ExpeditionScore ruined = compute_completed_score(input);
+    CHECK(ruined.budget_value == 0);
+    CHECK(ruined.value == completed_exit_award);
+}
+
+// --- Discoveries -------------------------------------------------------------
+
+TEST_CASE("the carried bonus multiplies the discovery award") {
+    CompletedScoreInput input;
+    input.total_reachable_cells = 50;
+    input.discoveries_found = 2;
+    input.discovery_multiplier = 2;
+    const ExpeditionScore score = compute_completed_score(input);
+    CHECK(score.discovery_value == 2 * completed_score_per_discovery * 2);
+}
+
+TEST_CASE("a zero multiplier is treated as the neutral one") {
+    CompletedScoreInput input;
+    input.total_reachable_cells = 50;
+    input.discoveries_found = 3;
+    input.discovery_multiplier = 0;
+    const ExpeditionScore score = compute_completed_score(input);
+    CHECK(score.discovery_multiplier == 1);
+    CHECK(score.discovery_value == 3 * completed_score_per_discovery);
+}
+
+// --- Robustness --------------------------------------------------------------
 
 TEST_CASE("scoring is overflow-safe at extreme counters") {
     constexpr std::uint64_t huge = std::numeric_limits<std::uint64_t>::max();
     CompletedScoreInput input;
-    input.optimal_route_length = 0;
+    input.explored_reachable_cells = huge;
+    input.total_reachable_cells = huge;
     input.actual_moves = huge;
-    input.blocked_attempts = huge;
+    input.discoveries_found = huge;
+    input.discovery_multiplier = huge;
 
     const ExpeditionScore score = compute_completed_score(input);
-    CHECK(score.value == 0);
-    CHECK(score.excess_moves == huge);
+    CHECK(score.explored_percent <= 100);
+    CHECK(score.exploration_value <= completed_exploration_maximum);
+    CHECK(score.budget_value == completed_budget_award);  // Nothing is over budget.
+    CHECK(score.value == huge);                           // Saturated, never wrapped.
 }
 
 }  // TEST_SUITE("expedition_score")

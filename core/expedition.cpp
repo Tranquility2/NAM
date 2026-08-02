@@ -5,6 +5,8 @@
 #include <utility>
 #include <variant>
 
+#include "exploration.h"
+
 GameState make_level_state(LevelTier tier, std::uint64_t numeric_seed) {
     WorldGenerationResult result = generate_level(tier, numeric_seed);
     if (!std::holds_alternative<GeneratedWorld>(result)) {
@@ -30,10 +32,14 @@ LevelTransition Expedition::complete_level(const LevelPerformance& performance) 
         return LevelTransition::none;
     }
 
+    // The exploration statistic is core-owned: the numerator comes from the
+    // level's own fog snapshot and the denominator from its objective, so no
+    // frontend can disagree with the score about how much was uncovered.
     CompletedScoreInput input;
-    input.optimal_route_length = state_.objective().minimum_route_length;
+    input.explored_reachable_cells =
+        count_explored_reachable_walkable_cells(state_.map(), state_.visibility());
+    input.total_reachable_cells = state_.objective().total_reachable_walkable_cells;
     input.actual_moves = performance.moves_taken;
-    input.blocked_attempts = performance.blocked_attempts;
     input.discoveries_found = state_.discoveries_found();
     input.discovery_multiplier = discovery_multiplier_of(active_bonus_);
 
@@ -43,12 +49,14 @@ LevelTransition Expedition::complete_level(const LevelPerformance& performance) 
     summary.discoveries_found = state_.discoveries_found();
     summary.discovery_total = state_.discovery_total();
     summary.applied_bonus = active_bonus_;
-    // A clean sweep of the level's optional content earns the one carried bonus.
-    // A level that placed no discoveries cannot be swept, so it earns nothing.
-    summary.earned_bonus =
-        (summary.discovery_total > 0u && summary.discoveries_found == summary.discovery_total)
-            ? ExpeditionBonus::keen_eye
-            : ExpeditionBonus::none;
+    // A clean sweep earns the one carried bonus: nearly all of the level
+    // uncovered *and* all of its optional content entered. A level that placed no
+    // discoveries cannot be swept, so it earns nothing.
+    const bool swept_discoveries =
+        summary.discovery_total > 0u && summary.discoveries_found == summary.discovery_total;
+    const bool swept_map = summary.score.explored_percent >= keen_eye_explored_percent;
+    summary.earned_bonus = (swept_discoveries && swept_map) ? ExpeditionBonus::keen_eye
+                                                            : ExpeditionBonus::none;
 
     total_score_ += summary.score.value;
     total_discoveries_found_ += summary.discoveries_found;

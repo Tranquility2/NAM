@@ -119,7 +119,6 @@ struct ExpeditionReport {
     Journal journal;            // Structured journal snapshot for the journal section.
     std::uint64_t move_count = 0;
     std::uint64_t blocked_attempts = 0;
-    std::uint64_t optimal_route_length = 0;
     std::uint64_t explored_reachable_cells = 0;
     std::uint64_t total_reachable_cells = 0;
     ExpeditionCarryover carryover;
@@ -146,9 +145,11 @@ struct ExpeditionReport {
 [[nodiscard]] std::string format_report_story(const ExpeditionReport& report);
 
 // The transparent statistics for the level this report describes (REQ-143 /
-// REQ-144): score with its route and discovery halves, discoveries found out of
-// the level's total, the route summary (moves, the shortest legal route length,
-// blocked attempts), and explored reachable terrain out of the total.
+// REQ-144): the score with all four of its components, discoveries found out of
+// the level's total, explored reachable terrain out of the total, and the move
+// summary against the soft budget. The shortest legal route is deliberately not
+// reported: the score no longer rewards tracking it, so advertising it would
+// only invite the play style the design removed.
 [[nodiscard]] std::vector<std::string> format_report_statistics(const ExpeditionReport& report);
 
 // The running expedition totals carried across levels: score, discoveries, and

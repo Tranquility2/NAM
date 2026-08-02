@@ -68,7 +68,7 @@ nam_add_cli_test(cli_run_deterministic
 nam_add_cli_test(cli_run_level_complete
     "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_level_stdin}
     -DEXPECT_CODE=0
-    "-DEXPECT_CONTAINS=EXPEDITION REPORT|ROUTE MAP|EXPEDITION JOURNAL|Score:|Discoveries:|Route:|Explored:"
+    "-DEXPECT_CONTAINS=EXPEDITION REPORT|ROUTE MAP|EXPEDITION JOURNAL|Score:|Discoveries:|Explored:|Moves:"
     -DFORBID_ESC=1)
 nam_add_cli_test(cli_run_level_deterministic
     "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_level_stdin}
@@ -93,7 +93,7 @@ nam_add_cli_test(cli_run_level_wander_deterministic
 nam_add_cli_test(cli_run_phase0_level
     "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}
     -DEXPECT_CODE=0
-    "-DEXPECT_CONTAINS=Result: level complete.|Route: 46 moves|0 blocked|Explored: 55 / 55 cells|Sighted Moon Way Landmark|Reached the exit after Moon Way Landmark"
+    "-DEXPECT_CONTAINS=Result: level complete.|Moves: 46 moves of 55 budgeted|0 blocked|Explored: 55 / 55 cells (100%)|Sighted Moon Way Landmark|Reached the exit after Moon Way Landmark"
     -DFORBID_ESC=1)
 nam_add_cli_test(cli_run_phase0_level_deterministic
     "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}

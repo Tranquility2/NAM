@@ -149,10 +149,10 @@ TEST_CASE("completed report shows result story statistics and legend wording") {
     const std::vector<std::string> stats = format_report_statistics(report);
     REQUIRE(stats.size() == 5);
     CHECK(stats[0] == "STATISTICS");
-    CHECK(stats[1] == "Score: 980 (route 980 / 1000, discoveries 0)");
+    CHECK(stats[1] == "Score: 2000 (exit 1000, explored 800 / 800, discoveries 0, budget 200)");
     CHECK(stats[2] == "Discoveries: 0 / 0");
-    CHECK(stats[3] == "Route: 3 moves (shortest 3), 1 blocked");
-    CHECK(stats[4] == "Explored: 4 / 4 cells");
+    CHECK(stats[3] == "Explored: 4 / 4 cells (100%)");
+    CHECK(stats[4] == "Moves: 3 moves of 4 budgeted, 1 blocked");
 
     // A standalone level has no separate expedition section to repeat itself in.
     CHECK(format_report_expedition(report).empty());
@@ -162,7 +162,7 @@ TEST_CASE("completed report shows result story statistics and legend wording") {
     CHECK(legend[1] == "F = final position");
 }
 
-TEST_CASE("a wandering route loses five points per excess move") {
+TEST_CASE("a route past the soft budget loses five points per move over it") {
     const Map map = row_map("....", Coordinates{0, 0});
     const LevelObjective objective =
         make_objective(Coordinates{3, 0}, "North Ridge", ObjectiveStatus::completed, 1, 4);
@@ -178,14 +178,18 @@ TEST_CASE("a wandering route loses five points per excess move") {
         route.record_event(event);
     }
 
-    // Three moves against a one-move shortest route is two excess moves.
+    // Ten moves on a four-cell level is six moves past the budget, and the fully
+    // uncovered map still pays out in full.
     const ExpeditionReport report =
-        build_report(objective, map, visibility, journal, route, 3, 3);
-    CHECK(report.score.excess_moves == 2);
-    CHECK(report.score.value == 990);
+        build_report(objective, map, visibility, journal, route, 10, 10);
+    CHECK(report.score.move_budget == 4);
+    CHECK(report.score.moves_over_budget == 6);
+    CHECK(report.score.exploration_value == completed_exploration_maximum);
+    CHECK(report.score.budget_value == 170);
+    CHECK(report.score.value == 1000 + 800 + 170);
 }
 
-TEST_CASE("the route line uses singular grammar for a single move") {
+TEST_CASE("the move line uses singular grammar for a single move") {
     const Map map = row_map("....", Coordinates{0, 0});
     const LevelObjective objective =
         make_objective(Coordinates{3, 0}, "North Ridge", ObjectiveStatus::completed, 1, 4);
@@ -203,7 +207,7 @@ TEST_CASE("the route line uses singular grammar for a single move") {
 
     const std::vector<std::string> stats = format_report_statistics(report);
     REQUIRE(stats.size() == 5);
-    CHECK(stats[3] == "Route: 1 move (shortest 1), 0 blocked");
+    CHECK(stats[4] == "Moves: 1 move of 4 budgeted, 0 blocked");
 }
 
 TEST_CASE("report line sections appear in the required order") {

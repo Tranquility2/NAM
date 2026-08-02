@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -15,6 +16,9 @@
 #include "objective.h"
 #include "pcg32.h"
 #include "terrain.h"
+#include "visibility.h"
+
+#include "scripted_walk.h"
 
 // The Phase 1 prototype acceptance gate (roadmap section 9). Every criterion that
 // can be decided by machine is asserted here over a spread of seeds, so the gate
@@ -73,20 +77,35 @@ std::vector<Direction> walk_to(GameState& state, Coordinates target) {
     return cells;
 }
 
-// Play one whole expedition, visiting every discovery when `thorough`. Returns
-// the finished expedition so its carried totals can be inspected.
-[[nodiscard]] Expedition play(std::uint64_t seed, bool thorough) {
+// How thoroughly a scripted run plays each level.
+enum class Style {
+    direct,    // Straight to the landmark and out.
+    thorough,  // Every discovery, then out.
+    sweep,     // Uncover the whole level, then every discovery, then out.
+};
+
+// Play one whole expedition in the given style, counting every move it takes so
+// the soft budget is scored against a real figure rather than zero. Returns the
+// finished expedition so its carried totals can be inspected.
+[[nodiscard]] Expedition play(std::uint64_t seed, Style style) {
     Expedition expedition(seed);
     while (!expedition.completed()) {
-        if (thorough) {
-            for (const Coordinates cell : discoveries_of(expedition.state())) {
-                walk_to(expedition.state(), cell);
+        std::uint64_t moves = 0;
+        if (style == Style::sweep) {
+            while (const std::optional<Coordinates> target =
+                       nam::test::nearest_unexplored(expedition.state())) {
+                moves += walk_to(expedition.state(), *target).size();
             }
         }
-        walk_to(expedition.state(), expedition.state().objective().landmark);
-        walk_to(expedition.state(), expedition.state().objective().exit_cell);
+        if (style != Style::direct) {
+            for (const Coordinates cell : discoveries_of(expedition.state())) {
+                moves += walk_to(expedition.state(), cell).size();
+            }
+        }
+        moves += walk_to(expedition.state(), expedition.state().objective().landmark).size();
+        moves += walk_to(expedition.state(), expedition.state().objective().exit_cell).size();
         REQUIRE(expedition.state().objective_completed());
-        static_cast<void>(expedition.complete_level(LevelPerformance{}));
+        static_cast<void>(expedition.complete_level(LevelPerformance{moves}));
     }
     return expedition;
 }
@@ -97,7 +116,7 @@ TEST_SUITE("prototype_gate") {
 
 TEST_CASE("every seeded prototype run is solvable end to end") {
     for (const std::uint64_t seed : gate_seeds()) {
-        const Expedition finished = play(seed, /*thorough=*/false);
+        const Expedition finished = play(seed, Style::direct);
         CHECK(finished.completed());
         CHECK(finished.completed_levels() == finished.total_levels());
         REQUIRE(finished.summaries().size() == 2u);
@@ -108,8 +127,8 @@ TEST_CASE("every seeded prototype run is solvable end to end") {
 
 TEST_CASE("the same seed replays the same prototype run exactly") {
     for (const std::uint64_t seed : gate_seeds()) {
-        const Expedition first = play(seed, /*thorough=*/true);
-        const Expedition second = play(seed, /*thorough=*/true);
+        const Expedition first = play(seed, Style::thorough);
+        const Expedition second = play(seed, Style::thorough);
         REQUIRE(first.summaries().size() == second.summaries().size());
         for (std::size_t i = 0; i < first.summaries().size(); ++i) {
             CHECK(first.summaries()[i].tier == second.summaries()[i].tier);
@@ -188,10 +207,10 @@ TEST_CASE("the first landmark points truthfully at the exit") {
 TEST_CASE("visiting every optional side route always pays for its detour") {
     // The criterion "players voluntarily enter optional side routes" only holds if
     // the arithmetic rewards it. A thorough run must out-score a direct one on
-    // every seed, even though the detour costs stamina the score penalizes.
+    // every seed, even though the detour costs moves the budget measures.
     for (const std::uint64_t seed : gate_seeds()) {
-        const Expedition direct = play(seed, /*thorough=*/false);
-        const Expedition thorough = play(seed, /*thorough=*/true);
+        const Expedition direct = play(seed, Style::direct);
+        const Expedition thorough = play(seed, Style::thorough);
 
         REQUIRE(thorough.total_discoveries_available() > 0);
         CHECK(direct.total_discoveries_found() == 0);
@@ -204,27 +223,60 @@ TEST_CASE("a level score is exactly its published parts") {
     // "Players can explain why their score changed" requires the reported figures
     // to add up with no hidden term.
     for (const std::uint64_t seed : gate_seeds()) {
-        const Expedition finished = play(seed, /*thorough=*/true);
+        const Expedition finished = play(seed, Style::thorough);
         std::uint64_t summed = 0;
         for (const LevelSummary& summary : finished.summaries()) {
             const ExpeditionScore& score = summary.score;
-            CHECK(score.value == score.route_value + score.discovery_value);
-            CHECK(score.route_value <= completed_score_maximum);
+            CHECK(score.value == score.completion_value + score.exploration_value +
+                                     score.discovery_value + score.budget_value);
+            CHECK(score.completion_value == completed_exit_award);
+            CHECK(score.exploration_value <= completed_exploration_maximum);
+            CHECK(score.budget_value <= completed_budget_award);
             CHECK(score.discovery_value == score.discoveries_found * completed_score_per_discovery *
                                                score.discovery_multiplier);
-            CHECK(score.excess_moves ==
-                  (score.actual_moves > score.optimal_route_length
-                       ? score.actual_moves - score.optimal_route_length
-                       : 0));
+            CHECK(score.move_budget == move_budget_for(score.total_reachable_cells));
             summed += score.value;
         }
         CHECK(finished.total_score() == summed);
     }
 }
 
-TEST_CASE("finding every discovery on a level earns the bonus for the next one") {
+TEST_CASE("uncovering a level never scores below rushing through it") {
+    // The design's central invariant, checked against real generated levels
+    // rather than arithmetic alone: a run that uncovers the whole map takes many
+    // more moves than the direct line, and must still score higher on every seed
+    // and on every individual level.
     for (const std::uint64_t seed : gate_seeds()) {
-        const Expedition thorough = play(seed, /*thorough=*/true);
+        const Expedition rushed = play(seed, Style::direct);
+        const Expedition swept = play(seed, Style::sweep);
+
+        REQUIRE(rushed.summaries().size() == swept.summaries().size());
+        for (std::size_t level = 0; level < swept.summaries().size(); ++level) {
+            const ExpeditionScore& fast = rushed.summaries()[level].score;
+            const ExpeditionScore& full = swept.summaries()[level].score;
+            REQUIRE(full.actual_moves > fast.actual_moves);
+            CHECK(full.explored_percent == 100);
+            CHECK(full.value > fast.value);
+        }
+        CHECK(swept.total_score() > rushed.total_score());
+    }
+}
+
+TEST_CASE("a full sweep stays comfortably inside the soft move budget") {
+    // The budget is only generous if uncovering everything never touches it. If
+    // this fails the budget is too tight, not the run too slow.
+    for (const std::uint64_t seed : gate_seeds()) {
+        const Expedition swept = play(seed, Style::sweep);
+        for (const LevelSummary& summary : swept.summaries()) {
+            CHECK(summary.score.moves_over_budget == 0);
+            CHECK(summary.score.budget_value == completed_budget_award);
+        }
+    }
+}
+
+TEST_CASE("sweeping a level earns the bonus for the next one") {
+    for (const std::uint64_t seed : gate_seeds()) {
+        const Expedition thorough = play(seed, Style::sweep);
         REQUIRE(thorough.summaries().size() == 2u);
         CHECK(thorough.summaries()[0].earned_bonus == ExpeditionBonus::keen_eye);
         CHECK(thorough.summaries()[1].applied_bonus == ExpeditionBonus::keen_eye);

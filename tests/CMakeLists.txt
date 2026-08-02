@@ -12,6 +12,8 @@
 #   acceptance/  slow property and gate sweeps over many seeds. Separated so the
 #                fast suites stay fast and CI can run the two tiers apart.
 #   cli/         the real nam_console executable driven end to end.
+#   support/     header-only helpers shared by the suites above (never by the
+#                shipped code), on every test target's include path.
 #
 # Every case carries three kinds of label: its module (from the doctest suite
 # name, one per file), its layer (core/console/acceptance/cli), and its kind
@@ -74,6 +76,7 @@ function(nam_add_test_executable name)
     add_executable(${name} ${ARG_SOURCES})
     target_link_libraries(${name} PRIVATE ${ARG_LINK} nam_doctest_main nam_warnings)
     target_compile_definitions(${name} PRIVATE NAM_FIXTURES_DIR="${NAM_FIXTURES_DIR}")
+    target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/support)
     # Note: ADD_LABELS resolves a case's suite by name, so TEST_CASE names must
     # avoid doctest filter metacharacters (',' ';' '*' '?') or the suite label
     # is skipped for that case.

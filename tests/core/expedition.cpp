@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -10,6 +11,9 @@
 #include "expedition.h"
 #include "game_state.h"
 #include "objective.h"
+#include "visibility.h"
+
+#include "scripted_walk.h"
 #include "terrain.h"
 
 namespace {
@@ -51,6 +55,16 @@ bool finish_level_collecting_everything(GameState& state) {
     return finish_level(state);
 }
 
+// Uncover the entire level, then collect every discovery and finish. This is the
+// thorough run the score is meant to reward, and the only kind that earns the
+// carried bonus.
+bool sweep_level(GameState& state) {
+    while (const std::optional<Coordinates> target = nam::test::nearest_unexplored(state)) {
+        if (!walk_to(state, *target)) return false;
+    }
+    return finish_level_collecting_everything(state);
+}
+
 constexpr std::uint64_t kSeed = 0x0F4289EAF4A1813Cull;
 
 }  // namespace
@@ -77,7 +91,7 @@ TEST_CASE("completing a level advances the tier and generates the next level") {
     Expedition expedition(kSeed);
     REQUIRE(finish_level(expedition.state()));
 
-    const LevelTransition transition = expedition.complete_level(LevelPerformance{40u, 3u});
+    const LevelTransition transition = expedition.complete_level(LevelPerformance{40u});
 
     CHECK(transition == LevelTransition::advanced);
     CHECK(expedition.current_tier() == LevelTier::medium);
@@ -112,7 +126,7 @@ TEST_CASE("completing a level before its objective finishes is an explicit no-op
     Expedition expedition(kSeed);
     REQUIRE_FALSE(expedition.state().objective_completed());
 
-    CHECK(expedition.complete_level(LevelPerformance{10u, 1u}) == LevelTransition::none);
+    CHECK(expedition.complete_level(LevelPerformance{10u}) == LevelTransition::none);
     CHECK(expedition.completed_levels() == 0u);
     CHECK(expedition.total_score() == 0u);
     CHECK(expedition.summaries().empty());
@@ -121,7 +135,7 @@ TEST_CASE("completing a level before its objective finishes is an explicit no-op
 TEST_CASE("score and discoveries accumulate across the whole expedition") {
     Expedition expedition(kSeed);
     REQUIRE(finish_level(expedition.state()));
-    REQUIRE(expedition.complete_level(LevelPerformance{30u, 0u}) == LevelTransition::advanced);
+    REQUIRE(expedition.complete_level(LevelPerformance{30u}) == LevelTransition::advanced);
 
     const std::uint64_t after_first = expedition.total_score();
     const std::uint32_t available_first = expedition.total_discoveries_available();
@@ -129,7 +143,7 @@ TEST_CASE("score and discoveries accumulate across the whole expedition") {
     REQUIRE(available_first > 0u);
 
     REQUIRE(finish_level(expedition.state()));
-    REQUIRE(expedition.complete_level(LevelPerformance{30u, 0u}) ==
+    REQUIRE(expedition.complete_level(LevelPerformance{30u}) ==
             LevelTransition::expedition_completed);
 
     CHECK(expedition.total_score() ==
@@ -140,18 +154,19 @@ TEST_CASE("score and discoveries accumulate across the whole expedition") {
               expedition.summaries()[1].discoveries_found);
 }
 
-TEST_CASE("finding every discovery earns the bonus that doubles the next level's discoveries") {
+TEST_CASE("sweeping a level earns the bonus that doubles the next level's discoveries") {
     Expedition expedition(kSeed);
-    REQUIRE(finish_level_collecting_everything(expedition.state()));
+    REQUIRE(sweep_level(expedition.state()));
     REQUIRE(expedition.state().discoveries_found() == expedition.state().discovery_total());
     REQUIRE(expedition.state().discovery_total() > 0u);
 
     REQUIRE(expedition.complete_level(LevelPerformance{}) == LevelTransition::advanced);
     CHECK(expedition.summaries()[0].applied_bonus == ExpeditionBonus::none);
+    CHECK(expedition.summaries()[0].score.explored_percent >= keen_eye_explored_percent);
     CHECK(expedition.summaries()[0].earned_bonus == ExpeditionBonus::keen_eye);
     CHECK(expedition.active_bonus() == ExpeditionBonus::keen_eye);
 
-    REQUIRE(finish_level_collecting_everything(expedition.state()));
+    REQUIRE(sweep_level(expedition.state()));
     REQUIRE(expedition.complete_level(LevelPerformance{}) ==
             LevelTransition::expedition_completed);
 
@@ -160,6 +175,18 @@ TEST_CASE("finding every discovery earns the bonus that doubles the next level's
     CHECK(second.score.discovery_multiplier == 2u);
     CHECK(second.score.discovery_value ==
           second.discoveries_found * completed_score_per_discovery * 2u);
+}
+
+TEST_CASE("collecting every discovery without uncovering the level earns nothing") {
+    // The bonus is named for looking around, so finding the level's single
+    // discovery on the way past is not enough to earn it.
+    Expedition expedition(kSeed);
+    REQUIRE(finish_level_collecting_everything(expedition.state()));
+    REQUIRE(expedition.state().discoveries_found() == expedition.state().discovery_total());
+
+    REQUIRE(expedition.complete_level(LevelPerformance{}) == LevelTransition::advanced);
+    CHECK(expedition.summaries()[0].score.explored_percent < keen_eye_explored_percent);
+    CHECK(expedition.summaries()[0].earned_bonus == ExpeditionBonus::none);
 }
 
 TEST_CASE("missing a discovery loses the carried bonus") {
@@ -178,8 +205,8 @@ TEST_CASE("the same seed replays the same expedition exactly") {
 
     REQUIRE(finish_level(first.state()));
     REQUIRE(finish_level(second.state()));
-    REQUIRE(first.complete_level(LevelPerformance{25u, 2u}) == LevelTransition::advanced);
-    REQUIRE(second.complete_level(LevelPerformance{25u, 2u}) == LevelTransition::advanced);
+    REQUIRE(first.complete_level(LevelPerformance{25u}) == LevelTransition::advanced);
+    REQUIRE(second.complete_level(LevelPerformance{25u}) == LevelTransition::advanced);
 
     CHECK(first.total_score() == second.total_score());
     CHECK(first.active_bonus() == second.active_bonus());

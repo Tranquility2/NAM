@@ -82,9 +82,9 @@ ExpeditionReport build_expedition_report(
     const std::uint64_t total = objective.total_reachable_walkable_cells;
 
     CompletedScoreInput score_input;
-    score_input.optimal_route_length = objective.minimum_route_length;
+    score_input.explored_reachable_cells = explored;
+    score_input.total_reachable_cells = total;
     score_input.actual_moves = move_count;
-    score_input.blocked_attempts = blocked_attempts;
     score_input.discoveries_found = carryover.discoveries_found;
     score_input.discovery_multiplier = discovery_multiplier_of(carryover.applied_bonus);
 
@@ -99,7 +99,6 @@ ExpeditionReport build_expedition_report(
     report.journal = journal;
     report.move_count = move_count;
     report.blocked_attempts = blocked_attempts;
-    report.optimal_route_length = objective.minimum_route_length;
     report.explored_reachable_cells = explored;
     report.total_reachable_cells = total;
     report.carryover = carryover;
@@ -137,18 +136,21 @@ std::string format_report_story(const ExpeditionReport& report) {
 std::vector<std::string> format_report_statistics(const ExpeditionReport& report) {
     std::vector<std::string> lines;
     lines.emplace_back("STATISTICS");
-    lines.push_back("Score: " + std::to_string(report.score.value) + " (route " +
-                    std::to_string(report.score.route_value) + " / " +
-                    std::to_string(completed_score_maximum) + ", discoveries " +
-                    std::to_string(report.score.discovery_value) + ")");
+    lines.push_back("Score: " + std::to_string(report.score.value) + " (exit " +
+                    std::to_string(report.score.completion_value) + ", explored " +
+                    std::to_string(report.score.exploration_value) + " / " +
+                    std::to_string(completed_exploration_maximum) + ", discoveries " +
+                    std::to_string(report.score.discovery_value) + ", budget " +
+                    std::to_string(report.score.budget_value) + ")");
     lines.push_back("Discoveries: " + std::to_string(report.carryover.discoveries_found) + " / " +
                     std::to_string(report.carryover.discovery_total));
-    lines.push_back("Route: " + std::to_string(report.move_count) + " " +
-                    plural(report.move_count, "move", "moves") + " (shortest " +
-                    std::to_string(report.optimal_route_length) + "), " +
-                    std::to_string(report.blocked_attempts) + " blocked");
     lines.push_back("Explored: " + std::to_string(report.explored_reachable_cells) + " / " +
-                    std::to_string(report.total_reachable_cells) + " cells");
+                    std::to_string(report.total_reachable_cells) + " cells (" +
+                    std::to_string(report.score.explored_percent) + "%)");
+    lines.push_back("Moves: " + std::to_string(report.move_count) + " " +
+                    plural(report.move_count, "move", "moves") + " of " +
+                    std::to_string(report.score.move_budget) + " budgeted, " +
+                    std::to_string(report.blocked_attempts) + " blocked");
     return lines;
 }
 

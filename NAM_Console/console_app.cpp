@@ -175,9 +175,7 @@ void ConsoleApp::enter_completion() {
 
     // Score the level into the expedition first: the report presents the carried
     // totals, and on a multi-level run this also generates the next level.
-    const std::uint64_t blocked_attempts =
-        hud_.attempt_count() > hud_.move_count() ? hud_.attempt_count() - hud_.move_count() : 0u;
-    const LevelPerformance performance{hud_.move_count(), blocked_attempts};
+    const LevelPerformance performance{hud_.move_count()};
 
     // Snapshot everything the report needs before complete_level replaces the
     // level, because on an advance `state()` becomes the *next* level.

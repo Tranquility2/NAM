@@ -39,23 +39,28 @@ namespace {
 
 ExpeditionScore compute_completed_score(const CompletedScoreInput& input) noexcept {
     ExpeditionScore score;
-    score.optimal_route_length = input.optimal_route_length;
-    score.actual_moves = input.actual_moves;
-    score.blocked_attempts = input.blocked_attempts;
 
-    // Excess moves are every move taken beyond the shortest legal route.
-    score.excess_moves = saturating_sub(input.actual_moves, input.optimal_route_length);
+    // Reaching the exit is what calling this function means, so the award is
+    // unconditional here rather than gated on a flag the caller could forget.
+    score.completion_value = completed_exit_award;
 
-    // Accumulate penalties with saturating arithmetic, then subtract with
-    // comparison-before-subtraction.
-    std::uint64_t penalty = 0;
-    penalty = saturating_add(
-        penalty, saturating_mul(score.excess_moves, completed_penalty_per_excess_move));
-    penalty = saturating_add(
-        penalty, saturating_mul(score.blocked_attempts, completed_penalty_per_blocked_attempt));
+    // An explored count above the total would be a caller bug; clamping keeps a
+    // wrong count from inflating the fraction past 100%.
+    score.total_reachable_cells = input.total_reachable_cells;
+    score.explored_reachable_cells =
+        at_most(input.explored_reachable_cells, input.total_reachable_cells);
 
-    score.route_value =
-        at_most(saturating_sub(completed_score_base, penalty), completed_score_maximum);
+    // A level with no reachable cells cannot be explored, so it scores nothing
+    // here rather than dividing by zero. Scale before dividing so the linear
+    // fraction keeps its resolution on small levels.
+    if (score.total_reachable_cells > 0) {
+        score.explored_percent = at_most(
+            saturating_mul(score.explored_reachable_cells, 100) / score.total_reachable_cells, 100);
+        score.exploration_value =
+            at_most(saturating_mul(score.explored_reachable_cells, completed_exploration_maximum) /
+                        score.total_reachable_cells,
+                    completed_exploration_maximum);
+    }
 
     // A zero multiplier would silently erase the exploration reward, so treat it
     // as the neutral value rather than trusting the caller.
@@ -65,6 +70,17 @@ ExpeditionScore compute_completed_score(const CompletedScoreInput& input) noexce
         saturating_mul(saturating_mul(score.discoveries_found, completed_score_per_discovery),
                        score.discovery_multiplier);
 
-    score.value = saturating_add(score.route_value, score.discovery_value);
+    // The budget is soft: overspending empties this one bucket and can never
+    // reach into the three earned above it.
+    score.actual_moves = input.actual_moves;
+    score.move_budget = move_budget_for(score.total_reachable_cells);
+    score.moves_over_budget = saturating_sub(score.actual_moves, score.move_budget);
+    score.budget_value = saturating_sub(
+        completed_budget_award,
+        saturating_mul(score.moves_over_budget, completed_penalty_per_move_over_budget));
+
+    score.value = saturating_add(score.completion_value, score.exploration_value);
+    score.value = saturating_add(score.value, score.discovery_value);
+    score.value = saturating_add(score.value, score.budget_value);
     return score;
 }
