@@ -89,6 +89,10 @@ private:
     [[nodiscard]] const GameState& state() const noexcept { return expedition_.state(); }
 
     [[nodiscard]] RenderInput make_input(bool emphasize) const;
+
+    // The expedition and level progress the HUD presents, read from core state on
+    // every frame so the HUD can never lag the world it describes.
+    [[nodiscard]] HudProgress hud_progress() const;
     // Apply one movement command and return the objective transition it caused so
     // the caller can choose the resulting presentation state.
     [[nodiscard]] ObjectiveTransition apply_move(Direction direction, bool& emphasize);

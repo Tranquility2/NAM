@@ -7,9 +7,11 @@
 
 #include "coordinates.h"
 #include "direction.h"
+#include "expedition.h"
 #include "expedition_report.h"
 #include "game_event.h"
 #include "journal.h"
+#include "level_tier.h"
 #include "map.h"
 #include "move_outcome.h"
 #include "objective.h"
@@ -66,6 +68,17 @@ LevelObjective make_objective(Coordinates exit_cell, std::string name, Objective
     return objective;
 }
 
+// The report's logical lines as one searchable block, matching how both the
+// plain renderer and a reader see them.
+std::string join_lines(const std::vector<std::string>& lines) {
+    std::string text;
+    for (const std::string& line : lines) {
+        text += line;
+        text.push_back('\n');
+    }
+    return text;
+}
+
 std::string route_map_first_row(const ExpeditionReport& report) {
     const std::vector<std::string> lines = format_report_lines(report);
     for (std::size_t i = 0; i + 1 < lines.size(); ++i) {
@@ -120,6 +133,88 @@ TEST_CASE("the route map applies F over X over S over star over fog terrain") {
         build_report(objective, map, visibility, journal, route, 2, 2);
     CHECK(report.final_position == Coordinates{2, 0});
     CHECK(route_map_first_row(report) == "S*FX?");
+}
+
+TEST_CASE("an interlude report stops after the expedition totals") {
+    // An interlude is read between two levels: it should fit a screen and be
+    // acknowledged with one key. The journal is reachable at any time with `j`,
+    // the route map describes ground the player is about to leave, and the replay
+    // identity only becomes actionable once the run is over.
+    const Map map = row_map("....", Coordinates{0, 0});
+    const LevelObjective objective =
+        make_objective(Coordinates{3, 0}, "Glass River Exit", ObjectiveStatus::completed, 3, 4);
+    VisibilityMap visibility(4, 1);
+    visibility.reveal_square(Coordinates{1, 0}, 8);
+
+    Journal journal;
+    RouteHistory route(Coordinates{0, 0});
+    journal.record_event(moved_event(0, Direction::right, Terrain::open, Coordinates{1, 0}),
+                         ctx(objective.name));
+
+    ExpeditionCarryover carryover;
+    carryover.levels_completed = 1;
+    carryover.total_levels = 2;
+    carryover.expedition_completed = false;
+    carryover.next_tier = LevelTier::medium;
+
+    const ExpeditionReport report =
+        build_expedition_report(objective, map, visibility, journal, route,
+                                world_identity_from(Settings{}), 3, 3, carryover);
+    CHECK(is_interlude_report(report));
+
+    const std::vector<std::string> lines = format_report_lines(report);
+    const std::string text = join_lines(lines);
+    CHECK(text.find("EXPEDITION REPORT") != std::string::npos);
+    CHECK(text.find("Result: Medium level ahead. 1 of 2 complete.") != std::string::npos);
+    CHECK(text.find("STATISTICS") != std::string::npos);
+    CHECK(text.find("EXPEDITION\n") != std::string::npos);
+
+    CHECK(text.find("WORLD") == std::string::npos);
+    CHECK(text.find("ROUTE MAP") == std::string::npos);
+    CHECK(text.find("ROUTE LEGEND") == std::string::npos);
+    CHECK(text.find("EXPEDITION JOURNAL") == std::string::npos);
+    CHECK_FALSE(lines.back().empty());
+}
+
+TEST_CASE("the last report of an expedition carries every section") {
+    const Map map = row_map("....", Coordinates{0, 0});
+    const LevelObjective objective =
+        make_objective(Coordinates{3, 0}, "Glass River Exit", ObjectiveStatus::completed, 3, 4);
+    VisibilityMap visibility(4, 1);
+    visibility.reveal_square(Coordinates{1, 0}, 8);
+
+    Journal journal;
+    RouteHistory route(Coordinates{0, 0});
+
+    ExpeditionCarryover carryover;
+    carryover.levels_completed = 2;
+    carryover.total_levels = 2;
+    carryover.expedition_completed = true;
+
+    const ExpeditionReport report =
+        build_expedition_report(objective, map, visibility, journal, route,
+                                world_identity_from(Settings{}), 3, 3, carryover);
+    CHECK_FALSE(is_interlude_report(report));
+
+    const std::string text = join_lines(format_report_lines(report));
+    CHECK(text.find("WORLD") != std::string::npos);
+    CHECK(text.find("ROUTE MAP") != std::string::npos);
+    CHECK(text.find("ROUTE LEGEND") != std::string::npos);
+    CHECK(text.find("EXPEDITION JOURNAL") != std::string::npos);
+}
+
+TEST_CASE("a standalone level is its own whole expedition and is never an interlude") {
+    const Map map = row_map("....", Coordinates{0, 0});
+    const LevelObjective objective =
+        make_objective(Coordinates{3, 0}, "Glass River Exit", ObjectiveStatus::completed, 3, 4);
+    VisibilityMap visibility(4, 1);
+    Journal journal;
+    RouteHistory route(Coordinates{0, 0});
+
+    const ExpeditionReport report =
+        build_report(objective, map, visibility, journal, route, 3, 3);
+    CHECK_FALSE(is_interlude_report(report));
+    CHECK(join_lines(format_report_lines(report)).find("EXPEDITION JOURNAL") != std::string::npos);
 }
 
 TEST_CASE("completed report shows result story statistics and legend wording") {

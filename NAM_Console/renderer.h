@@ -7,10 +7,12 @@
 
 #include "app_state.h"
 #include "coordinates.h"
+#include "expedition.h"
 #include "expedition_report.h"
 #include "frame.h"
 #include "journal.h"
 #include "level_feature.h"
+#include "level_tier.h"
 #include "map.h"
 #include "objective.h"
 #include "terminal.h"
@@ -18,6 +20,30 @@
 #include "visibility.h"
 
 namespace nam::console {
+
+// The expedition-wide and level-wide progress the HUD presents. Every field is
+// supplied by the application from core state, so the renderer never re-derives
+// reachability, exploration, or scoring rules.
+//
+// The HUD deliberately carries no coordinates and no running score: once the
+// score *is* exploration, `Explored 41%` is the same information in units the
+// player can act on, and a coordinate pair is a number the map already shows.
+struct HudProgress {
+    LevelTier tier = LevelTier::small;
+    std::uint32_t level_number = 1;
+    std::uint32_t total_levels = 1;
+    // The exploration statistic's numerator and denominator, straight from
+    // core/exploration.h. A zero denominator renders as 0% rather than dividing.
+    std::uint64_t explored_cells = 0;
+    std::uint64_t reachable_cells = 0;
+    std::uint32_t discoveries_found = 0;
+    std::uint32_t discovery_total = 0;
+    // The soft move budget for this level (core's move_budget_for), shown beside
+    // the move count so the budget is discoverable during play rather than only
+    // in the end report.
+    std::uint64_t move_budget = 0;
+    ExpeditionBonus bonus = ExpeditionBonus::none;
+};
 
 // Everything the renderer needs about the world for one frame. It is plain data
 // (the map and visibility are referenced, not owned) so a frame can be produced
@@ -36,6 +62,7 @@ struct RenderInput {
     std::string message;
     std::vector<RecentMove> recent;
     bool emphasize_actor = false;  // One-frame emphasis after a successful move.
+    HudProgress progress{};
 
     // Optional level objective to present. Production input always supplies the
     // core-owned objective; renderer-only fixtures may leave it null to render a
@@ -77,6 +104,19 @@ inline constexpr char vantage_point_glyph = '+';
     }
     return discovery_glyph;
 }
+
+// The compact glyph legend shown on screen during play. A game whose core verb
+// is reading the map must not require leaving the map to learn how to read it,
+// so this is a HUD row rather than a separate screen.
+//
+// It is derived entirely from the glyph constants above and from the core terrain
+// mappings (`symbol_of`, `visibility_radius_of`, `is_walkable`), so it can never
+// drift from what the map actually draws. Terrain is grouped by sight range in
+// descending order, because sight is the only thing terrain governs; the two
+// impassable terrains are listed apart because their sight range never applies.
+// The overlay glyphs come first so a narrow terminal keeps the most important
+// half of the line.
+[[nodiscard]] std::string hud_legend_text();
 
 // A frontend-only viewport into the final expedition report: the index of the
 // topmost visible body line and the leftmost visible column. Both offsets are

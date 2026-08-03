@@ -80,7 +80,7 @@ nam_add_cli_test(cli_run_level_deterministic
 nam_add_cli_test(cli_run_level_wander
     "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_wander_stdin}
     -DEXPECT_CODE=0
-    "-DEXPECT_CONTAINS=Moved onto|Sight:|Objective:"
+    "-DEXPECT_CONTAINS=Moved onto|Explored |Objective:"
     -DFORBID_ESC=1)
 nam_add_cli_test(cli_run_level_wander_deterministic
     "-DARGS=--map|${NAM_FIXTURES_DIR}/level-corridor.map" -DINPUT_FILE=${_wander_stdin}

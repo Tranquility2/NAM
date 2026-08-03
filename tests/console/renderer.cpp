@@ -21,6 +21,8 @@
 #include "terrain.h"
 #include "visibility.h"
 
+#include "hud_text.h"
+
 using namespace nam::console;
 
 namespace {
@@ -60,6 +62,17 @@ RenderInput make_input(const Map& map) {
     input.attempt_count = 5;
     input.message = "Moved onto open ground. Sight 3.";
     input.recent = {RecentMove{Direction::up}, RecentMove{Direction::left}};
+    // A representative mid-run HUD: the second of four levels, a level a bit over
+    // half uncovered, one discovery of two found, and a budget the run is well
+    // inside. Every HUD expectation below is written against these figures.
+    input.progress.tier = LevelTier::medium;
+    input.progress.level_number = 2;
+    input.progress.total_levels = 4;
+    input.progress.explored_cells = 41;
+    input.progress.reachable_cells = 100;
+    input.progress.discoveries_found = 1;
+    input.progress.discovery_total = 2;
+    input.progress.move_budget = 100;
     return input;
 }
 
@@ -85,9 +98,15 @@ std::string strip_ansi(const std::string& text) {
     return out;
 }
 
+// True when any *map or HUD status* row shows the glyph. The on-screen legend
+// names every terrain symbol and every overlay glyph by design, so it is skipped:
+// a glyph assertion is always about the map, never about the strip that explains
+// the map.
 bool contains_glyph(const Frame& frame, char glyph) {
     for (const std::string& row : frame) {
-        if (strip_ansi(row).find(glyph) != std::string::npos) {
+        const std::string visible = strip_ansi(row);
+        if (nam::test::is_legend_line(visible)) continue;
+        if (visible.find(glyph) != std::string::npos) {
             return true;
         }
     }
@@ -309,7 +328,7 @@ TEST_CASE("unexplored authored content never leaks its glyph") {
     Renderer renderer(RenderConfig{false, false, false, false});
     const std::string plain = renderer.render_plain(input);
 
-    CHECK(plain.find('?') == std::string::npos);
+    CHECK(nam::test::without_legend(plain).find('?') == std::string::npos);
 }
 
 
@@ -318,14 +337,22 @@ TEST_CASE("standard status shows terrain sight and moves in order") {
     const Renderer renderer(plain_config());
     const Frame frame = renderer.render(make_input(map), TerminalSize{80, 24});
     const std::string visible = join_visible(frame);
-    const std::size_t terr = visible.find("Terrain:");
-    const std::size_t sight = visible.find("Sight: 3");
-    const std::size_t moves = visible.find("Moves:");
-    REQUIRE(terr != std::string::npos);
-    REQUIRE(sight != std::string::npos);
+    const std::size_t tier = visible.find("Medium 2/4");
+    const std::size_t explored = visible.find("Explored 41%");
+    const std::size_t found = visible.find("Found 1/2");
+    const std::size_t moves = visible.find("Moves 3/100");
+    const std::size_t terr = visible.find("Sight 3 (open ground)");
+    REQUIRE(tier != std::string::npos);
+    REQUIRE(explored != std::string::npos);
+    REQUIRE(found != std::string::npos);
     REQUIRE(moves != std::string::npos);
-    CHECK(terr < sight);
-    CHECK(sight < moves);
+    REQUIRE(terr != std::string::npos);
+    CHECK(tier < explored);
+    CHECK(explored < found);
+    CHECK(found < moves);
+    CHECK(moves < terr);
+    // No coordinates and no running score anywhere in the HUD.
+    CHECK(visible.find("Pos ") == std::string::npos);
     CHECK(frame.size() == 24);
     CHECK_FALSE(any_esc(frame));
 }
@@ -443,7 +470,10 @@ TEST_CASE("the sight range stays visible at the minimum compact width") {
     const Renderer renderer(plain_config());
     const Frame frame = renderer.render(make_input(map), TerminalSize{12, 6});
     const std::string visible = join_visible(frame);
-    CHECK(visible.find("S:3") != std::string::npos);  // still visible before clipping.
+    // Twelve columns show only the head of the compact status line, so the two
+    // facts a player acts on - how much is uncovered and what is still to find -
+    // are placed first.
+    CHECK(visible.find("E41% D1/2") != std::string::npos);
     CHECK(frame.size() == 6);
     for (const std::string& row : frame) {
         CHECK(strip_ansi(row).size() <= 12);
@@ -454,15 +484,128 @@ TEST_CASE("plain-mode status exposes terrain before sight and moves") {
     const Map map = open_map(8, 4);
     const Renderer renderer(plain_config());
     const std::string text = renderer.render_plain(make_input(map));
-    const std::size_t terr = text.find("Terrain:");
-    const std::size_t sight = text.find("Sight: 3");
-    const std::size_t moves = text.find("Moves:");
-    REQUIRE(terr != std::string::npos);
-    REQUIRE(sight != std::string::npos);
+    const std::size_t tier = text.find("Medium 2/4");
+    const std::size_t explored = text.find("Explored 41%");
+    const std::size_t found = text.find("Found 1/2");
+    const std::size_t moves = text.find("Moves 3/100");
+    const std::size_t terr = text.find("Sight 3 (open ground)");
+    REQUIRE(tier != std::string::npos);
+    REQUIRE(explored != std::string::npos);
+    REQUIRE(found != std::string::npos);
     REQUIRE(moves != std::string::npos);
-    CHECK(terr < sight);
-    CHECK(sight < moves);
+    REQUIRE(terr != std::string::npos);
+    CHECK(tier < explored);
+    CHECK(explored < found);
+    CHECK(found < moves);
+    CHECK(moves < terr);
+    // The HUD states no coordinates: the map already shows where the actor is.
+    CHECK(text.find("Pos ") == std::string::npos);
     CHECK(text.find('\x1b') == std::string::npos);  // plain mode stays ANSI-free.
+}
+
+TEST_CASE("the on-screen legend explains every glyph the map can draw") {
+    const std::string legend = hud_legend_text();
+
+    // The four overlays come first, so a narrow terminal keeps them.
+    CHECK(legend.find("O you") == 0u);
+    CHECK(legend.find("* goal") != std::string::npos);
+    CHECK(legend.find("? find") != std::string::npos);
+    CHECK(legend.find("+ view") != std::string::npos);
+
+    // Every terrain is present exactly once, walkable ones with the sight they
+    // grant and the impassable ones listed apart.
+    CHECK(legend.find("Sight @7 ^5 ~4 .3 x3 &1") != std::string::npos);
+    CHECK(legend.find("Blocked = #") != std::string::npos);
+    CHECK(legend.find('\x1b') == std::string::npos);
+}
+
+TEST_CASE("the legend is on screen during play in both layouts") {
+    const Map map = open_map(8, 4);
+    const Renderer renderer(plain_config());
+
+    const Frame standard = renderer.render(make_input(map), TerminalSize{80, 24});
+    CHECK(join_visible(standard).find("O you  * goal") != std::string::npos);
+
+    const Frame compact = renderer.render(make_input(map), TerminalSize{30, 12});
+    CHECK(join_visible(compact).find("O you  * goal") != std::string::npos);
+
+    CHECK(renderer.render_plain(make_input(map)).find(hud_legend_text()) != std::string::npos);
+}
+
+TEST_CASE("a terminal too short for both a map row and a legend keeps the map") {
+    // The legend is a reference strip, not status: it yields before the map does.
+    const Map map = open_map(8, 4);
+    const LevelObjective objective = exit_at(Coordinates{7, 3}, ObjectiveStatus::seeking_landmark);
+    RenderInput input = make_input(map);
+    input.objective = &objective;
+    const Renderer renderer(plain_config());
+    const Frame frame = renderer.render(input, TerminalSize{20, 3});
+    const std::string visible = join_visible(frame);
+    CHECK(visible.find("O you") == std::string::npos);
+    CHECK(contains_glyph(frame, actor_glyph));
+    CHECK(frame.size() == 3);
+}
+
+TEST_CASE("the HUD names the carried bonus only while it is active") {
+    const Map map = open_map(8, 4);
+    const Renderer renderer(plain_config());
+
+    RenderInput plain_input = make_input(map);
+    CHECK(renderer.render_plain(plain_input).find("Keen eye") == std::string::npos);
+
+    RenderInput bonus_input = make_input(map);
+    bonus_input.progress.bonus = ExpeditionBonus::keen_eye;
+    CHECK(renderer.render_plain(bonus_input).find("Keen eye") != std::string::npos);
+
+    const Frame compact = renderer.render(bonus_input, TerminalSize{80, 12});
+    CHECK(join_visible(compact).find("Keen eye") != std::string::npos);
+}
+
+TEST_CASE("the explored share is floored and never exceeds one hundred percent") {
+    const Map map = open_map(8, 4);
+    const Renderer renderer(plain_config());
+
+    RenderInput input = make_input(map);
+    input.progress.explored_cells = 2;
+    input.progress.reachable_cells = 3;
+    CHECK(renderer.render_plain(input).find("Explored 66%") != std::string::npos);
+
+    // A level with nothing reachable divides by nothing rather than by zero.
+    input.progress.explored_cells = 0;
+    input.progress.reachable_cells = 0;
+    CHECK(renderer.render_plain(input).find("Explored 0%") != std::string::npos);
+}
+
+TEST_CASE("the widest status line still shows the sight range in eighty columns") {
+    // The worst case a real run can produce: the last X-Large level, a fully
+    // uncovered map, a four-digit move budget, an active bonus, and the longest
+    // terrain name. Only the parenthesised terrain name may be clipped.
+    std::vector<Terrain> cells(8 * 4, Terrain::shallow_water);
+    const Map map(8, 4, std::move(cells), Coordinates{0, 0});
+    RenderInput input = make_input(map);
+    input.terrain = Terrain::shallow_water;
+    input.move_count = 1208;
+    input.progress.tier = LevelTier::x_large;
+    input.progress.level_number = 4;
+    input.progress.total_levels = 4;
+    input.progress.explored_cells = 1208;
+    input.progress.reachable_cells = 1208;
+    input.progress.discoveries_found = 12;
+    input.progress.discovery_total = 12;
+    input.progress.move_budget = 1208;
+    input.progress.bonus = ExpeditionBonus::keen_eye;
+
+    const Renderer renderer(plain_config());
+    const Frame frame = renderer.render(input, TerminalSize{80, 24});
+    const std::string visible = join_visible(frame);
+    CHECK(visible.find("X-Large 4/4") != std::string::npos);
+    CHECK(visible.find("Explored 100%") != std::string::npos);
+    CHECK(visible.find("Moves 1208/1208") != std::string::npos);
+    CHECK(visible.find("Keen eye") != std::string::npos);
+    CHECK(visible.find("Sight 4") != std::string::npos);
+    for (const std::string& row : frame) {
+        CHECK(strip_ansi(row).size() <= 80);
+    }
 }
 
 TEST_CASE("plain-mode text is self-contained and ANSI-free") {
@@ -471,8 +614,8 @@ TEST_CASE("plain-mode text is self-contained and ANSI-free") {
     const std::string text = renderer.render_plain(make_input(map));
 
     CHECK(text.find('\x1b') == std::string::npos);
-    CHECK(text.find("Pos") != std::string::npos);
-    CHECK(text.find("Moves:") != std::string::npos);
+    CHECK(text.find("Medium 2/4") != std::string::npos);
+    CHECK(text.find("Moves 3/100") != std::string::npos);
     CHECK(text.find(actor_glyph) != std::string::npos);
 }
 
@@ -608,6 +751,7 @@ TEST_CASE("an unexplored exit_cell leaks no glyph, colour, or objective coordina
     const Renderer plain(plain_config());
     const std::string text = plain.render_plain(objective_input(scene, Coordinates{4, 0}, objective));
     CHECK(first_line(text).find(objective_glyph) == std::string::npos);  // no '*' in the map row.
+    // The legend legitimately names the glyph; the map itself must not show it.
 
     const Renderer colored(color_config());
     const Frame frame = colored.render(objective_input(scene, Coordinates{4, 0}, objective),
@@ -692,7 +836,7 @@ TEST_CASE("the standard layout shows the objective line after status and before 
     const Frame frame = renderer.render(input, TerminalSize{80, 24});
     const std::string visible = join_visible(frame);
 
-    const std::size_t status = visible.find("Sight: 3");
+    const std::size_t status = visible.find("Explored 41%");
     const std::size_t objline = visible.find(
         "Objective: Reach Glass River Exit (*).");
     const std::size_t message = visible.find("> Moved onto open ground");
@@ -734,7 +878,7 @@ TEST_CASE("plain rendering places the objective line after status and before the
     const Renderer renderer(plain_config());
     const std::string text = renderer.render_plain(input);
 
-    const std::size_t status = text.find("Sight: 3");
+    const std::size_t status = text.find("Explored 41%");
     const std::size_t objline = text.find("Objective: Reach the exit to the east (*).");
     const std::size_t message = text.find("Moved onto open ground");
     REQUIRE(status != std::string::npos);

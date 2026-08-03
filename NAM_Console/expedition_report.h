@@ -170,11 +170,18 @@ struct ExpeditionReport {
 // The route-map legend lines describing every overlay glyph (REQ-153).
 [[nodiscard]] std::vector<std::string> format_report_legend();
 
+// True when this report is an interlude between two levels rather than the end of
+// the run: the expedition spans more than one level and is not finished. An
+// interlude is trimmed to the sections that describe the level just played, so it
+// fits a screen and is acknowledged with a single key.
+[[nodiscard]] bool is_interlude_report(const ExpeditionReport& report);
+
 // The complete ordered logical report lines (REQ-153): the `EXPEDITION REPORT`
-// banner, the result and story, the level statistics, the expedition totals when
-// the run spans more than one level, the world identity, the route map,
-// the route legend, and the `EXPEDITION JOURNAL` section with every entry numbered
-// from 1. These are the single source of report text; the renderer only slices
+// banner, the result and story, the level statistics, and the expedition totals
+// when the run spans more than one level. A final report continues with the world
+// identity, the route map, the route legend, and the `EXPEDITION JOURNAL` section
+// with every entry numbered from 1; an interlude stops after the expedition
+// totals. These are the single source of report text; the renderer only slices
 // them into a bounded viewport or joins them into a plain block.
 [[nodiscard]] std::vector<std::string> format_report_lines(const ExpeditionReport& report);
 

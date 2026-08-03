@@ -35,6 +35,14 @@ GameEvent discovery_event(std::uint64_t sequence, Direction direction,
     return event;
 }
 
+// A successful move that granted the one-off wide reveal of a vantage point.
+GameEvent vantage_event(std::uint64_t sequence, Direction direction,
+                        ObjectiveTransition transition = ObjectiveTransition::none) {
+    GameEvent event = move_event(sequence, direction, Terrain::hill, transition);
+    std::get<MoveAttemptedEvent>(event.data).wide_reveal_granted = true;
+    return event;
+}
+
 GameEvent blocked_event(std::uint64_t sequence, Direction direction,
                         MoveResult result = MoveResult::blocked_by_terrain) {
     MoveAttemptedEvent move;
@@ -63,6 +71,50 @@ std::vector<std::string> prose_of(const Journal& journal) {
 }  // namespace
 
 TEST_SUITE("journal") {
+
+TEST_CASE("the first vantage point of a level becomes a notable encounter") {
+    Journal journal;
+    journal.record_event(vantage_event(1, Direction::right), ctx("Glass River Exit"));
+    REQUIRE(journal.size() == 1);
+    CHECK(prose_of(journal)[0] == "Climbed to a vantage point and the level opened up.");
+}
+
+TEST_CASE("a level opens up once no matter how many vantage points are climbed") {
+    // A thorough sweep steps on several vantage points. Repeating the same moment
+    // would spend the whole run's entry budget on it, so later ones are collapsed
+    // by design rather than truncated away.
+    Journal journal;
+    journal.record_event(vantage_event(1, Direction::right), ctx("Glass River Exit"));
+    journal.record_event(vantage_event(2, Direction::right), ctx("Glass River Exit"));
+    journal.record_event(vantage_event(3, Direction::up), ctx("Glass River Exit"));
+    CHECK(journal.size() == 1);
+}
+
+TEST_CASE("the next level of an expedition may log its own first vantage point") {
+    Journal journal;
+    journal.record_event(vantage_event(1, Direction::right), ctx("Glass River Exit"));
+    journal.record_event(vantage_event(2, Direction::right), ctx("Glass River Exit"));
+    journal.begin_level();
+    journal.record_event(vantage_event(3, Direction::right), ctx("Moon Way Landmark"));
+    journal.record_event(vantage_event(4, Direction::right), ctx("Moon Way Landmark"));
+
+    // Two levels, one notable encounter each; the earlier entries all survive,
+    // because the journal itself is expedition-wide.
+    CHECK(journal.size() == 2);
+}
+
+TEST_CASE("reaching the landmark is recorded as the larger milestone, not as a vantage") {
+    Journal journal;
+    journal.record_event(
+        vantage_event(1, Direction::right, ObjectiveTransition::landmark_discovered),
+        ctx("Glass River Exit"));
+    REQUIRE(journal.size() == 1);
+    CHECK(prose_of(journal)[0].find("Glass River Exit") != std::string::npos);
+
+    // The suppressed vantage did not consume the level's one notable encounter.
+    journal.record_event(vantage_event(2, Direction::right), ctx("Glass River Exit"));
+    CHECK(journal.size() == 2);
+}
 
 TEST_CASE("a new journal is empty") {
     Journal journal;

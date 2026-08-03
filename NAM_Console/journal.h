@@ -25,7 +25,8 @@ namespace nam::console {
 // Entries fall into the four categories the prototype can produce: an optional
 // discovery, a notable encounter, an objective milestone, and a level completion.
 // A full level yields about three entries, which keeps a four-tier run near its
-// budget.
+// budget: the notable encounter is logged once per level, so sweeping a level for
+// every vantage point on it still costs one entry.
 
 // An optional find the actor entered for the first time. `ordinal` is its place
 // in the level's discovery order, so an entry reads as progress rather than as a
@@ -36,9 +37,11 @@ struct DiscoveryEntry {
     std::uint32_t total = 0;
 };
 
-// The move that first entered a vantage point, which opened the level up with a
-// one-off wide reveal. Reaching the named landmark grants the same sight but is
-// recorded as a LandmarkEntry, because that is the larger moment.
+// The move that first entered a vantage point on this level, which opened the
+// level up with a one-off wide reveal. Reaching the named landmark grants the
+// same sight but is recorded as a LandmarkEntry, because that is the larger
+// moment, and only the level's first vantage point is recorded, because a level
+// only opens up once.
 struct VantageEntry {
     std::uint64_t sequence = 0;
 };
@@ -109,12 +112,22 @@ public:
     // already completed at spawn (REQ-012).
     void record_initial_completion(const std::string& landmark_name);
 
+    // Begin a new level of the same expedition. The journal itself is
+    // expedition-wide and keeps every entry; only the per-level collapse state
+    // resets, so the next level may log its own first vantage point.
+    void begin_level() noexcept;
+
     [[nodiscard]] const std::vector<JournalEntry>& entries() const noexcept { return entries_; }
     [[nodiscard]] bool empty() const noexcept { return entries_.empty(); }
     [[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }
 
 private:
     std::vector<JournalEntry> entries_;
+    // A level opens up once. Later vantage points repeat a moment the player has
+    // already had, so they are collapsed by design rather than truncated away:
+    // a thorough sweep steps on several and would otherwise spend the whole
+    // twelve-entry run budget on them.
+    bool level_vantage_logged_ = false;
 };
 
 // Render one journal entry as concise cartographer prose without coordinates

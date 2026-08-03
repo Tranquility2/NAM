@@ -7,6 +7,8 @@
 #include <utility>
 #include <variant>
 
+#include "expedition_score.h"
+#include "exploration.h"
 #include "game_event.h"
 #include "messages.h"
 
@@ -120,10 +122,28 @@ RenderInput ConsoleApp::make_input(bool emphasize) const {
     input.message = hud_.message();
     input.recent.assign(hud_.recent().begin(), hud_.recent().end());
     input.emphasize_actor = emphasize;
+    input.progress = hud_progress();
     // Production input always presents the core-owned objective; the renderer
     // gates the exit overlay on visibility and shows the objective line.
     input.objective = &state().objective();
     return input;
+}
+
+HudProgress ConsoleApp::hud_progress() const {
+    HudProgress progress;
+    progress.tier = expedition_.current_tier();
+    progress.level_number = expedition_.completed_levels() + 1u;
+    progress.total_levels = expedition_.total_levels();
+    // The exploration statistic is core-owned: the HUD reads the same counts the
+    // score does rather than deriving a second, possibly disagreeing, figure.
+    progress.explored_cells =
+        count_explored_reachable_walkable_cells(state().map(), state().visibility());
+    progress.reachable_cells = state().objective().total_reachable_walkable_cells;
+    progress.discoveries_found = state().discoveries_found();
+    progress.discovery_total = state().discovery_total();
+    progress.move_budget = move_budget_for(progress.reachable_cells);
+    progress.bonus = expedition_.active_bonus();
+    return progress;
 }
 
 JournalContext ConsoleApp::journal_context() const {
@@ -215,8 +235,11 @@ void ConsoleApp::enter_completion() {
 
 void ConsoleApp::begin_next_level() {
     // Per-level tracking restarts with the level. The journal is expedition-wide
-    // and survives, which is what makes it a record of the whole run.
+    // and survives, which is what makes it a record of the whole run; only its
+    // per-level collapse state resets so the next level may log its own first
+    // vantage point.
     hud_ = Hud{};
+    journal_.begin_level();
     route_history_ = RouteHistory(state().map().spawn());
     report_.reset();
     final_report_active_ = false;

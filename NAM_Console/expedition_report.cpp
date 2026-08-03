@@ -267,6 +267,10 @@ std::vector<std::string> format_report_legend() {
             std::string(1, route_unexplored_glyph) + " = unexplored"};
 }
 
+bool is_interlude_report(const ExpeditionReport& report) {
+    return report.carryover.total_levels > 1u && !report.carryover.expedition_completed;
+}
+
 std::vector<std::string> format_report_lines(const ExpeditionReport& report) {
     std::vector<std::string> lines;
     const auto append = [&lines](const std::vector<std::string>& section) {
@@ -284,6 +288,14 @@ std::vector<std::string> format_report_lines(const ExpeditionReport& report) {
     if (!expedition.empty()) {
         append(expedition);
         lines.emplace_back();
+    }
+    // An interlude stops here. It is read between two levels, so it should fit a
+    // screen and be acknowledged with one key: the journal is reachable at any
+    // time with `j`, the route map describes ground the player is about to leave,
+    // and the replay identity only becomes actionable once the run is over.
+    if (is_interlude_report(report)) {
+        if (!lines.empty() && lines.back().empty()) lines.pop_back();
+        return lines;
     }
     append(format_report_identity(report));
     lines.emplace_back();

@@ -246,8 +246,53 @@ constexpr int color_vantage_point = 97; // Bright white: a one-off wide reveal.
 
 // --- HUD text ---------------------------------------------------------------
 
+// Every terrain in declaration order. The legend is built from this so adding a
+// terrain to the enum is caught here rather than silently omitted; the
+// static_assert below pins the count.
+constexpr std::array<Terrain, 8> legend_terrain{
+    Terrain::open,  Terrain::mountain,   Terrain::shallow_water, Terrain::fields,
+    Terrain::hill,  Terrain::forest,     Terrain::deep_water,    Terrain::cliff};
+static_assert(legend_terrain.size() == 8, "legend must list every Terrain enumerator");
+
 [[nodiscard]] std::string position_text(Coordinates actor) {
     return "(" + std::to_string(actor.x) + "," + std::to_string(actor.y) + ")";
+}
+
+// The explored share of the level, floored, and clamped so a frame can never
+// print more than 100%. A level with no reachable cells reads as 0% rather than
+// dividing by zero.
+[[nodiscard]] std::uint64_t explored_percent(const HudProgress& progress) noexcept {
+    if (progress.reachable_cells == 0) return 0;
+    const std::uint64_t explored = std::min(progress.explored_cells, progress.reachable_cells);
+    return explored * 100u / progress.reachable_cells;
+}
+
+[[nodiscard]] std::string tier_progress_text(const HudProgress& progress) {
+    return std::string(to_string(progress.tier)) + " " +
+           std::to_string(progress.level_number) + "/" + std::to_string(progress.total_levels);
+}
+
+[[nodiscard]] std::string explored_text(const HudProgress& progress) {
+    return std::to_string(explored_percent(progress)) + "%";
+}
+
+[[nodiscard]] std::string found_text(const HudProgress& progress) {
+    return std::to_string(progress.discoveries_found) + "/" +
+           std::to_string(progress.discovery_total);
+}
+
+[[nodiscard]] std::string moves_text(const RenderInput& input) {
+    return std::to_string(input.move_count) + "/" + std::to_string(input.progress.move_budget);
+}
+
+// The user-facing name of the carried bonus, or an empty string when none is
+// active so callers can append it unconditionally.
+[[nodiscard]] std::string bonus_text(const HudProgress& progress) {
+    switch (progress.bonus) {
+        case ExpeditionBonus::none:     return std::string();
+        case ExpeditionBonus::keen_eye: return "Keen eye";
+    }
+    return std::string();
 }
 
 // The sight range the actor's current terrain grants, shared by every HUD layout.
@@ -255,6 +300,46 @@ constexpr int color_vantage_point = 97; // Bright white: a one-off wide reveal.
 // player what standing here is worth.
 [[nodiscard]] std::string sight_text(const RenderInput& input) {
     return std::to_string(visibility_radius_of(input.terrain));
+}
+
+// The full-width HUD status line: where the run is, how much of the level is
+// uncovered, what has been found, how the move budget stands, and what standing
+// here is worth. No coordinates and no score, by design.
+//
+// The field order is chosen for what survives clipping on a narrow terminal. The
+// sight *number* is last but is preceded by its short label, so the widest
+// possible line - an X-Large level, a four-digit budget, an active bonus and the
+// longest terrain name - still shows the sight range within eighty columns and
+// loses only the parenthesised terrain name.
+[[nodiscard]] std::string status_text(const RenderInput& input) {
+    const HudProgress& progress = input.progress;
+    std::string text = tier_progress_text(progress);
+    text += "  Explored " + explored_text(progress);
+    text += "  Found " + found_text(progress);
+    text += "  Moves " + moves_text(input);
+    const std::string bonus = bonus_text(progress);
+    if (!bonus.empty()) {
+        text += "  " + bonus;
+    }
+    text += "  Sight " + sight_text(input) + " (" + terrain_name(input.terrain) + ")";
+    return text;
+}
+
+// The compact HUD status line. It keeps the same facts in abbreviated form and
+// leads with exploration, because a 12-column terminal shows only the first few
+// fields and exploration is the one the player acts on.
+[[nodiscard]] std::string compact_status_text(const RenderInput& input) {
+    const HudProgress& progress = input.progress;
+    std::string text = "E" + explored_text(progress);
+    text += " D" + found_text(progress);
+    text += " S" + sight_text(input);
+    text += " M" + moves_text(input);
+    const std::string bonus = bonus_text(progress);
+    if (!bonus.empty()) {
+        text += "  " + bonus;
+    }
+    text += "  " + tier_progress_text(progress);
+    return text;
 }
 
 [[nodiscard]] std::string recent_text(const std::vector<RecentMove>& recent) {
@@ -310,10 +395,7 @@ constexpr int color_vantage_point = 97; // Bright white: a one-off wide reveal.
 
     std::vector<std::string> hud;
     if (standard) {
-        hud.push_back("Pos " + position_text(input.actor) +
-                      "   Terrain: " + terrain_name(input.terrain) +
-                      "   Sight: " + sight_text(input) +
-                      "   Moves: " + std::to_string(input.move_count));
+        hud.push_back(status_text(input));
         // The objective line sits after the status line and before the latest
         // event message.
         if (input.objective != nullptr) {
@@ -321,17 +403,21 @@ constexpr int color_vantage_point = 97; // Bright white: a one-off wide reveal.
         }
         hud.push_back("> " + input.message);
         hud.push_back(recent_text(input.recent));
+        hud.push_back(hud_legend_text());
         if (config.debug) {
             hud.push_back(debug_text(input, size));
         }
     } else {
-        std::string status = position_text(input.actor) + " S:" + sight_text(input) + " " +
-                             terrain_name(input.terrain) +
-                             "  M:" + std::to_string(input.move_count) + "  " + input.message;
-        hud.push_back(std::move(status));
+        hud.push_back(compact_status_text(input) + "  " + input.message);
         // Compact layout adds one bounded Goal line for the objective phase.
         if (input.objective != nullptr) {
             hud.push_back(goal_line(*input.objective));
+        }
+        // The legend is a reference strip, not status: a compact terminal only
+        // gets one once the map still has a row left to draw on.
+        const int used = static_cast<int>(hud.size()) + (config.debug ? 1 : 0);
+        if (rows - used >= 2) {
+            hud.push_back(hud_legend_text());
         }
         if (config.debug) {
             hud.push_back(debug_text(input, size));
@@ -507,6 +593,43 @@ constexpr char report_controls[] =
 
 }  // namespace
 
+std::string hud_legend_text() {
+    std::string text;
+    text.push_back(actor_glyph);
+    text += " you  ";
+    text.push_back(objective_glyph);
+    text += " goal  ";
+    text.push_back(discovery_glyph);
+    text += " find  ";
+    text.push_back(vantage_point_glyph);
+    text += " view";
+
+    // Walkable terrain, ordered by the sight it grants, widest first: that is the
+    // only thing terrain decides, so it is the only thing worth ranking.
+    std::vector<Terrain> walkable;
+    walkable.reserve(legend_terrain.size());
+    for (const Terrain terrain : legend_terrain) {
+        if (is_walkable(terrain)) walkable.push_back(terrain);
+    }
+    std::stable_sort(walkable.begin(), walkable.end(), [](Terrain left, Terrain right) {
+        return visibility_radius_of(left) > visibility_radius_of(right);
+    });
+    text += "   Sight";
+    for (const Terrain terrain : walkable) {
+        text.push_back(' ');
+        text.push_back(symbol_of(terrain));
+        text += std::to_string(visibility_radius_of(terrain));
+    }
+
+    text += "   Blocked";
+    for (const Terrain terrain : legend_terrain) {
+        if (is_walkable(terrain)) continue;
+        text.push_back(' ');
+        text.push_back(symbol_of(terrain));
+    }
+    return text;
+}
+
 Frame Renderer::render(const RenderInput& input, TerminalSize size) const {
     int columns = size.valid() ? size.columns : fallback_columns;
     int rows = size.valid() ? size.rows : fallback_rows;
@@ -515,10 +638,10 @@ Frame Renderer::render(const RenderInput& input, TerminalSize size) const {
         return too_small_panel(columns, rows);
     }
 
-    const int base_hud_rows = config_.debug ? 4 : 3;
-    // The standard layout always shows a status line, the latest-event message, and
-    // the recent-moves line (plus a debug line under --debug); the optional
-    // objective line adds one more HUD row. The
+    const int base_hud_rows = config_.debug ? 5 : 4;
+    // The standard layout always shows a status line, the latest-event message,
+    // the recent-moves line, and the glyph legend (plus a debug line under
+    // --debug); the optional objective line adds one more HUD row. The
     // standard/compact threshold must budget for every one so the map region and
     // the defensive clamp never drop a HUD line (REQ-029 / RISK-004).
     const int objective_rows = input.objective != nullptr ? 1 : 0;
@@ -539,15 +662,14 @@ std::string Renderer::render_plain(const RenderInput& input) const {
                               static_cast<int>(map.width()));
         text.push_back('\n');
     }
-    text += "Pos " + position_text(input.actor) + "  Terrain: " + terrain_name(input.terrain) +
-            "  Sight: " + sight_text(input) + "  Moves: " + std::to_string(input.move_count) +
-            "\n";
+    text += status_text(input) + "\n";
     // The objective line sits after the status line and before the latest event
     // message, matching the standard interactive layout order.
     if (input.objective != nullptr) {
         text += objective_line(*input.objective) + "\n";
     }
     text += input.message + "\n";
+    text += hud_legend_text() + "\n";
     if (config_.debug) {
         text += recent_text(input.recent) + "\n";
     }

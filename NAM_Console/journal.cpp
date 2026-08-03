@@ -48,10 +48,13 @@ void Journal::record_event(const GameEvent& event, const JournalContext& context
     }
 
     // A landmark grants the same wide reveal, but it is recorded below as the
-    // larger milestone rather than twice.
-    if (move->wide_reveal_granted &&
+    // larger milestone rather than twice. Only the level's first vantage point
+    // becomes an entry: a level opens up once, and a sweep that climbs every one
+    // of them would otherwise flood the run's entry budget.
+    if (move->wide_reveal_granted && !level_vantage_logged_ &&
         move->objective_update.transition != ObjectiveTransition::landmark_discovered) {
         entries_.push_back(JournalEntry{VantageEntry{event.sequence}});
+        level_vantage_logged_ = true;
     }
 
     switch (move->objective_update.transition) {
@@ -70,6 +73,10 @@ void Journal::record_event(const GameEvent& event, const JournalContext& context
 
 void Journal::record_initial_completion(const std::string& landmark_name) {
     entries_.push_back(JournalEntry{InitialCompletionEntry{landmark_name}});
+}
+
+void Journal::begin_level() noexcept {
+    level_vantage_logged_ = false;
 }
 
 std::string format_entry(const JournalEntry& entry) {

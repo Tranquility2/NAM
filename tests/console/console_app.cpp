@@ -23,6 +23,7 @@
 #include "settings.h"
 #include "terminal.h"
 
+#include "hud_text.h"
 #include "scripted_walk.h"
 
 using namespace nam::console;
@@ -316,7 +317,9 @@ TEST_CASE("fog hides distant terrain until the actor explores toward it") {
     std::string hidden;
     const int code_hidden = run_plain_state(make_big_state(), "q\n", hidden);
     CHECK(code_hidden == 0);
-    CHECK(hidden.find('@') == std::string::npos);
+    // The on-screen glyph legend names every terrain symbol, so a glyph-absence
+    // assertion has to look past it and at the map it explains.
+    CHECK(nam::test::without_legend(hidden).find('@') == std::string::npos);
 
     // TEST-017: walking right three cells brings '@' into sight, so it appears.
     std::string revealed;
@@ -331,7 +334,7 @@ TEST_CASE("fog hides distant terrain until the actor explores toward it") {
     std::string remembered;
     const int code_remembered = run_plain_state(make_big_state(), "d\nd\nd\na\na\nq\n", remembered);
     CHECK(code_remembered == 0);
-    CHECK(count_char(remembered, '@') >= 2);
+    CHECK(count_char(nam::test::without_legend(remembered), '@') >= 2);
     CHECK(remembered.find('\x1b') == std::string::npos);  // plain stays ANSI-free.
 }
 
@@ -342,7 +345,7 @@ TEST_CASE("entering a hill reveals a far glyph that persists as memory after lea
     std::string hidden;
     const int code_hidden = run_plain_state(make_hill_state(), "q\n", hidden);
     CHECK(code_hidden == 0);
-    CHECK(hidden.find('~') == std::string::npos);
+    CHECK(nam::test::without_legend(hidden).find('~') == std::string::npos);
 
     std::string on_hill;
     const int code_hill = run_plain_state(make_hill_state(), "d\nq\n", on_hill);
@@ -354,7 +357,7 @@ TEST_CASE("entering a hill reveals a far glyph that persists as memory after lea
     std::string remembered;
     const int code_remembered = run_plain_state(make_hill_state(), "d\na\nq\n", remembered);
     CHECK(code_remembered == 0);
-    CHECK(count_char(remembered, '~') >= 2);
+    CHECK(count_char(nam::test::without_legend(remembered), '~') >= 2);
     CHECK(remembered.find('\x1b') == std::string::npos);  // plain stays ANSI-free.
 }
 
@@ -378,7 +381,7 @@ d
     const int code = run_plain_state(make_mountain_reach_state(), eleven_fields + "q\n", reached);
     CHECK(code == 0);
     CHECK(reached.find("Moved onto fields. Sight 3.") != std::string::npos);
-    CHECK(reached.find("Blocked") == std::string::npos);
+    CHECK(nam::test::without_legend(reached).find("Blocked") == std::string::npos);
     CHECK(reached.find('~') != std::string::npos);
     CHECK(reached.find('\x1b') == std::string::npos);
 }
@@ -414,7 +417,7 @@ d
     // succeeds and reports the wider sight it bought.
     CHECK(travelled.find("Moved onto fields. Sight 3.") != std::string::npos);
     CHECK(travelled.find("Moved onto shallow water. Sight 4.") != std::string::npos);
-    CHECK(travelled.find("Sight: 4") != std::string::npos);
+    CHECK(travelled.find("Sight 4 (shallow water)") != std::string::npos);
     CHECK(travelled.find('\x1b') == std::string::npos);
 }
 
@@ -456,8 +459,14 @@ TEST_CASE("plain discovery executes a movement command exactly once and dismisse
     std::string output;
     const int code = run_plain_state(make_corridor_state(), "d\nd\na\nq\n", output);
     CHECK(code == 0);
-    CHECK(count_substr(output, "Pos (1,0)") >= 2);
-    CHECK(count_substr(output, "Pos (0,0)") == 1);
+    const std::size_t discovery = output.find("LANDMARK DISCOVERED");
+    REQUIRE(discovery != std::string::npos);
+    // The HUD states no coordinates, so "exactly once" is asserted on the move
+    // counter: the dismissing move is the third and no fourth move ever runs.
+    const std::string tail = output.substr(discovery);
+    CHECK(tail.find("Moves 3/") != std::string::npos);
+    CHECK(tail.find("Moves 4/") == std::string::npos);
+    CHECK(tail.find("Objective: Reach the exit to the east (*).") != std::string::npos);
 }
 
 TEST_CASE("plain discovery dismisses to gameplay on an empty line without moving") {
@@ -471,7 +480,10 @@ TEST_CASE("plain discovery dismisses to gameplay on an empty line without moving
     // After the discovery block a gameplay frame reappears with the unchanged
     // position on the landmark and the exit objective line.
     const std::string tail = output.substr(discovery);
-    CHECK(tail.find("Pos (2,0)") != std::string::npos);
+    // Two moves reached the landmark and the empty line adds none, so the counter
+    // is unchanged in the restored gameplay frame.
+    CHECK(tail.find("Moves 2/") != std::string::npos);
+    CHECK(tail.find("Moves 3/") == std::string::npos);
     CHECK(tail.find("Objective: Reach the exit to the east (*).") != std::string::npos);
 }
 
@@ -489,7 +501,8 @@ TEST_CASE("plain discovery prints the reminder for unknown commands") {
     const std::size_t discovery = output.find("LANDMARK DISCOVERED");
     REQUIRE(discovery != std::string::npos);
     const std::string tail = output.substr(discovery);
-    CHECK(count_substr(tail, "Pos ") == 1);  // only the quit frame, none for reminders.
+    // Exactly one status line, so exactly one gameplay frame: the quit frame.
+    CHECK(count_substr(tail, "Explored ") == 1);
 }
 
 TEST_CASE("plain completion returns immediately and leaves trailing commands unread") {
@@ -822,7 +835,7 @@ TEST_CASE("plain j prints the journal once and immediately resumes gameplay") {
     CHECK(output.find("EXPEDITION JOURNAL") != std::string::npos);
     CHECK(output.find("(No journal entries yet.)") != std::string::npos);
     // Only the initial frame and the quit frame carry a status line; j adds none.
-    CHECK(count_substr(output, "Pos ") == 2);
+    CHECK(count_substr(output, "Explored ") == 2);
 }
 
 TEST_CASE("plain j records prior moves and does not dismiss discovery") {
@@ -998,6 +1011,47 @@ TEST_CASE("a thorough run logs its discoveries and keeps the journal within budg
     // that only passes vantage points without entering them still logs six.
     CHECK(count_substr(final_journal, "\n7. ") == 1u);
     CHECK(count_substr(final_journal, "\n8. ") == 0u);
+}
+
+TEST_CASE("an interlude is trimmed to the level it describes") {
+    ConsoleApp app(Expedition(kExpeditionSeed), Settings{});
+    std::istringstream input(commands_to_finish(kExpeditionSeed));
+    std::ostringstream out;
+    REQUIRE(app.run_plain(input, out) == 0);
+    const std::string output = out.str();
+
+    // Two reports are printed, but only the last one closes the run, so the route
+    // map, the replay identity and the journal listing appear exactly once.
+    REQUIRE(count_substr(output, "EXPEDITION REPORT") == 2u);
+    CHECK(count_substr(output, "ROUTE MAP") == 1u);
+    CHECK(count_substr(output, "ROUTE LEGEND") == 1u);
+    CHECK(count_substr(output, "WORLD\n") == 1u);
+    CHECK(count_substr(output, "EXPEDITION JOURNAL") == 1u);
+
+    // Everything that describes the level just played is on both.
+    CHECK(count_substr(output, "STATISTICS") == 2u);
+    CHECK(count_substr(output, "Explored: ") == 2u);
+
+    const std::size_t last = output.rfind("EXPEDITION REPORT");
+    CHECK(output.rfind("ROUTE MAP") > last);
+}
+
+TEST_CASE("the HUD tracks the level's explored share and its move budget") {
+    // The HUD reads the same core-owned exploration counts the score does, so the
+    // percentage a player acts on and the score they are given cannot disagree.
+    ConsoleApp app(Expedition(kExpeditionSeed), Settings{});
+    std::istringstream input(commands_to_finish(kExpeditionSeed, /*thorough=*/true));
+    std::ostringstream out;
+    REQUIRE(app.run_plain(input, out) == 0);
+    const std::string output = out.str();
+
+    // A sweep uncovers the whole level, so the HUD reaches 100% before the exit.
+    CHECK(output.find("Explored 100%") != std::string::npos);
+    // The HUD states no coordinates and no running score.
+    CHECK(output.find("Pos (") == std::string::npos);
+    // A sweep stays inside the generous budget, which the HUD shows all along.
+    CHECK(output.find("Moves 1/") != std::string::npos);
+    CHECK(output.find("Found 1/1") != std::string::npos);
 }
 
 TEST_CASE("quitting at an interlude ends the run without playing the next level") {
