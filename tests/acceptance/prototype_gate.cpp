@@ -1,18 +1,25 @@
 #include <doctest/doctest.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <optional>
 #include <string>
+#include <utility>
+#include <variant>
 #include <vector>
 
 #include "coordinates.h"
 #include "direction.h"
 #include "expedition.h"
 #include "expedition_score.h"
+#include "exploration.h"
+#include "game_event.h"
 #include "game_state.h"
 #include "level_feature.h"
 #include "level_tier.h"
+#include "map.h"
 #include "objective.h"
 #include "pcg32.h"
 #include "terrain.h"
@@ -30,6 +37,17 @@
 // These cases deliberately duplicate a little coverage from the focused suites.
 // A gate is only useful if it fails on its own terms, without depending on which
 // other test happened to notice the regression first.
+//
+// Two families of invariant sit underneath every criterion above and are asserted
+// here in their own right, because the whole design now rests on them:
+//
+//   * Sight. Terrain governs how far the actor can see and governs nothing else.
+//     What is revealed must be exactly what standing somewhere earns - never more,
+//     and never less once earned.
+//   * Connectivity. A level is a place to walk around, so every walkable cell and
+//     every piece of placed content must be reachable from spawn, and the whole of
+//     it must be uncoverable by walking. Sight and connectivity meet in that last
+//     claim: it is what makes exploring a solvable goal rather than a hope.
 
 namespace {
 
@@ -75,6 +93,59 @@ std::vector<Direction> walk_to(GameState& state, Coordinates target) {
         if (feature.kind == LevelFeatureKind::discovery) cells.push_back(feature.position);
     }
     return cells;
+}
+
+// Every tier in ascending order. Phase 2 generates all four, so the structural
+// invariants below are asserted on the whole chain rather than on the two tiers
+// the Phase 1 prototype happened to play.
+constexpr std::array<LevelTier, 4> kAllTiers{LevelTier::small, LevelTier::medium,
+                                             LevelTier::large, LevelTier::x_large};
+
+// The per-move sight sweeps below re-scan the whole map on every step, so they run
+// over a smaller slice of the seed set. The claims are structural: a violation is
+// a rule error that shows on the first seed that meets it, not a rare event that
+// needs sixty samples to catch.
+constexpr std::size_t kSightSeedCount = 8;
+
+// Every cell of the map, row-major.
+[[nodiscard]] std::vector<Coordinates> all_cells(const Map& map) {
+    std::vector<Coordinates> cells;
+    cells.reserve(map.width() * map.height());
+    for (std::size_t y = 0; y < map.height(); ++y) {
+        for (std::size_t x = 0; x < map.width(); ++x) {
+            cells.push_back(Coordinates{static_cast<int>(x), static_cast<int>(y)});
+        }
+    }
+    return cells;
+}
+
+// True when `cell` lies inside the square of `radius` cells in each direction
+// around `center` - exactly the region reveal_square covers.
+[[nodiscard]] bool within_square(Coordinates center, Coordinates cell, int radius) noexcept {
+    return std::abs(cell.x - center.x) <= radius && std::abs(cell.y - center.y) <= radius;
+}
+
+[[nodiscard]] std::uint64_t explored_count(const GameState& state) {
+    return count_explored_reachable_walkable_cells(state.map(), state.visibility());
+}
+
+// Walk one step in the first direction that succeeds, cycling through the four so
+// a wander covers ground instead of pacing. Returns the event so the caller can
+// read whether the step landed and whether it fired a wide reveal.
+[[nodiscard]] GameEvent step_around(GameState& state, std::size_t& rotation) {
+    constexpr std::array<Direction, 4> order{Direction::right, Direction::down, Direction::left,
+                                             Direction::up};
+    for (std::size_t i = 0; i < order.size(); ++i) {
+        const Direction direction = order[(rotation + i) % order.size()];
+        if (state.peek(direction).result == MoveResult::moved) {
+            rotation = (rotation + i + 1u) % order.size();
+            return state.move(direction);
+        }
+    }
+    // Every generated level has somewhere to go; a dead end would be a bug in the
+    // connectivity cases below rather than here.
+    REQUIRE(false);
+    return state.move(order[0]);
 }
 
 // How thoroughly a scripted run plays each level.
@@ -317,6 +388,250 @@ TEST_CASE("the prototype run is a proportionate slice of the full four-tier chai
     CHECK(total_route_cost[0] < total_route_cost[1]);
     CHECK(total_route_cost[1] < total_route_cost[2]);
     CHECK(total_route_cost[2] < total_route_cost[3]);
+}
+
+// ---------------------------------------------------------------------------
+// Sight
+// ---------------------------------------------------------------------------
+
+TEST_CASE("terrain alone decides what the actor can currently see") {
+    const std::vector<std::uint64_t> seeds = gate_seeds();
+    for (const LevelTier tier : kAllTiers) {
+        for (std::size_t i = 0; i < kSightSeedCount; ++i) {
+            GameState state = make_level_state(tier, seeds[i]);
+            const std::vector<Coordinates> cells = all_cells(state.map());
+            std::size_t rotation = 0;
+            for (int step = 0; step < 60; ++step) {
+                const GameEvent event = step_around(state, rotation);
+                const auto& attempt = std::get<MoveAttemptedEvent>(event.data);
+                if (attempt.outcome.result != MoveResult::moved) continue;
+
+                // A wide reveal is the one sanctioned exception, and it is always
+                // announced on the event that granted it.
+                const int radius = attempt.wide_reveal_granted
+                                       ? wide_reveal_radius
+                                       : visibility_radius_of(state.map().terrain_at(state.actor_position()));
+                for (const Coordinates cell : cells) {
+                    const bool visible = state.visibility().at(cell) == CellVisibility::visible;
+                    CHECK(visible == within_square(state.actor_position(), cell, radius));
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("no ground is ever uncovered from somewhere the actor has not stood") {
+    const std::vector<std::uint64_t> seeds = gate_seeds();
+    for (const LevelTier tier : kAllTiers) {
+        for (std::size_t i = 0; i < kSightSeedCount; ++i) {
+            GameState state = make_level_state(tier, seeds[i]);
+            const std::vector<Coordinates> cells = all_cells(state.map());
+
+            // Every square the actor has earned so far, as (centre, radius) pairs.
+            std::vector<std::pair<Coordinates, int>> earned;
+            const auto record_stand = [&](bool wide) {
+                const Coordinates here = state.actor_position();
+                earned.emplace_back(here, visibility_radius_of(state.map().terrain_at(here)));
+                if (wide) earned.emplace_back(here, wide_reveal_radius);
+            };
+            record_stand(false);
+
+            std::size_t rotation = 0;
+            for (int step = 0; step < 60; ++step) {
+                const GameEvent event = step_around(state, rotation);
+                const auto& attempt = std::get<MoveAttemptedEvent>(event.data);
+                if (attempt.outcome.result != MoveResult::moved) continue;
+                record_stand(attempt.wide_reveal_granted);
+
+                for (const Coordinates cell : cells) {
+                    if (state.visibility().at(cell) == CellVisibility::unexplored) continue;
+                    bool covered = false;
+                    for (const auto& square : earned) {
+                        if (within_square(square.first, cell, square.second)) {
+                            covered = true;
+                            break;
+                        }
+                    }
+                    CHECK(covered);
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("explored ground is never forgotten") {
+    const std::vector<std::uint64_t> seeds = gate_seeds();
+    for (const LevelTier tier : kAllTiers) {
+        for (std::size_t i = 0; i < kSightSeedCount; ++i) {
+            GameState state = make_level_state(tier, seeds[i]);
+            std::uint64_t explored = explored_count(state);
+            CHECK(explored > 0u);
+            std::size_t rotation = 0;
+            for (int step = 0; step < 120; ++step) {
+                static_cast<void>(step_around(state, rotation));
+                const std::uint64_t now = explored_count(state);
+                CHECK(now >= explored);
+                explored = now;
+            }
+        }
+    }
+}
+
+TEST_CASE("a blocked step changes nothing the actor can see") {
+    const std::vector<std::uint64_t> seeds = gate_seeds();
+    std::size_t blocked_attempts = 0;
+    for (const LevelTier tier : kAllTiers) {
+        for (std::size_t i = 0; i < kSightSeedCount; ++i) {
+            GameState state = make_level_state(tier, seeds[i]);
+            const std::vector<Coordinates> cells = all_cells(state.map());
+            std::size_t rotation = 0;
+            for (int step = 0; step < 60; ++step) {
+                static_cast<void>(step_around(state, rotation));
+
+                for (const Direction direction : {Direction::up, Direction::down, Direction::left,
+                                                  Direction::right}) {
+                    if (state.peek(direction).result == MoveResult::moved) continue;
+                    std::vector<CellVisibility> before;
+                    before.reserve(cells.size());
+                    for (const Coordinates cell : cells) before.push_back(state.visibility().at(cell));
+                    const Coordinates position_before = state.actor_position();
+
+                    static_cast<void>(state.move(direction));
+                    ++blocked_attempts;
+
+                    CHECK(state.actor_position() == position_before);
+                    for (std::size_t c = 0; c < cells.size(); ++c) {
+                        CHECK(state.visibility().at(cells[c]) == before[c]);
+                    }
+                }
+            }
+        }
+    }
+    // The claim is only worth anything if blocked steps actually happen.
+    CHECK(blocked_attempts > 0u);
+}
+
+TEST_CASE("a vantage point shows ground that standing there could not") {
+    const std::vector<std::uint64_t> seeds = gate_seeds();
+    std::size_t vantages_entered = 0;
+    for (const LevelTier tier : kAllTiers) {
+        for (std::size_t i = 0; i < kSightSeedCount; ++i) {
+            GameState state = make_level_state(tier, seeds[i]);
+            for (const LevelFeature& feature : state.features()) {
+                if (feature.kind != LevelFeatureKind::vantage_point) continue;
+                if (state.actor_position() == feature.position) continue;
+
+                static_cast<void>(walk_to(state, feature.position));
+                if (!(state.actor_position() == feature.position)) continue;
+                ++vantages_entered;
+
+                // Sight after the climb is the wide square, which is strictly wider
+                // than any terrain's own radius - including the mountain's.
+                const int own = visibility_radius_of(state.map().terrain_at(feature.position));
+                CHECK(own < wide_reveal_radius);
+                std::uint64_t visible = 0;
+                std::uint64_t beyond_own = 0;
+                for (const Coordinates cell : all_cells(state.map())) {
+                    if (state.visibility().at(cell) != CellVisibility::visible) continue;
+                    ++visible;
+                    if (!within_square(feature.position, cell, own)) ++beyond_own;
+                }
+                CHECK(visible > 0u);
+                CHECK(beyond_own > 0u);
+                break;
+            }
+        }
+    }
+    CHECK(vantages_entered > 0u);
+}
+
+// ---------------------------------------------------------------------------
+// Connectivity
+// ---------------------------------------------------------------------------
+
+TEST_CASE("no walkable ground is ever cut off from spawn") {
+    for (const LevelTier tier : kAllTiers) {
+        for (const std::uint64_t seed : gate_seeds()) {
+            const GameState state = make_level_state(tier, seed);
+            const Map& map = state.map();
+
+            std::uint64_t walkable = 0;
+            for (const Coordinates cell : all_cells(map)) {
+                if (is_walkable(map.terrain_at(cell))) ++walkable;
+            }
+            const std::uint64_t reachable = count_reachable_walkable_cells(map);
+
+            CHECK(walkable > 0u);
+            // Not merely "mostly connected": a generated level never leaves an
+            // island of ground the player can see but never visit.
+            CHECK(reachable == walkable);
+            CHECK(state.objective().total_reachable_walkable_cells == reachable);
+        }
+    }
+}
+
+TEST_CASE("every placed thing sits on ground the player can walk to") {
+    for (const LevelTier tier : kAllTiers) {
+        for (const std::uint64_t seed : gate_seeds()) {
+            const GameState state = make_level_state(tier, seed);
+            const Map& map = state.map();
+
+            // The previous case pins reachable == walkable, so walkability is the
+            // reachability test here.
+            std::vector<Coordinates> placed{state.map().spawn(), state.objective().landmark,
+                                            state.objective().exit_cell};
+            for (const LevelFeature& feature : state.features()) placed.push_back(feature.position);
+
+            for (const Coordinates cell : placed) {
+                REQUIRE(map.contains(cell));
+                CHECK(is_walkable(map.terrain_at(cell)));
+            }
+        }
+    }
+}
+
+TEST_CASE("the barriers that could sever a level are really there") {
+    for (const LevelTier tier : kAllTiers) {
+        std::size_t with_impassable = 0;
+        const std::vector<std::uint64_t> seeds = gate_seeds();
+        for (const std::uint64_t seed : seeds) {
+            const GameState state = make_level_state(tier, seed);
+            const Map& map = state.map();
+            for (const Coordinates cell : all_cells(map)) {
+                if (!is_walkable(map.terrain_at(cell))) {
+                    ++with_impassable;
+                    break;
+                }
+            }
+        }
+        // Full connectivity above would be a hollow promise on a level with nothing
+        // to route around, so every generated level carries impassable terrain.
+        CHECK(with_impassable == seeds.size());
+    }
+}
+
+TEST_CASE("walking can uncover the whole of any level") {
+    const std::vector<std::uint64_t> seeds = gate_seeds();
+    for (const LevelTier tier : kAllTiers) {
+        for (std::size_t i = 0; i < kSightSeedCount; ++i) {
+            GameState state = make_level_state(tier, seeds[i]);
+            const std::uint64_t reachable = state.objective().total_reachable_walkable_cells;
+
+            // The sweep drains nearest_unexplored; if sight and connectivity agree,
+            // it terminates with nothing left to find.
+            std::optional<Coordinates> target = nam::test::nearest_unexplored(state);
+            std::size_t guard = 0;
+            const std::size_t limit = static_cast<std::size_t>(reachable) * 8u + 64u;
+            while (target.has_value() && guard < limit) {
+                static_cast<void>(walk_to(state, *target));
+                target = nam::test::nearest_unexplored(state);
+                ++guard;
+            }
+            CHECK(guard < limit);
+            CHECK(!target.has_value());
+            CHECK(explored_count(state) == reachable);
+        }
+    }
 }
 
 }  // TEST_SUITE("prototype_gate")
