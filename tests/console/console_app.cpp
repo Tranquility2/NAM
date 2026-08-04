@@ -51,13 +51,21 @@ GameState make_big_state() {
         "NAM-MAP 1\nwidth 9\nheight 3\nspawn 1 1\n---\n#########\n......@..\n#########\n"));
 }
 
-// A corridor with an open spawn at x=1, a hill at x=2, and a distinctive water
-// cell at x=5. The water sits at radius 3 from the hill but beyond radius 2 from
-// either the open spawn or the hill cell if it were flat, so only standing on
-// the hill reveals it. Stepping back off the hill keeps it as memory.
+// A corridor with an open spawn at (1,2), a hill at (2,2), and a distinctive
+// water cell walled off at (5,1). The water is beyond the open spawn's radius of
+// 3 but inside the hill's radius of 5, so only standing on the hill reveals it,
+// and stepping back off keeps it as memory.
+//
+// Two details keep the fixture reading the sight rule and nothing else. The water
+// is enclosed by walls, so it is unreachable and can never be chosen as the
+// landmark and drawn as the objective glyph instead of its own terrain. The
+// corridor is long enough that the landmark's search window around the route
+// midpoint cannot reach the hill either, so entering the hill is never also a
+// landmark discovery with its much wider reveal.
 GameState make_hill_state() {
     return GameState(make_map(
-        "NAM-MAP 1\nwidth 9\nheight 3\nspawn 1 1\n---\n#########\n..^..~...\n#########\n"));
+        "NAM-MAP 1\nwidth 13\nheight 4\nspawn 1 2\n---\n#############\n#####~#######\n"
+        "..^..........\n#############\n"));
 }
 
 // A long corridor of fields leading to a distant water glyph. Nothing accumulates
@@ -350,7 +358,7 @@ TEST_CASE("entering a hill reveals a far glyph that persists as memory after lea
     std::string on_hill;
     const int code_hill = run_plain_state(make_hill_state(), "d\nq\n", on_hill);
     CHECK(code_hill == 0);
-    CHECK(on_hill.find('~') != std::string::npos);
+    CHECK(nam::test::without_legend(on_hill).find('~') != std::string::npos);
 
     // Leaving the hill keeps the water as memory, so it stays in later frames:
     // one frame from the reveal plus at least one remembered frame afterwards.

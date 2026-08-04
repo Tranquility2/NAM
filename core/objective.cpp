@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -11,22 +12,29 @@
 #include <utility>
 #include <vector>
 
+#include "landmark.h"
 #include "terrain.h"
 #include "world_generation.h"
 
 namespace {
 
 // The 16 deterministic first-word entries, in the exact required order. The
-// low nibble of the name hash selects one.
+// low nibble of the name hash selects one. The middle word is no longer shared:
+// it comes from the landmark kind's own pool in landmark.h, so the three words
+// describe one place instead of colliding ("Silent Ford Crossing", not "Silent
+// Peak Ford").
 constexpr std::array<const char*, 16> kFirstWords{
     "Ashen", "Bright", "Cloud", "Dawn", "Ember", "Glass", "Iron", "Moon",
     "North", "Rain", "Silent", "Star", "Storm", "Sun", "White", "Wild"};
 
-// The 16 deterministic second-word entries, in the exact required order. Bits
-// 8..11 of the name hash select one.
-constexpr std::array<const char*, 16> kSecondWords{
-    "Crown", "Ford", "Gate", "Harbor", "Hollow", "Lantern", "Light", "Pass",
-    "Peak", "Reach", "River", "Spire", "Stone", "Vale", "Watch", "Way"};
+// How far from the shortest route's midpoint a landmark may be nudged to stand on
+// terrain that suits its kind. Small on purpose: the landmark must stay a natural
+// waypoint of the route, so this varies which identity a seed offers without
+// letting the landmark wander off into a corner of the map. Three rather than two
+// because at two the biggest tier never offered a mountain within reach of its
+// midpoint, and so never produced an overlook over sixty seeds; the widest detour
+// this can add is six moves against route budgets in the hundreds.
+constexpr int kLandmarkSearchRadius = 3;
 
 // The four cardinal neighbour offsets. Order does not affect the selected cell:
 // distances are uniform and the exit is chosen from a separately collected
@@ -162,15 +170,99 @@ constexpr std::array<Coordinates, 4> kCardinalOffsets{
 }
 
 [[nodiscard]] std::string generate_landmark_name(const Map& map, Coordinates spawn,
-                                               Coordinates landmark) {
+                                                 Coordinates landmark, LandmarkKind kind) {
     const std::uint64_t hash = hash_seed_text(name_fingerprint(map, spawn, landmark));
     const std::size_t first = static_cast<std::size_t>(hash & 0x0FULL);
-    const std::size_t second = static_cast<std::size_t>((hash >> 8) & 0x0FULL);
+    // Three bits for an eight-entry pool. Taken from bits 8..10 so the two word
+    // choices stay independent, as they were when both pools held sixteen.
+    const std::size_t second = static_cast<std::size_t>((hash >> 8) & 0x07ULL);
     std::string name = kFirstWords[first];
     name += ' ';
-    name += kSecondWords[second];
-    name += " Landmark";
+    name += std::string(landmark_words(kind)[second]);
+    name += ' ';
+    name += std::string(landmark_noun(kind));
     return name;
+}
+
+// Choose where the landmark stands, given the shortest route's midpoint. Every
+// walkable, reachable cell within kLandmarkSearchRadius of the midpoint is a
+// candidate, excluding spawn and the exit, which own their own meaning. A seeded
+// hash first picks a kind from those the candidate terrains actually offer, then
+// picks a cell among the candidates carrying that kind's terrain.
+//
+// Both steps iterate fixed orders - `all_landmark_kinds` and row-major cells - so
+// the choice is a pure function of the map and never depends on traversal or
+// container order. The midpoint is always a candidate, so this can only ever
+// return a cell, never fail.
+[[nodiscard]] Coordinates choose_landmark(const Map& map, const std::vector<int>& distance,
+                                          Coordinates spawn, Coordinates exit_cell,
+                                          Coordinates midpoint) {
+    const int width = static_cast<int>(map.width());
+    const auto flat_index = [width](Coordinates position) {
+        return static_cast<std::size_t>(position.y) * static_cast<std::size_t>(width) +
+               static_cast<std::size_t>(position.x);
+    };
+
+    std::vector<Coordinates> candidates;
+    for (int y = midpoint.y - kLandmarkSearchRadius; y <= midpoint.y + kLandmarkSearchRadius; ++y) {
+        for (int x = midpoint.x - kLandmarkSearchRadius; x <= midpoint.x + kLandmarkSearchRadius;
+             ++x) {
+            const Coordinates cell{x, y};
+            if (!map.contains(cell) || cell == spawn || cell == exit_cell) {
+                continue;
+            }
+            if (!is_walkable(map.terrain_at(cell)) || distance[flat_index(cell)] < 0) {
+                continue;
+            }
+            candidates.push_back(cell);
+        }
+    }
+    if (candidates.empty()) {
+        return midpoint;
+    }
+
+    std::vector<LandmarkKind> offered;
+    for (const LandmarkKind kind : all_landmark_kinds) {
+        for (const Coordinates cell : candidates) {
+            if (map.terrain_at(cell) == terrain_of(kind)) {
+                offered.push_back(kind);
+                break;
+            }
+        }
+    }
+    if (offered.empty()) {
+        return midpoint;
+    }
+
+    const std::uint64_t hash = hash_seed_text(name_fingerprint(map, spawn, midpoint) + "\nkind");
+    const LandmarkKind chosen = offered[static_cast<std::size_t>(hash % offered.size())];
+
+    // Among the cells carrying the chosen kind, take the closest to the midpoint,
+    // so the detour bought by an identity is always the smallest one available. A
+    // level of uniform terrain offers exactly one kind and its midpoint already
+    // carries it at distance zero, so the landmark never moves without buying
+    // something: the nudge exists to change what the landmark *is*, not where it is.
+    int best = std::numeric_limits<int>::max();
+    std::vector<Coordinates> matching;
+    for (const Coordinates cell : candidates) {
+        if (map.terrain_at(cell) != terrain_of(chosen)) {
+            continue;
+        }
+        const int detour = std::abs(cell.x - midpoint.x) + std::abs(cell.y - midpoint.y);
+        if (detour < best) {
+            best = detour;
+            matching.clear();
+        }
+        if (detour == best) {
+            matching.push_back(cell);
+        }
+    }
+    // `chosen` came from the terrains present among the candidates, so this is
+    // never empty; the guard rules out a modulo by zero.
+    if (matching.empty()) {
+        return midpoint;
+    }
+    return matching[static_cast<std::size_t>((hash >> 32) % matching.size())];
 }
 
 [[nodiscard]] Direction bearing_to(Coordinates source, Coordinates target) noexcept {
@@ -323,8 +415,17 @@ LevelObjective create_level_objective(const Map& map) {
     LevelObjective objective;
     objective.exit_cell = exit_cell;
     const std::vector<Coordinates> path = shortest_path(map, spawn, exit_cell);
-    objective.landmark = path.size() <= 2u ? spawn : path[path.size() / 2u];
-    objective.name = generate_landmark_name(map, spawn, objective.landmark);
+    // The route midpoint is the natural waypoint; the landmark is then nudged onto
+    // nearby terrain that gives it an identity. The route length below is summed
+    // through whatever cell that lands on, so a nudge that lengthens the route is
+    // paid for honestly rather than hidden.
+    objective.landmark = path.size() <= 2u
+                             ? spawn
+                             : choose_landmark(map, distance, spawn, exit_cell,
+                                               path[path.size() / 2u]);
+    objective.landmark_kind = landmark_kind_of(map.terrain_at(objective.landmark));
+    objective.name = generate_landmark_name(map, spawn, objective.landmark,
+                                            objective.landmark_kind);
     objective.exit_bearing = bearing_to(objective.landmark, exit_cell);
     if (exit_cell == spawn) {
         objective.status = ObjectiveStatus::completed;

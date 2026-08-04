@@ -6,6 +6,7 @@
 
 #include "coordinates.h"
 #include "direction.h"
+#include "landmark.h"
 #include "map.h"
 
 // Frontend-neutral V2 level objective. Every map receives one deterministic exit.
@@ -43,6 +44,10 @@ enum class ObjectiveTransition {
 struct LevelObjective {
     Coordinates landmark{};
     Coordinates exit_cell{};
+    // What the landmark is, and therefore what terrain it stands on. The kind is
+    // always `landmark_kind_of(terrain at the landmark)`, so the map and the name
+    // can never disagree about the same place.
+    LandmarkKind landmark_kind = LandmarkKind::waystone;
     std::string name;
     // The broad, truthful direction from the landmark to the exit, revealed when
     // the landmark is discovered. It is deliberately coarse: it names the dominant

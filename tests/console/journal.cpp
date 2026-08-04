@@ -95,8 +95,8 @@ TEST_CASE("the next level of an expedition may log its own first vantage point")
     journal.record_event(vantage_event(1, Direction::right), ctx("Glass River Exit"));
     journal.record_event(vantage_event(2, Direction::right), ctx("Glass River Exit"));
     journal.begin_level();
-    journal.record_event(vantage_event(3, Direction::right), ctx("Moon Way Landmark"));
-    journal.record_event(vantage_event(4, Direction::right), ctx("Moon Way Landmark"));
+    journal.record_event(vantage_event(3, Direction::right), ctx("Moon Marker Waystone"));
+    journal.record_event(vantage_event(4, Direction::right), ctx("Moon Marker Waystone"));
 
     // Two levels, one notable encounter each; the earlier entries all survive,
     // because the journal itself is expedition-wide.

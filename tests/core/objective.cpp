@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -13,6 +14,7 @@
 #include "direction.h"
 #include "game_event.h"
 #include "game_state.h"
+#include "landmark.h"
 #include "map.h"
 #include "map_parser.h"
 #include "objective.h"
@@ -37,9 +39,9 @@ const MoveAttemptedEvent& payload_of(const GameEvent& event) {
 constexpr std::array<const char*, 16> kFirstWords{
     "Ashen", "Bright", "Cloud", "Dawn", "Ember", "Glass", "Iron", "Moon",
     "North", "Rain", "Silent", "Star", "Storm", "Sun", "White", "Wild"};
-constexpr std::array<const char*, 16> kSecondWords{
-    "Crown", "Ford", "Gate", "Harbor", "Hollow", "Lantern", "Light", "Pass",
-    "Peak", "Reach", "River", "Spire", "Stone", "Vale", "Watch", "Way"};
+// The middle word now comes from the landmark kind's own pool, so the mirror
+// reads it back through the public landmark.h mapping rather than duplicating six
+// pools here. Only the index arithmetic is mirrored.
 
 // The map-and-spawn fingerprint hashed to select the exit_cell, mirrored from the
 // core so a test can independently reconstruct the deterministic candidate index.
@@ -52,7 +54,8 @@ std::string placement_fingerprint(const Map& map, Coordinates spawn) {
     return input;
 }
 
-std::string expected_name(const Map& map, Coordinates spawn, Coordinates landmark) {
+std::string expected_name(const Map& map, Coordinates spawn, Coordinates landmark,
+                          LandmarkKind kind) {
     std::string input = placement_fingerprint(map, spawn);
     input += "\nlandmark ";
     input += std::to_string(landmark.x);
@@ -61,8 +64,9 @@ std::string expected_name(const Map& map, Coordinates spawn, Coordinates landmar
     const std::uint64_t hash = hash_seed_text(input);
     std::string name = kFirstWords[static_cast<std::size_t>(hash & 0x0FULL)];
     name += ' ';
-    name += kSecondWords[static_cast<std::size_t>((hash >> 8) & 0x0FULL)];
-    name += " Landmark";
+    name += std::string(landmark_words(kind)[static_cast<std::size_t>((hash >> 8) & 0x07ULL)]);
+    name += ' ';
+    name += std::string(landmark_noun(kind));
     return name;
 }
 
@@ -323,13 +327,16 @@ TEST_CASE("exit_cell names use the exact fixed tables and hash indices") {
     const LevelObjective first = create_level_objective(map);
     const LevelObjective second = create_level_objective(map);
 
-    const std::string expected = expected_name(map, map.spawn(), first.landmark);
+    const std::string expected = expected_name(map, map.spawn(), first.landmark,
+                                               first.landmark_kind);
     CHECK(first.name == expected);
     CHECK(second.name == expected);
     CHECK(first.exit_cell == second.exit_cell);
-    // The name ends with the fixed suffix and contains exactly two spaces.
-    CHECK(first.name.size() > std::string(" Landmark").size());
-    CHECK(first.name.rfind(" Landmark") == first.name.size() - std::string(" Landmark").size());
+    // Three words: a leading word, the kind's own middle word, and the kind's noun.
+    CHECK(std::count(first.name.begin(), first.name.end(), ' ') == 2);
+    const std::string noun = std::string(landmark_noun(first.landmark_kind));
+    CHECK(first.name.size() > noun.size() + 1u);
+    CHECK(first.name.rfind(' ' + noun) == first.name.size() - noun.size() - 1u);
 }
 
 TEST_CASE("distinct exit_cell coordinates change the deterministic name input") {
@@ -337,7 +344,8 @@ TEST_CASE("distinct exit_cell coordinates change the deterministic name input") 
     // independently reconstructable name for its selected exit_cell.
     const Map corridor = make_map("NAM-MAP 1\nwidth 5\nheight 1\nspawn 0 0\n---\n.....\n");
     const LevelObjective objective = create_level_objective(corridor);
-    CHECK(objective.name == expected_name(corridor, corridor.spawn(), objective.landmark));
+    CHECK(objective.name ==
+          expected_name(corridor, corridor.spawn(), objective.landmark, objective.landmark_kind));
 }
 
 TEST_CASE("the landmark lies on the deterministic route to the exit") {
@@ -520,5 +528,109 @@ TEST_CASE("seeds spread the exit across every authored corner of a tier") {
             CHECK(level.exit_zone.contains(world.exit_cell));
         }
         CHECK(corners.size() == exit_corner_count);
+    }
+}
+
+// --- Landmark identity -------------------------------------------------------
+
+TEST_CASE("a landmark always is what the terrain under it says it is") {
+    // The name and the map can never disagree, because the kind is derived from
+    // the terrain the landmark stands on rather than chosen independently of it.
+    for (const LevelTier tier : {LevelTier::small, LevelTier::medium, LevelTier::large,
+                                 LevelTier::x_large}) {
+        for (std::uint64_t seed = 1; seed <= 40u; ++seed) {
+            const WorldGenerationResult result = generate_level(tier, seed);
+            REQUIRE(std::holds_alternative<GeneratedWorld>(result));
+            const GeneratedWorld& world = std::get<GeneratedWorld>(result);
+            const GameState state(world.map);
+            const LevelObjective& objective = state.objective();
+            const Terrain under = world.map.terrain_at(objective.landmark);
+
+            CHECK(is_walkable(under));
+            CHECK(objective.landmark_kind == landmark_kind_of(under));
+            CHECK(terrain_of(objective.landmark_kind) == under);
+            // The kind's noun ends the name, so reading the name is enough to know
+            // what terrain to look for.
+            const std::string noun = std::string(landmark_noun(objective.landmark_kind));
+            CHECK(objective.name.size() > noun.size() + 1u);
+            CHECK(objective.name.rfind(' ' + noun) == objective.name.size() - noun.size() - 1u);
+        }
+    }
+}
+
+TEST_CASE("seeds offer every landmark identity across a tier") {
+    // Variety is the point of the kinds: a tier that always produced the same
+    // identity would be the old single-landmark design wearing a new name.
+    std::set<std::string> kinds;
+    std::set<std::string> names;
+    for (std::uint64_t seed = 1; seed <= 120u; ++seed) {
+        const WorldGenerationResult result = generate_level(LevelTier::small, seed);
+        REQUIRE(std::holds_alternative<GeneratedWorld>(result));
+        const GeneratedWorld& world = std::get<GeneratedWorld>(result);
+        const GameState state(world.map);
+        kinds.insert(std::string(to_string(state.objective().landmark_kind)));
+        names.insert(state.objective().name);
+    }
+    CHECK(kinds.size() == landmark_kind_count);
+    // Names are near-unique too, so two seeds rarely read as the same place.
+    CHECK(names.size() > 100u);
+}
+
+TEST_CASE("a landmark on uniform terrain never leaves the route midpoint") {
+    // Nothing to vary means nothing to pay for: an identity nudge exists to change
+    // what the landmark is, so on a single-terrain level it must not happen.
+    const Map corridor = make_map("NAM-MAP 1\nwidth 9\nheight 1\nspawn 0 0\n---\n.........\n");
+    const LevelObjective objective = create_level_objective(corridor);
+    const std::vector<Coordinates> path = shortest_path(corridor, corridor.spawn(),
+                                                        objective.exit_cell);
+    REQUIRE(path.size() > 2u);
+    CHECK(objective.landmark == path[path.size() / 2u]);
+    CHECK(objective.landmark_kind == LandmarkKind::waystone);
+}
+
+TEST_CASE("a landmark identity is bought with the smallest detour available") {
+    // Two hills sit either side of the midpoint of an otherwise open corridor. If
+    // the seed asks for a cairn it must take the nearer hill, never the far one.
+    const Map map = make_map("NAM-MAP 1\nwidth 11\nheight 1\nspawn 0 0\n---\n....^.^....\n");
+    const LevelObjective objective = create_level_objective(map);
+    const std::vector<Coordinates> path = shortest_path(map, map.spawn(), objective.exit_cell);
+    REQUIRE(path.size() > 2u);
+    const Coordinates midpoint = path[path.size() / 2u];
+
+    const int detour = std::abs(objective.landmark.x - midpoint.x) +
+                       std::abs(objective.landmark.y - midpoint.y);
+    if (objective.landmark_kind == LandmarkKind::waystone) {
+        CHECK(detour == 0);
+    } else {
+        REQUIRE(objective.landmark_kind == LandmarkKind::ridge_cairn);
+        const int near_hill = std::abs(4 - midpoint.x) <= std::abs(6 - midpoint.x) ? 4 : 6;
+        CHECK(objective.landmark == Coordinates{near_hill, 0});
+    }
+}
+
+TEST_CASE("a nudged landmark stays reachable and is paid for in the route length") {
+    // The landmark can leave the shortest spawn-to-exit path, so the published
+    // route must be the sum of both legs through wherever it actually is.
+    for (std::uint64_t seed = 1; seed <= 30u; ++seed) {
+        const WorldGenerationResult result = generate_level(LevelTier::medium, seed);
+        REQUIRE(std::holds_alternative<GeneratedWorld>(result));
+        const GeneratedWorld& world = std::get<GeneratedWorld>(result);
+        const GameState state(world.map);
+        const LevelObjective& objective = state.objective();
+
+        const std::vector<int> distance = bfs_distances(world.map);
+        const std::size_t index =
+            static_cast<std::size_t>(objective.landmark.y) * world.map.width() +
+            static_cast<std::size_t>(objective.landmark.x);
+        REQUIRE(distance[index] >= 0);
+        CHECK_FALSE(objective.landmark == objective.exit_cell);
+
+        const std::vector<Coordinates> first =
+            shortest_path(world.map, world.map.spawn(), objective.landmark);
+        const std::vector<Coordinates> second =
+            shortest_path(world.map, objective.landmark, objective.exit_cell);
+        REQUIRE_FALSE(first.empty());
+        REQUIRE_FALSE(second.empty());
+        CHECK(objective.minimum_route_length == first.size() - 1u + second.size() - 1u);
     }
 }
