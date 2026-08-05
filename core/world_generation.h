@@ -81,6 +81,12 @@ struct GeneratedWorld {
 
     // Which authored corner the seed chose for the exit.
     ExitCorner exit_corner = ExitCorner::top_right;
+
+    // How widely the seed chose to spread this level's content. Every content slot
+    // is placed on the cell whose real detour from the direct spawn-to-exit walk
+    // comes closest to its band's target under this profile, so the profile is a
+    // faithful summary of how far the level asks the player to range.
+    DetourProfile detour_profile = DetourProfile::even;
 };
 
 // Why a seed failed to produce a world. Stable, non-localized values mirroring

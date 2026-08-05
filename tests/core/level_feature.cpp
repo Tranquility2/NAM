@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include <cstdint>
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <variant>
@@ -10,6 +11,7 @@
 #include "level_feature.h"
 #include "level_template.h"
 #include "map.h"
+#include "objective.h"
 #include "visibility.h"
 #include "terrain.h"
 #include "world_generation.h"
@@ -41,6 +43,36 @@ Map arena(std::vector<LevelFeature> features, Coordinates exit_cell) {
 const MoveAttemptedEvent& movement(const GameEvent& event) {
     REQUIRE(std::holds_alternative<MoveAttemptedEvent>(event.data));
     return std::get<MoveAttemptedEvent>(event.data);
+}
+
+// Walking length between two cells, or nullopt when no walk exists.
+[[nodiscard]] std::optional<std::int64_t> walk_length(const Map& map, Coordinates from,
+                                                      Coordinates to) {
+    const std::vector<Coordinates> path = shortest_path(map, from, to);
+    if (path.empty()) {
+        return std::nullopt;
+    }
+    return static_cast<std::int64_t>(path.size()) - 1;
+}
+
+// What visiting `cell` adds to a spawn-to-exit journey: the price the player
+// actually pays for it, and the quantity every content slot is authored against.
+[[nodiscard]] std::optional<std::int64_t> detour_of(const Map& map, Coordinates exit_cell,
+                                                    Coordinates cell) {
+    const std::optional<std::int64_t> to_cell = walk_length(map, map.spawn(), cell);
+    const std::optional<std::int64_t> to_exit = walk_length(map, cell, exit_cell);
+    const std::optional<std::int64_t> direct = walk_length(map, map.spawn(), exit_cell);
+    if (!to_cell || !to_exit || !direct) {
+        return std::nullopt;
+    }
+    return *to_cell + *to_exit - *direct;
+}
+
+// A spread of seeds wide enough to meet every profile on every tier.
+constexpr std::uint64_t kProbeSeeds = 36u;
+
+[[nodiscard]] std::uint64_t probe_seed(std::uint64_t index) {
+    return index * 0x9E3779B97F4A7C15ull + 0xFEEDull;
 }
 
 }  // namespace
@@ -203,6 +235,155 @@ TEST_CASE("content placement is deterministic for one tier and seed") {
 TEST_CASE("the feature kind identifiers are stable and non-localized") {
     CHECK(std::string(to_string(LevelFeatureKind::discovery)) == "discovery");
     CHECK(std::string(to_string(LevelFeatureKind::vantage_point)) == "vantage_point");
+}
+
+TEST_CASE("a detour band costs more the further out it is and a profile scales them together") {
+    for (const DetourProfile profile :
+         {DetourProfile::tight, DetourProfile::even, DetourProfile::sprawling}) {
+        CHECK(target_detour_moves(DetourBand::passing, profile, 100u) <
+              target_detour_moves(DetourBand::moderate, profile, 100u));
+        CHECK(target_detour_moves(DetourBand::moderate, profile, 100u) <
+              target_detour_moves(DetourBand::committed, profile, 100u));
+    }
+    for (const DetourBand band :
+         {DetourBand::passing, DetourBand::moderate, DetourBand::committed}) {
+        CHECK(target_detour_moves(band, DetourProfile::tight, 100u) <
+              target_detour_moves(band, DetourProfile::even, 100u));
+        CHECK(target_detour_moves(band, DetourProfile::even, 100u) <
+              target_detour_moves(band, DetourProfile::sprawling, 100u));
+    }
+    // A level with no journey to speak of asks nothing of the player.
+    CHECK(target_detour_moves(DetourBand::committed, DetourProfile::sprawling, 0u) == 0u);
+}
+
+TEST_CASE("the detour band identifiers are stable and non-localized") {
+    CHECK(std::string(to_string(DetourBand::passing)) == "passing");
+    CHECK(std::string(to_string(DetourBand::moderate)) == "moderate");
+    CHECK(std::string(to_string(DetourBand::committed)) == "committed");
+    CHECK(std::string(to_string(DetourProfile::tight)) == "tight");
+    CHECK(std::string(to_string(DetourProfile::even)) == "even");
+    CHECK(std::string(to_string(DetourProfile::sprawling)) == "sprawling");
+}
+
+TEST_CASE("content is placed on the cell in its zone that comes closest to its price") {
+    // The placement rule stated exactly: among every cell generation was allowed
+    // to choose, none is a better match for the slot's target than the one it
+    // chose. Asserting the rule rather than a tolerance keeps this honest on maps
+    // whose terrain simply cannot offer a cell at the asked-for distance.
+    for (const LevelTier tier : {LevelTier::small, LevelTier::medium}) {
+        for (std::uint64_t index = 0; index < kProbeSeeds; ++index) {
+            const WorldGenerationResult result = generate_level(tier, probe_seed(index));
+            REQUIRE(std::holds_alternative<GeneratedWorld>(result));
+            const GeneratedWorld& world = std::get<GeneratedWorld>(result);
+            const LevelTemplate level = template_of(tier, world.exit_corner);
+            const std::vector<LevelFeature>& placed = world.map.layout().features;
+            REQUIRE(placed.size() == level.content_slots.size());
+
+            const std::optional<std::int64_t> direct =
+                walk_length(world.map, world.map.spawn(), world.exit_cell);
+            REQUIRE(direct.has_value());
+
+            for (std::size_t slot = 0; slot < placed.size(); ++slot) {
+                const ContentSlot& authored = level.content_slots[slot];
+                const std::int64_t target = static_cast<std::int64_t>(target_detour_moves(
+                    authored.band, world.detour_profile, static_cast<std::uint64_t>(*direct)));
+
+                const std::optional<std::int64_t> chosen =
+                    detour_of(world.map, world.exit_cell, placed[slot].position);
+                REQUIRE(chosen.has_value());
+                const std::int64_t chosen_miss =
+                    *chosen > target ? (*chosen - target) : (target - *chosen);
+
+                for (int y = authored.zone.min_y; y <= authored.zone.max_y; ++y) {
+                    for (int x = authored.zone.min_x; x <= authored.zone.max_x; ++x) {
+                        const Coordinates candidate{x, y};
+                        if (!is_walkable(world.map.terrain_at(candidate))) continue;
+                        if (candidate == world.map.spawn()) continue;
+                        if (candidate == world.exit_cell) continue;
+                        if (level.entry_zone.contains(candidate)) continue;
+                        bool earlier_slot_took_it = false;
+                        for (std::size_t before = 0; before < slot; ++before) {
+                            if (placed[before].position == candidate) earlier_slot_took_it = true;
+                        }
+                        if (earlier_slot_took_it) continue;
+                        const std::optional<std::int64_t> other =
+                            detour_of(world.map, world.exit_cell, candidate);
+                        if (!other) continue;
+                        const std::int64_t miss =
+                            *other > target ? (*other - target) : (target - *other);
+                        CHECK(miss >= chosen_miss);
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("a level never asks more for the thing it hands the player on the way") {
+    // The authored ordering, checked against the price the player really pays: the
+    // first vantage point is nearly free, the second is a visible choice, and the
+    // discovery is the trip the level actually charges for.
+    for (const LevelTier tier :
+         {LevelTier::small, LevelTier::medium, LevelTier::large, LevelTier::x_large}) {
+        for (std::uint64_t index = 0; index < kProbeSeeds; ++index) {
+            const WorldGenerationResult result = generate_level(tier, probe_seed(index));
+            REQUIRE(std::holds_alternative<GeneratedWorld>(result));
+            const GeneratedWorld& world = std::get<GeneratedWorld>(result);
+            const std::vector<LevelFeature>& placed = world.map.layout().features;
+            REQUIRE(placed.size() == 3u);
+
+            const std::optional<std::int64_t> near =
+                detour_of(world.map, world.exit_cell, placed[0].position);
+            const std::optional<std::int64_t> aside =
+                detour_of(world.map, world.exit_cell, placed[1].position);
+            const std::optional<std::int64_t> away =
+                detour_of(world.map, world.exit_cell, placed[2].position);
+            REQUIRE(near.has_value());
+            REQUIRE(aside.has_value());
+            REQUIRE(away.has_value());
+
+            CHECK(*near <= *aside);
+            CHECK(*aside <= *away);
+            CHECK(*away > 0);
+        }
+    }
+}
+
+TEST_CASE("some levels keep their content close and others make the player range") {
+    // The variation this step exists to deliver. Averaged over a seed spread, a
+    // sprawling level really does cost more to see in full than a tight one, and
+    // every profile turns up often enough to be worth authoring for.
+    for (const LevelTier tier : {LevelTier::small, LevelTier::large}) {
+        std::int64_t totals[3] = {0, 0, 0};
+        std::int64_t counts[3] = {0, 0, 0};
+        for (std::uint64_t index = 0; index < kProbeSeeds * 4u; ++index) {
+            const WorldGenerationResult result = generate_level(tier, probe_seed(index));
+            REQUIRE(std::holds_alternative<GeneratedWorld>(result));
+            const GeneratedWorld& world = std::get<GeneratedWorld>(result);
+            const std::optional<std::int64_t> away =
+                detour_of(world.map, world.exit_cell, world.map.layout().features[2].position);
+            REQUIRE(away.has_value());
+            const std::size_t bucket = static_cast<std::size_t>(world.detour_profile);
+            totals[bucket] += *away;
+            ++counts[bucket];
+        }
+        for (const std::int64_t count : counts) {
+            CHECK(count > 0);
+        }
+        CHECK(totals[0] * counts[1] < totals[1] * counts[0]);
+        CHECK(totals[1] * counts[2] < totals[2] * counts[1]);
+    }
+}
+
+TEST_CASE("the same seed always spreads its content the same way") {
+    for (const LevelTier tier : {LevelTier::small, LevelTier::x_large}) {
+        const WorldGenerationResult first = generate_level(tier, 0xC0FFEEull);
+        const WorldGenerationResult second = generate_level(tier, 0xC0FFEEull);
+        REQUIRE(std::holds_alternative<GeneratedWorld>(first));
+        REQUIRE(std::holds_alternative<GeneratedWorld>(second));
+        CHECK(std::get<GeneratedWorld>(first).detour_profile ==
+              std::get<GeneratedWorld>(second).detour_profile);
+    }
 }
 
 }  // TEST_SUITE("level_feature")

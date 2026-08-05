@@ -85,14 +85,99 @@ struct BranchSpur {
     int length = 0;
 };
 
+// How much a slot's content is meant to cost the player, expressed as the share
+// of the direct spawn-to-exit walk that visiting it *adds* to the journey.
+//
+// Detour cost is the only thing that is actually expensive here. A generated
+// level is open ground: every terrain except deep water and cliff can be walked,
+// and the grown blobs never enclose anything, so the shortest walk from spawn to
+// exit is the straight-line distance and no arrangement of terrain can lengthen
+// it. What a level can charge for is distance off that line. Authoring content by
+// detour therefore states the real price directly, instead of inferring it from a
+// route the player has no reason to follow.
+enum class DetourBand {
+    // Nearly free. The player passes this on the way and pays a move or two.
+    passing,
+    // A real judgement call: worth a visible pause, never a commitment.
+    moderate,
+    // The level's deliberate side trip, priced to be felt.
+    committed,
+};
+
+inline constexpr std::uint32_t detour_band_count = 3u;
+
+// A stable, non-localized identifier.
+[[nodiscard]] constexpr std::string_view to_string(DetourBand band) noexcept {
+    switch (band) {
+        case DetourBand::passing:   return "passing";
+        case DetourBand::moderate:  return "moderate";
+        case DetourBand::committed: return "committed";
+    }
+    return "passing";
+}
+
+// The band's share of the direct walk, in parts per thousand.
+[[nodiscard]] constexpr std::uint32_t detour_permille_of(DetourBand band) noexcept {
+    switch (band) {
+        case DetourBand::passing:   return 100u;
+        case DetourBand::moderate:  return 400u;
+        case DetourBand::committed: return 700u;
+    }
+    return 100u;
+}
+
+// How widely a single level spreads its content. The profile is seeded per level
+// and scales every band at once, so one seed yields a compact level whose content
+// clusters near the direct walk and another yields a sprawling one that asks the
+// player to range. This is the level-to-level variation in side routes: the
+// ordering of the bands never changes, only how much each of them costs.
+enum class DetourProfile {
+    tight,
+    even,
+    sprawling,
+};
+
+inline constexpr std::uint32_t detour_profile_count = 3u;
+
+// A stable, non-localized identifier.
+[[nodiscard]] constexpr std::string_view to_string(DetourProfile profile) noexcept {
+    switch (profile) {
+        case DetourProfile::tight:     return "tight";
+        case DetourProfile::even:      return "even";
+        case DetourProfile::sprawling: return "sprawling";
+    }
+    return "even";
+}
+
+// The profile's scaling of every band, in parts per thousand.
+[[nodiscard]] constexpr std::uint32_t detour_scale_permille_of(DetourProfile profile) noexcept {
+    switch (profile) {
+        case DetourProfile::tight:     return 600u;
+        case DetourProfile::even:      return 1000u;
+        case DetourProfile::sprawling: return 1400u;
+    }
+    return 1000u;
+}
+
+// The extra moves a slot in `band` should cost on a level whose direct walk is
+// `direct_distance` moves long. Rounded to nearest, and computed entirely in
+// integers so the target is identical on every platform.
+[[nodiscard]] constexpr std::uint64_t target_detour_moves(DetourBand band, DetourProfile profile,
+                                                          std::uint64_t direct_distance) noexcept {
+    const std::uint64_t scaled = direct_distance * detour_permille_of(band) *
+                                 detour_scale_permille_of(profile);
+    return (scaled + 500000u) / 1000000u;
+}
+
 // One reserved place for authored content. `zone` bounds the eligible cells and
-// `on_route` records whether the slot deliberately sits on the main route, which
-// is what distinguishes a vantage point the player passes anyway from a discovery
-// that rewards leaving the route.
+// `band` states what visiting it should cost. Generation picks the cell inside
+// the zone whose real detour comes closest to the band's target, so the zone
+// controls *where* on the map the content sits and the band controls *how far
+// out of the player's way* it is.
 struct ContentSlot {
     ZoneRect zone{};
     LevelFeatureKind kind = LevelFeatureKind::discovery;
-    bool on_route = false;
+    DetourBand band = DetourBand::passing;
 };
 
 // Everything a tier fixes about a level's shape.
@@ -121,10 +206,12 @@ struct LevelTemplate {
 // back toward the exit corner. That produces a long, readable circuit whose two
 // ends are far apart, so the direct line between them is never the route.
 //
-// Content follows the same mirroring: one vantage point sits on the first corridor
-// and another on the flank, while the discovery sits in the quadrant the route
-// never crosses, which is the exit's horizontal side and the opposite vertical
-// side.
+// The circuit shapes the level: it is the strip kept clear of terrain, which is
+// what makes every level solvable by construction. It is *not* what content is
+// priced against. Content sits in three zones chosen for where they lie relative
+// to the direct spawn-to-exit walk -- the quadrant the walk crosses, the flank
+// beside it, and the half of the map it never enters -- and each zone carries the
+// detour band that says what visiting it should cost.
 [[nodiscard]] LevelTemplate template_of(LevelTier tier, ExitCorner corner);
 
 // The ordered cells of the main route for one seeded exit: the spawn, every

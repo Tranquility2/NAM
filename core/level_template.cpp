@@ -1,5 +1,7 @@
 #include "level_template.h"
 
+#include <algorithm>
+
 #include "direction.h"
 
 namespace {
@@ -68,24 +70,28 @@ LevelTemplate template_of(LevelTier tier, ExitCorner corner) {
         BranchSpur{Coordinates{flank_x, spawn.y}, flank_spur, 3},
         BranchSpur{Coordinates{spur_x, approach_y}, approach_spur, 1},
     };
-    // Two vantage points sit on the main route -- one on the first corridor and one
-    // on the flank -- so the player is shown what a wide reveal does early and can
-    // then judge whether the next one is worth the detour. The discovery sits in
-    // the quadrant the route never crosses -- the exit's horizontal side, the
-    // opposite vertical side -- so finding it always costs a deliberate detour.
-    const ZoneRect early_vantage_zone = exit_right
-                                            ? ZoneRect{spawn.x - 6, first_y, spawn.x - 4, first_y}
-                                            : ZoneRect{spawn.x + 4, first_y, spawn.x + 6, first_y};
-    const int discovery_min_x = exit_right ? (spawn.x + 2) : 2;
-    const int discovery_max_x = exit_right ? (max_x - 1) : (spawn.x - 2);
-    const int discovery_min_y = exit_top ? (spawn.y + 2) : 1;
-    const int discovery_max_y = exit_top ? max_y : (spawn.y - 2);
+    // Content is priced by how far off the direct spawn-to-exit walk it sits, and
+    // each zone is placed so that its band's target is actually reachable inside
+    // it. The first vantage point sits in the quadrant the direct walk crosses,
+    // near the spawn, so the player is shown what a wide reveal does before it has
+    // cost anything. The second sits on the flank beside that walk, where stepping
+    // aside is a visible but bounded price. The discovery sits in the half of the
+    // map the direct walk never enters, so finding it is always a deliberate trip.
+    //
+    // Every zone spans a wide range of detours rather than a handful of cells,
+    // which is what lets the seeded profile move the content in or out. A zone
+    // pinned to three cells would fix its price no matter what the profile said.
+    const int mid_x = exit_right ? ((spawn.x + max_x) / 2) : ((spawn.x + 1) / 2);
+    const int mid_y = exit_top ? ((spawn.y + 1) / 2) : ((spawn.y + max_y) / 2);
+    const ZoneRect near_zone{std::min(spawn.x - 3, mid_x), std::min(spawn.y - 3, mid_y),
+                             std::max(spawn.x + 3, mid_x), std::max(spawn.y + 3, mid_y)};
+    const ZoneRect flank_zone{exit_right ? 1 : spawn.x, exit_top ? 1 : spawn.y,
+                              exit_right ? spawn.x : max_x, exit_top ? spawn.y : max_y};
+    const ZoneRect far_zone{1, exit_top ? spawn.y : 1, max_x, exit_top ? max_y : spawn.y};
     level.content_slots = {
-        ContentSlot{early_vantage_zone, LevelFeatureKind::vantage_point, true},
-        ContentSlot{ZoneRect{flank_x, spawn.y - 1, flank_x, spawn.y + 1},
-                    LevelFeatureKind::vantage_point, true},
-        ContentSlot{ZoneRect{discovery_min_x, discovery_min_y, discovery_max_x, discovery_max_y},
-                    LevelFeatureKind::discovery, false},
+        ContentSlot{near_zone, LevelFeatureKind::vantage_point, DetourBand::passing},
+        ContentSlot{flank_zone, LevelFeatureKind::vantage_point, DetourBand::moderate},
+        ContentSlot{far_zone, LevelFeatureKind::discovery, DetourBand::committed},
     };
     return level;
 }

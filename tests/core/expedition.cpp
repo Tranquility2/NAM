@@ -67,12 +67,6 @@ bool sweep_level(GameState& state) {
 
 constexpr std::uint64_t kSeed = 0x0F4289EAF4A1813Cull;
 
-// A seed whose small level cannot be uncovered simply by visiting its discoveries:
-// collecting everything on the way past leaves roughly a quarter of the level
-// unseen. kSeed's own level is too compact to separate the two behaviours, and the
-// whole point of the case below is that they are separable.
-constexpr std::uint64_t kSparseDiscoverySeed = 0x0F4289EAF4A1813Dull;
-
 }  // namespace
 
 TEST_SUITE("expedition") {
@@ -184,15 +178,26 @@ TEST_CASE("sweeping a level earns the bonus that doubles the next level's discov
 }
 
 TEST_CASE("collecting every discovery without uncovering the level earns nothing") {
-    // The bonus is named for looking around, so finding the level's single
-    // discovery on the way past is not enough to earn it.
-    Expedition expedition(kSparseDiscoverySeed);
-    REQUIRE(finish_level_collecting_everything(expedition.state()));
-    REQUIRE(expedition.state().discoveries_found() == expedition.state().discovery_total());
+    // The bonus is named for looking around, so walking to the level's discovery
+    // and on to the exit must not be enough to earn it. Which seeds leave enough
+    // ground unseen depends on where generation puts the discovery, so rather than
+    // pin one seed and re-pin it whenever placement changes, this scans a small
+    // band, requires that collecting everything really does leave some levels well
+    // short, and checks that none of those short runs earned the bonus.
+    std::size_t short_runs = 0;
+    for (std::uint64_t offset = 0; offset < 16u; ++offset) {
+        Expedition expedition(kSeed + offset);
+        REQUIRE(finish_level_collecting_everything(expedition.state()));
+        REQUIRE(expedition.state().discoveries_found() == expedition.state().discovery_total());
+        REQUIRE(expedition.complete_level(LevelPerformance{}) == LevelTransition::advanced);
 
-    REQUIRE(expedition.complete_level(LevelPerformance{}) == LevelTransition::advanced);
-    CHECK(expedition.summaries()[0].score.explored_percent < keen_eye_explored_percent);
-    CHECK(expedition.summaries()[0].earned_bonus == ExpeditionBonus::none);
+        const LevelSummary& summary = expedition.summaries()[0];
+        if (summary.score.explored_percent < keen_eye_explored_percent) {
+            ++short_runs;
+            CHECK(summary.earned_bonus == ExpeditionBonus::none);
+        }
+    }
+    CHECK(short_runs > 0u);
 }
 
 TEST_CASE("missing a discovery loses the carried bonus") {

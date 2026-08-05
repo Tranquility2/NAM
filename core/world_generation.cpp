@@ -513,6 +513,51 @@ struct RouteLayout {
     return reached;
 }
 
+// Walking distance in moves from `origin` to every cell, or -1 where no cardinal
+// walk exists. The search is a breadth-first sweep over a row-major queue, which
+// keeps it iterative and its result independent of platform and container order.
+[[nodiscard]] std::vector<int> walk_distances(const GenerationProfile& profile,
+                                              const std::vector<Terrain>& cells,
+                                              Coordinates origin) {
+    const std::size_t total_cells = profile.width * profile.height;
+    std::vector<int> distance(total_cells, -1);
+    std::vector<std::size_t> frontier;
+    frontier.reserve(total_cells);
+
+    const std::size_t start = cell_index(profile, static_cast<std::size_t>(origin.x),
+                                         static_cast<std::size_t>(origin.y));
+    distance[start] = 0;
+    frontier.push_back(start);
+
+    for (std::size_t head = 0; head < frontier.size(); ++head) {
+        const std::size_t current = frontier[head];
+        const std::size_t x = current % profile.width;
+        const std::size_t y = current / profile.width;
+
+        auto consider = [&](std::size_t nx, std::size_t ny) {
+            const std::size_t neighbour = cell_index(profile, nx, ny);
+            if (distance[neighbour] < 0 && is_walkable(cells[neighbour])) {
+                distance[neighbour] = distance[current] + 1;
+                frontier.push_back(neighbour);
+            }
+        };
+        if (x > 0u) {
+            consider(x - 1u, y);
+        }
+        if (x + 1u < profile.width) {
+            consider(x + 1u, y);
+        }
+        if (y > 0u) {
+            consider(x, y - 1u);
+        }
+        if (y + 1u < profile.height) {
+            consider(x, y + 1u);
+        }
+    }
+
+    return distance;
+}
+
 // Sizes of the cardinal-connected interior components whose cells satisfy `match`.
 // The search is iterative and restricted to interior cells so an interior barrier
 // ridge touching the boundary cliff is never merged with it. Row-major visited and
@@ -788,14 +833,37 @@ std::uint64_t hash_seed_text(std::string_view text) noexcept {
 // placement is platform-independent and no two features share a cell. One bounded
 // draw per slot selects the cell. Returns nothing when a slot has no candidate,
 // which fails the whole candidate and retries with fresh terrain.
+// Place one feature per content slot on the cell whose real detour comes closest
+// to the slot's band under this level's seeded profile.
+//
+// The detour of a cell is what visiting it adds to the journey:
+// `d(spawn, cell) + d(cell, exit) - d(spawn, exit)`. That is the only honest price
+// of a piece of content on open ground, so it is what placement aims at, rather
+// than picking uniformly inside the zone and letting the cost fall where it may.
+// Where several cells tie at the same distance from the target, the seed breaks
+// the tie, which keeps identical prices from collapsing onto one fixed cell.
 [[nodiscard]] std::optional<std::vector<LevelFeature>> place_content(
     const GenerationProfile& profile, const LevelTemplate& level, const RouteLayout& layout,
-    Pcg32& engine, const std::vector<Terrain>& cells) {
+    DetourProfile detour_profile, Pcg32& engine, const std::vector<Terrain>& cells) {
     std::vector<LevelFeature> features;
     features.reserve(level.content_slots.size());
 
+    const std::vector<int> from_spawn = walk_distances(profile, cells, profile.spawn);
+    const std::vector<int> from_exit = walk_distances(profile, cells, layout.exit_cell);
+    const std::size_t exit_index = cell_index(profile,
+                                              static_cast<std::size_t>(layout.exit_cell.x),
+                                              static_cast<std::size_t>(layout.exit_cell.y));
+    const int direct = from_spawn[exit_index];
+    if (direct < 0) {
+        return std::nullopt;
+    }
+
     for (const ContentSlot& slot : level.content_slots) {
+        const std::int64_t target = static_cast<std::int64_t>(
+            target_detour_moves(slot.band, detour_profile, static_cast<std::uint64_t>(direct)));
+
         std::vector<Coordinates> candidates;
+        std::int64_t best_miss = 0;
         for (int y = slot.zone.min_y; y <= slot.zone.max_y; ++y) {
             for (int x = slot.zone.min_x; x <= slot.zone.max_x; ++x) {
                 const std::size_t ux = static_cast<std::size_t>(x);
@@ -803,11 +871,21 @@ std::uint64_t hash_seed_text(std::string_view text) noexcept {
                 if (!is_interior(profile, ux, uy)) {
                     continue;
                 }
-                if (!is_walkable(cells[cell_index(profile, ux, uy)])) {
+                const std::size_t index = cell_index(profile, ux, uy);
+                if (!is_walkable(cells[index])) {
                     continue;
                 }
                 const Coordinates position{x, y};
                 if (position == profile.spawn || position == layout.exit_cell) {
+                    continue;
+                }
+                // The protected entry square is the player's first look at the
+                // map; content sitting in it would be found before the level has
+                // asked anything of them.
+                if (level.entry_zone.contains(position)) {
+                    continue;
+                }
+                if (from_spawn[index] < 0 || from_exit[index] < 0) {
                     continue;
                 }
                 bool taken = false;
@@ -816,7 +894,19 @@ std::uint64_t hash_seed_text(std::string_view text) noexcept {
                         taken = true;
                     }
                 }
-                if (!taken) {
+                if (taken) {
+                    continue;
+                }
+
+                const std::int64_t detour =
+                    static_cast<std::int64_t>(from_spawn[index]) +
+                    static_cast<std::int64_t>(from_exit[index]) - static_cast<std::int64_t>(direct);
+                const std::int64_t miss = detour > target ? (detour - target) : (target - detour);
+                if (candidates.empty() || miss < best_miss) {
+                    best_miss = miss;
+                    candidates.clear();
+                    candidates.push_back(position);
+                } else if (miss == best_miss) {
                     candidates.push_back(position);
                 }
             }
@@ -845,6 +935,11 @@ WorldGenerationResult generate_level(LevelTier tier, std::uint64_t numeric_seed)
         // candidate can land the exit somewhere else entirely.
         const ExitCorner corner =
             static_cast<ExitCorner>(engine.next_bounded(exit_corner_count));
+        // How widely this candidate spreads its content is drawn next, before any
+        // terrain, so a rejected candidate can range differently as well as exit
+        // elsewhere.
+        const DetourProfile detour_profile =
+            static_cast<DetourProfile>(engine.next_bounded(detour_profile_count));
         const LevelTemplate level = template_of(tier, corner);
         const RouteLayout layout = draw_route(profile, level, engine);
         if (!grow_candidate(profile, layout.reserved, engine, cells) ||
@@ -852,7 +947,7 @@ WorldGenerationResult generate_level(LevelTier tier, std::uint64_t numeric_seed)
             continue;
         }
         std::optional<std::vector<LevelFeature>> features =
-            place_content(profile, level, layout, engine, cells);
+            place_content(profile, level, layout, detour_profile, engine, cells);
         if (!features) {
             continue;
         }
@@ -862,7 +957,7 @@ WorldGenerationResult generate_level(LevelTier tier, std::uint64_t numeric_seed)
         map_layout.features = std::move(*features);
         Map map(profile.width, profile.height, cells, profile.spawn, std::move(map_layout));
         return GeneratedWorld{std::move(map), numeric_seed, attempt, tier, layout.exit_cell,
-                              corner};
+                              corner,         detour_profile};
     }
 
     return WorldGenerationError{WorldGenerationErrorCode::candidate_limit_exhausted, numeric_seed};
