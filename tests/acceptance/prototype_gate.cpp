@@ -129,16 +129,19 @@ constexpr std::size_t kSightSeedCount = 8;
     return count_explored_reachable_walkable_cells(state.map(), state.visibility());
 }
 
-// Walk one step in the first direction that succeeds, cycling through the four so
-// a wander covers ground instead of pacing. Returns the event so the caller can
-// read whether the step landed and whether it fired a wide reveal.
+// Walk one step, holding the current heading until something refuses it and only
+// then turning. Holding the heading matters: rotating on every step instead paces
+// a two-by-two square forever, covering no ground and never meeting a wall, which
+// is exactly the wander that would make the sweeps below assert nothing. Returns
+// the event so the caller can read whether the step landed and whether it fired a
+// wide reveal.
 [[nodiscard]] GameEvent step_around(GameState& state, std::size_t& rotation) {
     constexpr std::array<Direction, 4> order{Direction::right, Direction::down, Direction::left,
                                              Direction::up};
     for (std::size_t i = 0; i < order.size(); ++i) {
         const Direction direction = order[(rotation + i) % order.size()];
         if (state.peek(direction).result == MoveResult::moved) {
-            rotation = (rotation + i + 1u) % order.size();
+            rotation = (rotation + i) % order.size();
             return state.move(direction);
         }
     }
