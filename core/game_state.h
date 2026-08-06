@@ -68,6 +68,16 @@ public:
     // The authored content on a cell, if any. Cells carry at most one feature.
     [[nodiscard]] std::optional<LevelFeatureKind> feature_at(Coordinates position) const;
 
+    // The terrain set-piece this level laid across the way, if it has one.
+    // Handcrafted and parsed maps have none.
+    [[nodiscard]] const std::optional<SetPieceRegion>& set_piece() const noexcept {
+        return map_.layout().set_piece;
+    }
+
+    // True once the actor has stood inside the set-piece. It is reported on the
+    // move that first entered it and is then inert, like the authored content.
+    [[nodiscard]] bool set_piece_crossed() const noexcept { return set_piece_crossed_; }
+
     // How many distinct discoveries the actor has entered. Vantage points are
     // stateless one-off reveals, so only discoveries are counted.
     [[nodiscard]] std::uint32_t discoveries_found() const noexcept { return discoveries_found_; }
@@ -105,6 +115,9 @@ private:
     // core's feature state. peek() never reads it, which is what keeps peek() a
     // pure function of position.
     std::vector<bool> feature_resolved_;
+    // True once the actor has stood in the set-piece band. Like a feature, the
+    // crossing is reported once and is then inert.
+    bool set_piece_crossed_ = false;
     std::uint32_t discoveries_found_ = 0;
     std::uint32_t discovery_total_ = 0;
 };

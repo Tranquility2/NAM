@@ -3,9 +3,12 @@
 #include <cstdint>
 #include <variant>
 
+#include <optional>
+
 #include "direction.h"
 #include "move_outcome.h"
 #include "objective.h"
+#include "set_piece.h"
 #include "terrain.h"
 
 // Frontend-neutral, ordered events emitted by the core as commands are
@@ -38,12 +41,18 @@
 // level's named landmark fires one of `landmark_reveal_radius`. Carrying the
 // radius rather than a flag lets a frontend, and the acceptance gate, say exactly
 // how far the level opened up without re-deriving which cells changed.
+//
+// `set_piece_crossed` holds the level's terrain set-piece on the one move that
+// first stepped into it, and nothing on every other move. Any route to the exit
+// crosses the band, so this fires exactly once per level, which is what makes it
+// the level's guaranteed notable moment.
 struct MoveAttemptedEvent {
     Direction direction{};
     MoveOutcome outcome{};
     ObjectiveUpdate objective_update{};
     bool discovery_recorded = false;
     int wide_reveal_radius = 0;
+    std::optional<SetPieceKind> set_piece_crossed = std::nullopt;
 
     // Whether this move opened the level up at all.
     [[nodiscard]] constexpr bool granted_wide_reveal() const noexcept {

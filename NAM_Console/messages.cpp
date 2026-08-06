@@ -79,6 +79,20 @@ std::string describe_vantage_reached(VantageKind kind) {
     return "Reached a vantage point; the surrounding land came into view.";
 }
 
+std::string describe_set_piece_crossed(SetPieceKind kind) {
+    switch (kind) {
+        case SetPieceKind::ford:
+            return "Stepped into the stream; the crossing is shallow here.";
+        case SetPieceKind::ridge:
+            return "Started up the ridge that runs across the level.";
+        case SetPieceKind::lakeshore:
+            return "Waded into the lake; the far shore is a few steps off.";
+        case SetPieceKind::high_pass:
+            return "Entered the high pass through the mountains.";
+    }
+    return "Reached the crossing that runs across the level.";
+}
+
 std::string describe_map_error(const MapLoadError& error) {
     std::string text = "Could not load map";
     if (!error.source.empty()) {

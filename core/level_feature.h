@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "coordinates.h"
+#include "set_piece.h"
 
 // Authored level content that is semantic state rather than terrain. A level
 // template reserves slots for content; a seed places the exact cells; the core
@@ -42,9 +43,11 @@ struct LevelFeature {
 };
 
 // The authored overlay a level template placed on a map: an exit the template
-// chose and the content it seeded. Handcrafted and parsed maps carry an empty
-// layout, so the objective derives an exit and no content applies.
+// chose, the content it seeded, and the terrain set-piece it laid across the way.
+// Handcrafted and parsed maps carry an empty layout, so the objective derives an
+// exit, no content applies, and there is no crossing to meet.
 struct LevelLayout {
     std::optional<Coordinates> exit;
     std::vector<LevelFeature> features;
+    std::optional<SetPieceRegion> set_piece;
 };

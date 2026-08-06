@@ -66,6 +66,7 @@ GameEvent GameState::move(Direction direction) {
     ObjectiveTransition objective_transition = ObjectiveTransition::none;
     bool discovery_recorded = false;
     int wide_reveal = 0;
+    std::optional<SetPieceKind> set_piece_crossed;
 
     if (outcome.result == MoveResult::moved) {
         actor_position_ = outcome.to;
@@ -109,6 +110,15 @@ GameEvent GameState::move(Direction direction) {
             }
         }
 
+        // The set-piece is a place, not a cell: standing anywhere in the band is
+        // crossing it. Reported once, on the move that first entered it, so a
+        // frontend logs the crossing rather than every step through the water.
+        const std::optional<SetPieceRegion>& band = map_.layout().set_piece;
+        if (band && !set_piece_crossed_ && band->is_crossing(actor_position_)) {
+            set_piece_crossed_ = true;
+            set_piece_crossed = band->kind;
+        }
+
         // A wide reveal is applied last, over the terrain square already revealed.
         // reveal_square demotes what it does not cover, and every wide radius
         // exceeds the terrain radius of the ground granting it, so the second call
@@ -123,7 +133,7 @@ GameEvent GameState::move(Direction direction) {
     event.data = MoveAttemptedEvent{direction, outcome,
                                     ObjectiveUpdate{objective_before, objective_.status,
                                                     objective_transition},
-                                    discovery_recorded, wide_reveal};
+                                    discovery_recorded, wide_reveal, set_piece_crossed};
     ++next_event_sequence_;
     return event;
 }

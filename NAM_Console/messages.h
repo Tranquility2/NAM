@@ -9,6 +9,7 @@
 #include "game_event.h"
 #include "map_parser.h"
 #include "move_outcome.h"
+#include "set_piece.h"
 #include "vantage.h"
 #include "objective.h"
 #include "terrain.h"
@@ -43,6 +44,11 @@ namespace nam::console {
 // replaces the ordinary move wording for that command, because the wide reveal is
 // the thing that happened.
 [[nodiscard]] std::string describe_vantage_reached(VantageKind kind);
+
+// The latest-event message shown on the move that first steps into the level's
+// terrain set-piece. Every route crosses it, so this is the one moment of the
+// level the player is certain to be told about.
+[[nodiscard]] std::string describe_set_piece_crossed(SetPieceKind kind);
 
 // A user-facing explanation of why a map failed to load, including the source
 // and line/column when the parser reported them.

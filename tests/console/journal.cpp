@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <variant>
@@ -12,6 +13,7 @@
 #include "move_outcome.h"
 #include "visibility.h"
 #include "objective.h"
+#include "set_piece.h"
 #include "terrain.h"
 
 using namespace nam::console;
@@ -42,6 +44,14 @@ GameEvent vantage_event(std::uint64_t sequence, Direction direction,
     GameEvent event = move_event(sequence, direction, Terrain::hill, transition);
     std::get<MoveAttemptedEvent>(event.data).wide_reveal_radius =
         vantage_reveal_radius_of(VantageKind::lookout);
+    return event;
+}
+
+// A move that first stepped into the level's terrain set-piece.
+GameEvent crossing_event(std::uint64_t sequence, Direction direction, SetPieceKind kind,
+                         ObjectiveTransition transition = ObjectiveTransition::none) {
+    GameEvent event = move_event(sequence, direction, Terrain::shallow_water, transition);
+    std::get<MoveAttemptedEvent>(event.data).set_piece_crossed = kind;
     return event;
 }
 
@@ -129,6 +139,76 @@ TEST_CASE("reaching the landmark is recorded as the larger milestone, not as a v
     // The suppressed vantage did not consume the level's one notable encounter.
     journal.record_event(vantage_event(2, Direction::right), ctx("Glass River Exit"));
     CHECK(journal.size() == 2);
+}
+
+TEST_CASE("crossing the level's set-piece is the notable encounter it guarantees") {
+    Journal journal;
+    journal.record_event(crossing_event(1, Direction::right, SetPieceKind::ford),
+                         ctx("Glass River Exit"));
+    REQUIRE(journal.size() == 1);
+    CHECK(prose_of(journal)[0].find("Forded") != std::string::npos);
+}
+
+TEST_CASE("the journal says which crossing the level made the player take") {
+    for (const SetPieceKind kind : {SetPieceKind::ford, SetPieceKind::ridge,
+                                    SetPieceKind::lakeshore, SetPieceKind::high_pass}) {
+        Journal journal;
+        journal.record_event(crossing_event(1, Direction::right, kind), ctx("Glass River Exit"));
+        REQUIRE(journal.size() == 1);
+        CHECK(prose_of(journal)[0].empty() == false);
+    }
+
+    // Four crossings, four distinct sentences: the entry is not a template with
+    // the same words in it.
+    Journal all;
+    all.record_event(crossing_event(1, Direction::right, SetPieceKind::ford), ctx("A"));
+    all.begin_level();
+    all.record_event(crossing_event(2, Direction::right, SetPieceKind::ridge), ctx("A"));
+    all.begin_level();
+    all.record_event(crossing_event(3, Direction::right, SetPieceKind::lakeshore), ctx("A"));
+    all.begin_level();
+    all.record_event(crossing_event(4, Direction::right, SetPieceKind::high_pass), ctx("A"));
+    const std::vector<std::string> prose = prose_of(all);
+    REQUIRE(prose.size() == 4u);
+    for (std::size_t i = 0; i < prose.size(); ++i) {
+        for (std::size_t j = i + 1u; j < prose.size(); ++j) {
+            CHECK(prose[i] != prose[j]);
+        }
+    }
+}
+
+TEST_CASE("a crossing and a vantage point share the level's one encounter entry") {
+    // Adding the crossing must not widen the run's entry budget, so whichever
+    // moment comes first takes the slot and the other is collapsed.
+    Journal crossing_first;
+    crossing_first.record_event(crossing_event(1, Direction::right, SetPieceKind::ford),
+                                ctx("Glass River Exit"));
+    crossing_first.record_event(vantage_event(2, Direction::right), ctx("Glass River Exit"));
+    CHECK(crossing_first.size() == 1);
+    CHECK(prose_of(crossing_first)[0].find("Forded") != std::string::npos);
+
+    Journal vantage_first;
+    JournalContext context = ctx("Glass River Exit");
+    context.vantage_kind = VantageKind::lookout;
+    vantage_first.record_event(vantage_event(1, Direction::right), context);
+    vantage_first.record_event(crossing_event(2, Direction::right, SetPieceKind::ford), context);
+    CHECK(vantage_first.size() == 1);
+    CHECK(prose_of(vantage_first)[0].find("lookout") != std::string::npos);
+
+    // The next level gets its own slot back.
+    vantage_first.begin_level();
+    vantage_first.record_event(crossing_event(3, Direction::right, SetPieceKind::ridge), context);
+    CHECK(vantage_first.size() == 2);
+}
+
+TEST_CASE("a move that both crosses and climbs is recorded as the crossing") {
+    Journal journal;
+    GameEvent both = crossing_event(1, Direction::right, SetPieceKind::high_pass);
+    std::get<MoveAttemptedEvent>(both.data).wide_reveal_radius =
+        vantage_reveal_radius_of(VantageKind::summit);
+    journal.record_event(both, ctx("Glass River Exit"));
+    REQUIRE(journal.size() == 1);
+    CHECK(prose_of(journal)[0].find("pass") != std::string::npos);
 }
 
 TEST_CASE("a new journal is empty") {

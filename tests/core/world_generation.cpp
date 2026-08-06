@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include <cstddef>
+#include <optional>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -10,6 +11,7 @@
 #include "level_template.h"
 #include "level_tier.h"
 #include "objective.h"
+#include "set_piece.h"
 #include "map.h"
 #include "terrain.h"
 #include "world_generation.h"
@@ -24,19 +26,19 @@ namespace {
 // full compatibility fixture and is re-locked whenever the recipe version changes.
 constexpr std::string_view kGlassRiverGolden =
     "#############################\n"
-    "#...........................#\n"
-    "#...........................#\n"
-    "#.......x^@^^...~~~~~.......#\n"
-    "#....xxxx^@@^~~~====~...&&&.#\n"
-    "#....xxxx^^@@^.~~~~~....&&&&#\n"
-    "#.....xxx.^@^.....xxxx.x&&&.#\n"
-    "#~.....xxx^^^.....xxxxxxxx&&#\n"
-    "#~.....xxx..........#xxxx&&&#\n"
-    "#~~..^^^^^^^^.......##xx.&..#\n"
-    "#~~..^@^@@@@^....xx.##xx....#\n"
-    "#~~..^@@@^^^^....xx....x....#\n"
-    "#~~............&.xxx.x.##...#\n"
-    "#~~~~&&&&&&&&&&&xxxxxx.####.#\n"
+    "#&&&.&&&&&&&&&&&&&&&&.......#\n"
+    "#&&.........................#\n"
+    "#&&.^^^^............^^..xx..#\n"
+    "#&&.^@@^........x...^^...xx.#\n"
+    "#&&.@@^^..~~...xx...^^...xxx#\n"
+    "#.&.@@^..~==~...x...^^.xxxxx#\n"
+    "#......^^~==~...xxx.^^....xx#\n"
+    "#....^^@@@~~~...xxx.^^......#\n"
+    "#....^@@@@~....xxx..^^xx....#\n"
+    "#...#^^^^@^....xxx..^^xx....#\n"
+    "#...####^^^....xxxxx^^xx..###\n"
+    "#..............~x~xx^^xxx.###\n"
+    "#..~~~~~~~~~~~~~~~~xxxxxxx###\n"
     "#############################";
 
 // The numeric seed FNV-1a produces for "glass-river" (REQ-005).
@@ -211,10 +213,38 @@ bool all_deep_water_enclosed(const std::vector<std::string>& rows, std::size_t w
 // re-derives the counts, components, hill relationship, and connectivity from the
 // rendered glyphs rather than reusing the generator's internal validator, so a
 // bug in one cannot mask a bug in the other.
+// The map as the generator grew it, with the set-piece band lifted back off.
+//
+// The clustered terrain contract - exact totals, blob component sizes, hills
+// against mountains, deep water in the middle of shallow - describes the terrain
+// generation *grows*. The set-piece is an authored overlay laid on afterwards,
+// like the exit and the placed content, and the band it occupies is reserved
+// against growth beforehand, so every cell it covers was plain open ground until
+// it was written. Lifting it off therefore recovers the grown map exactly, and
+// is the only honest way to keep measuring the growth contract once a level also
+// carries a crossing.
+//
+// Reachability is deliberately *not* measured this way: the player walks the real
+// map, band and all.
+std::vector<std::string> grown_rows(const Map& map, const std::vector<std::string>& rows) {
+    const std::optional<SetPieceRegion>& band = map.layout().set_piece;
+    if (!band) {
+        return rows;
+    }
+    std::vector<std::string> lifted = rows;
+    for (int y = band->min_y; y <= band->max_y; ++y) {
+        for (int x = band->min_x; x <= band->max_x; ++x) {
+            lifted[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)] = '.';
+        }
+    }
+    return lifted;
+}
+
 MapInvariants inspect(const Map& map) {
     const std::size_t width = map.width();
     const std::size_t height = map.height();
     const std::vector<std::string> rows = to_rows(map);
+    const std::vector<std::string> grown = grown_rows(map, rows);
 
     MapInvariants result;
 
@@ -244,7 +274,7 @@ MapInvariants inspect(const Map& map) {
 
     for (std::size_t y = 1; y + 1 < height; ++y) {
         for (std::size_t x = 1; x + 1 < width; ++x) {
-            switch (rows[y][x]) {
+            switch (grown[y][x]) {
                 case '~': ++result.water; break;
                 case '=': ++result.water; ++result.deep_water; break;
                 case 'x': ++result.fields; break;
@@ -257,13 +287,13 @@ MapInvariants inspect(const Map& map) {
         }
     }
 
-    result.hills_touch_mountains = all_hills_touch_mountains(rows, width, height);
-    result.deep_water_enclosed = all_deep_water_enclosed(rows, width, height);
-    result.water_components = interior_component_sizes(rows, width, height, is_water_glyph);
-    result.field_components = interior_component_sizes(rows, width, height, is_field_glyph);
-    result.forest_components = interior_component_sizes(rows, width, height, is_forest_glyph);
-    result.mountain_components = interior_component_sizes(rows, width, height, is_mountain_glyph);
-    result.barrier_components = interior_component_sizes(rows, width, height, is_barrier_glyph);
+    result.hills_touch_mountains = all_hills_touch_mountains(grown, width, height);
+    result.deep_water_enclosed = all_deep_water_enclosed(grown, width, height);
+    result.water_components = interior_component_sizes(grown, width, height, is_water_glyph);
+    result.field_components = interior_component_sizes(grown, width, height, is_field_glyph);
+    result.forest_components = interior_component_sizes(grown, width, height, is_forest_glyph);
+    result.mountain_components = interior_component_sizes(grown, width, height, is_mountain_glyph);
+    result.barrier_components = interior_component_sizes(grown, width, height, is_barrier_glyph);
 
     // Iterative flood fill from the spawn over cardinal neighbours.
     std::size_t total_walkable = 0;

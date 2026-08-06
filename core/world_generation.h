@@ -62,7 +62,14 @@ inline constexpr Coordinates tiny_world_spawn = center_spawn_of(tiny_world_tier)
 // up. Bounded feature growth, sparse barrier ridges, and the protected spawn make
 // valid candidates common, so this limit is a safety bound rather than an expected
 // code path. It is shared by every tier.
-inline constexpr std::uint32_t level_candidate_limit = 64;
+//
+// Reserving the set-piece band against terrain growth roughly doubled how many
+// candidates a Small or Medium seed grows before one meets its tier's exact
+// terrain totals: measured over 20000 seeds the average is about 4 and the worst
+// case 46. Raising the bound cannot change any output, because retries continue
+// from the engine's current state and an accepted candidate keeps the attempt
+// number it was accepted on; it only keeps the margin as wide as it was.
+inline constexpr std::uint32_t level_candidate_limit = 256;
 inline constexpr std::uint32_t tiny_world_candidate_limit = level_candidate_limit;
 
 // A successfully generated world: the map plus the deterministic metadata a

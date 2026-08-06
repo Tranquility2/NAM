@@ -25,6 +25,19 @@ struct EntryFormatter {
         }
         return "Climbed to a vantage point and the level opened up.";
     }
+    std::string operator()(const CrossingEntry& entry) const {
+        switch (entry.kind) {
+            case SetPieceKind::ford:
+                return "Forded the stream that splits the level.";
+            case SetPieceKind::ridge:
+                return "Crossed the ridge and looked down the far side.";
+            case SetPieceKind::lakeshore:
+                return "Waded the shallow lake from shore to shore.";
+            case SetPieceKind::high_pass:
+                return "Took the high pass through the mountains.";
+        }
+        return "Crossed the ground that splits the level.";
+    }
     std::string operator()(const LandmarkEntry& entry) const {
         return "Sighted " + entry.landmark_name +
                "; the land opened up and the exit direction was revealed.";
@@ -55,14 +68,20 @@ void Journal::record_event(const GameEvent& event, const JournalContext& context
             DiscoveryEntry{event.sequence, context.discoveries_found, context.discovery_total}});
     }
 
-    // A landmark grants the same wide reveal, but it is recorded below as the
-    // larger milestone rather than twice. Only the level's first vantage point
-    // becomes an entry: a level opens up once, and a sweep that climbs every one
-    // of them would otherwise flood the run's entry budget.
-    if (move->granted_wide_reveal() && !level_vantage_logged_ &&
-        move->objective_update.transition != ObjectiveTransition::landmark_discovered) {
+    // The level's one notable encounter, taken by whichever moment came first.
+    // The crossing is checked first because a move can be both: stepping into the
+    // band and onto a vantage point at once is the crossing, since that is the
+    // moment the level guaranteed.
+    //
+    // A landmark grants the same wide reveal as a vantage point, but it is
+    // recorded below as the larger milestone rather than twice.
+    if (move->set_piece_crossed && !level_encounter_logged_) {
+        entries_.push_back(JournalEntry{CrossingEntry{event.sequence, *move->set_piece_crossed}});
+        level_encounter_logged_ = true;
+    } else if (move->granted_wide_reveal() && !level_encounter_logged_ &&
+               move->objective_update.transition != ObjectiveTransition::landmark_discovered) {
         entries_.push_back(JournalEntry{VantageEntry{event.sequence, context.vantage_kind}});
-        level_vantage_logged_ = true;
+        level_encounter_logged_ = true;
     }
 
     switch (move->objective_update.transition) {
@@ -84,7 +103,7 @@ void Journal::record_initial_completion(const std::string& landmark_name) {
 }
 
 void Journal::begin_level() noexcept {
-    level_vantage_logged_ = false;
+    level_encounter_logged_ = false;
 }
 
 std::string format_entry(const JournalEntry& entry) {

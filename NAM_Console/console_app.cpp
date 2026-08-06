@@ -172,6 +172,11 @@ ObjectiveTransition ConsoleApp::apply_move(Direction direction, bool& emphasize)
         hud_.set_message(describe_vantage_reached(
             vantage_kind_of(state().map().terrain_at(state().actor_position()))));
     }
+    // The crossing outranks a vantage point for the same reason the journal gives
+    // it the level's encounter slot: it is the moment the level guaranteed.
+    if (payload.set_piece_crossed) {
+        hud_.set_message(describe_set_piece_crossed(*payload.set_piece_crossed));
+    }
     if (payload.discovery_recorded) {
         hud_.set_message(
             describe_discovery_found(state().discoveries_found(), state().discovery_total()));

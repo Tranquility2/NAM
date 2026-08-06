@@ -70,6 +70,18 @@ TEST_CASE("a move onto authored content keeps the ordinary terrain wording") {
     }
 }
 
+TEST_CASE("each crossing is announced as the place it actually is") {
+    const SetPieceKind kinds[] = {SetPieceKind::ford, SetPieceKind::ridge,
+                                  SetPieceKind::lakeshore, SetPieceKind::high_pass};
+    for (std::size_t i = 0; i < 4u; ++i) {
+        CHECK(describe_set_piece_crossed(kinds[i]).empty() == false);
+        for (std::size_t j = i + 1u; j < 4u; ++j) {
+            CHECK(describe_set_piece_crossed(kinds[i]) != describe_set_piece_crossed(kinds[j]));
+        }
+    }
+    CHECK(describe_set_piece_crossed(SetPieceKind::high_pass).find("pass") != std::string::npos);
+}
+
 TEST_CASE("move outcomes map to distinct human-readable sentences") {
     MoveOutcome moved{MoveResult::moved, {0, 0}, {1, 0}, Terrain::shallow_water};
     CHECK(describe_move(moved).find("water") != std::string::npos);

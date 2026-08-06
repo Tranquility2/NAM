@@ -7,6 +7,7 @@
 
 #include "game_event.h"
 #include "level_tier.h"
+#include "set_piece.h"
 #include "vantage.h"
 
 namespace nam::console {
@@ -28,6 +29,13 @@ namespace nam::console {
 // A full level yields about three entries, which keeps a four-tier run near its
 // budget: the notable encounter is logged once per level, so sweeping a level for
 // every vantage point on it still costs one entry.
+//
+// A level offers two things that could fill its notable-encounter slot: crossing
+// the terrain set-piece, which every route does, and climbing a vantage point,
+// which only some do. Whichever happens first takes the slot. Sharing one slot is
+// what keeps the run's entry budget exactly where it was before levels had a
+// crossing, and it means the journal reports the moment the player actually had
+// rather than always the same one.
 
 // An optional find the actor entered for the first time. `ordinal` is its place
 // in the level's discovery order, so an entry reads as progress rather than as a
@@ -46,6 +54,15 @@ struct DiscoveryEntry {
 struct VantageEntry {
     std::uint64_t sequence = 0;
     VantageKind kind = VantageKind::cairn;
+};
+
+// The move that first stepped into the level's terrain set-piece. Every route to
+// the exit crosses the band, so this moment is one the level guarantees, which is
+// why it can stand as the level's notable encounter when no vantage point was
+// climbed first.
+struct CrossingEntry {
+    std::uint64_t sequence = 0;
+    SetPieceKind kind = SetPieceKind::ford;
 };
 
 // The move that first entered the landmark cell, revealing the exit bearing and a
@@ -77,7 +94,7 @@ struct InitialCompletionEntry {
 // The payload of one journal entry. A variant so distinct entry kinds keep their
 // own typed fields and prose is rendered through one total visitor (GUD-002).
 using JournalEntryData =
-    std::variant<DiscoveryEntry, VantageEntry, LandmarkEntry, CompletionEntry,
+    std::variant<DiscoveryEntry, VantageEntry, CrossingEntry, LandmarkEntry, CompletionEntry,
                  InitialCompletionEntry>;
 
 // One journal entry: a structured payload with no rendered text of its own.
@@ -128,11 +145,12 @@ public:
 
 private:
     std::vector<JournalEntry> entries_;
-    // A level opens up once. Later vantage points repeat a moment the player has
-    // already had, so they are collapsed by design rather than truncated away:
-    // a thorough sweep steps on several and would otherwise spend the whole
-    // twelve-entry run budget on them.
-    bool level_vantage_logged_ = false;
+    // A level has one notable encounter. Later vantage points repeat a moment the
+    // player has already had, so they are collapsed by design rather than
+    // truncated away: a thorough sweep steps on several and would otherwise spend
+    // the whole twelve-entry run budget on them. The set-piece crossing shares the
+    // same slot, so adding it cost the budget nothing.
+    bool level_encounter_logged_ = false;
 };
 
 // Render one journal entry as concise cartographer prose without coordinates

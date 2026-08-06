@@ -1,7 +1,5 @@
 #include "world_generation.h"
 
-#include "vantage.h"
-
 #include <array>
 #include <cstddef>
 #include <optional>
@@ -10,7 +8,9 @@
 
 #include "level_template.h"
 #include "pcg32.h"
+#include "set_piece.h"
 #include "terrain.h"
+#include "vantage.h"
 
 // Generation is authored shape plus seeded content. For one tier the recipe is:
 //
@@ -372,7 +372,58 @@ struct RouteLayout {
     Coordinates exit_cell{};
     std::vector<Coordinates> route;
     std::vector<bool> reserved;
+    // Where this level's terrain set-piece will go. It is reserved alongside the
+    // route so no grown blob may enter it: the band's terrain is written after the
+    // candidate is accepted, and reserving it first is what keeps the generator's
+    // clustered terrain contract untouched by an authored overlay.
+    SetPieceRegion set_piece{};
 };
+
+// Where a level's terrain set-piece goes: a band of columns spanning the whole
+// interior height, between spawn and the exit.
+//
+// Spanning the full height is what makes the crossing a certainty rather than a
+// possibility. A route changes x by at most one per step, so getting from spawn's
+// column to the exit's column means standing in every column between them, and
+// therefore in this band. The level does not have to hope the player finds it.
+//
+// The band is held clear of both ends, so the crossing is a place on the way
+// rather than something underfoot at spawn or at the exit.
+[[nodiscard]] SetPieceRegion set_piece_region(const GenerationProfile& profile, LevelTier tier,
+                                              Coordinates exit_cell) {
+    const SetPieceKind kind = set_piece_of(tier);
+    const int depth = set_piece_depth_of(kind);
+
+    constexpr int clearance = 2;
+    const int toward_exit = exit_cell.x >= profile.spawn.x ? 1 : -1;
+    const int near_end = profile.spawn.x + toward_exit * clearance;
+    const int far_end = exit_cell.x - toward_exit * clearance;
+    const int low = near_end < far_end ? near_end : far_end;
+    const int high = near_end < far_end ? far_end : near_end;
+
+    int centre = (profile.spawn.x + exit_cell.x) / 2;
+    if (centre < low) centre = low;
+    if (centre > high) centre = high;
+
+    int min_x = centre - (depth - 1) / 2;
+    int max_x = min_x + depth - 1;
+    const int last_interior = static_cast<int>(profile.width) - 2;
+    if (min_x < 1) {
+        min_x = 1;
+        max_x = min_x + depth - 1;
+    }
+    if (max_x > last_interior) {
+        max_x = last_interior;
+        min_x = max_x - depth + 1;
+    }
+
+    // The band's terrain stops one row short of the cliff at each end so grown
+    // terrain can still flow from one side of the level to the other. Walling the
+    // full height off tripled how many candidates a seed had to grow before one
+    // met its tier's exact terrain totals, because every blob then had to fit
+    // entirely on one side. The crossing is unaffected: it is the columns.
+    return SetPieceRegion{kind, min_x, max_x, 2, static_cast<int>(profile.height) - 3};
+}
 
 // Draw the seeded parts of the authored shape. Two bounded draws place the exit
 // inside the tier's fixed exit zone, then one bounded draw per branch spur decides
@@ -380,7 +431,7 @@ struct RouteLayout {
 // contract: it runs before any terrain pass, so every later blob sees the same
 // engine state for a given seed.
 [[nodiscard]] RouteLayout draw_route(const GenerationProfile& profile, const LevelTemplate& level,
-                                     Pcg32& engine) {
+                                     LevelTier tier, Pcg32& engine) {
     RouteLayout layout;
 
     const std::uint32_t zone_width = static_cast<std::uint32_t>(level.exit_zone.width());
@@ -401,7 +452,15 @@ struct RouteLayout {
         }
     }
 
+    layout.set_piece = set_piece_region(profile, tier, layout.exit_cell);
+
     layout.reserved.assign(profile.width * profile.height, false);
+    for (int y = layout.set_piece.min_y; y <= layout.set_piece.max_y; ++y) {
+        for (int x = layout.set_piece.min_x; x <= layout.set_piece.max_x; ++x) {
+            layout.reserved[cell_index(profile, static_cast<std::size_t>(x),
+                                       static_cast<std::size_t>(y))] = true;
+        }
+    }
     for (const Coordinates cell : layout.route) {
         if (is_interior(profile, static_cast<std::size_t>(cell.x),
                         static_cast<std::size_t>(cell.y))) {
@@ -955,6 +1014,42 @@ std::uint64_t hash_seed_text(std::string_view text) noexcept {
     return features;
 }
 
+// Write the set-piece's terrain into the band that was reserved for it.
+//
+// It runs after the candidate is accepted, so acceptance still measures the
+// terrain the generator grew rather than an authored overlay laid on top, and
+// before content placement, because the band replaces open ground and so must be
+// on the map before any slot is priced against a real walking distance.
+//
+// Route cells inside the band keep their open ground. That is the crossing: the
+// ford through the river, the gap in the pass. It also preserves the acceptance
+// guarantee that the carved route survives generation as an open corridor.
+void paint_set_piece(const GenerationProfile& profile, const RouteLayout& layout,
+                     std::vector<Terrain>& cells) {
+    const SetPieceRegion& region = layout.set_piece;
+    const Terrain ground = set_piece_terrain_of(region.kind);
+    for (int y = region.min_y; y <= region.max_y; ++y) {
+        for (int x = region.min_x; x <= region.max_x; ++x) {
+            const Coordinates cell{x, y};
+            if (cell == profile.spawn || cell == layout.exit_cell) {
+                continue;
+            }
+            bool on_route = false;
+            for (const Coordinates step : layout.route) {
+                if (step == cell) {
+                    on_route = true;
+                    break;
+                }
+            }
+            if (on_route) {
+                continue;
+            }
+            cells[cell_index(profile, static_cast<std::size_t>(x), static_cast<std::size_t>(y))] =
+                ground;
+        }
+    }
+}
+
 WorldGenerationResult generate_level(LevelTier tier, std::uint64_t numeric_seed) {
     const GenerationProfile profile = profile_of(tier);
 
@@ -974,11 +1069,12 @@ WorldGenerationResult generate_level(LevelTier tier, std::uint64_t numeric_seed)
         const DetourProfile detour_profile =
             static_cast<DetourProfile>(engine.next_bounded(detour_profile_count));
         const LevelTemplate level = template_of(tier, corner);
-        const RouteLayout layout = draw_route(profile, level, engine);
+        const RouteLayout layout = draw_route(profile, level, tier, engine);
         if (!grow_candidate(profile, layout.reserved, engine, cells) ||
             !is_valid_candidate(profile, layout, cells)) {
             continue;
         }
+        paint_set_piece(profile, layout, cells);
         std::optional<std::vector<LevelFeature>> features =
             place_content(profile, level, layout, detour_profile, engine, cells);
         if (!features) {
@@ -988,6 +1084,7 @@ WorldGenerationResult generate_level(LevelTier tier, std::uint64_t numeric_seed)
         LevelLayout map_layout;
         map_layout.exit = layout.exit_cell;
         map_layout.features = std::move(*features);
+        map_layout.set_piece = layout.set_piece;
         Map map(profile.width, profile.height, cells, profile.spawn, std::move(map_layout));
         return GeneratedWorld{std::move(map), numeric_seed, attempt, tier, layout.exit_cell,
                               corner,         detour_profile};

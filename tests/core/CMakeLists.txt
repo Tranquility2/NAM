@@ -14,6 +14,7 @@ nam_add_test_executable(nam_core_tests
         objective.cpp
         level_tier.cpp
         level_feature.cpp
+        set_piece.cpp
         world_generation.cpp
         expedition.cpp
         expedition_score.cpp
