@@ -10,6 +10,7 @@ add_library(nam_core STATIC
     expedition_progress.h
     level_feature.h
     landmark.h
+    vantage.h
     level_template.h
     level_template.cpp
     move_outcome.h

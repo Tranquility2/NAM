@@ -20,6 +20,7 @@
 #include "level_feature.h"
 #include "level_tier.h"
 #include "map.h"
+#include "vantage.h"
 #include "objective.h"
 #include "pcg32.h"
 #include "terrain.h"
@@ -411,9 +412,10 @@ TEST_CASE("terrain alone decides what the actor can currently see") {
 
                 // A wide reveal is the one sanctioned exception, and it is always
                 // announced on the event that granted it.
-                const int radius = attempt.wide_reveal_granted
-                                       ? wide_reveal_radius
-                                       : visibility_radius_of(state.map().terrain_at(state.actor_position()));
+                const int radius =
+                    attempt.granted_wide_reveal()
+                        ? attempt.wide_reveal_radius
+                        : visibility_radius_of(state.map().terrain_at(state.actor_position()));
                 for (const Coordinates cell : cells) {
                     const bool visible = state.visibility().at(cell) == CellVisibility::visible;
                     CHECK(visible == within_square(state.actor_position(), cell, radius));
@@ -432,19 +434,19 @@ TEST_CASE("no ground is ever uncovered from somewhere the actor has not stood") 
 
             // Every square the actor has earned so far, as (centre, radius) pairs.
             std::vector<std::pair<Coordinates, int>> earned;
-            const auto record_stand = [&](bool wide) {
+            const auto record_stand = [&](int wide) {
                 const Coordinates here = state.actor_position();
                 earned.emplace_back(here, visibility_radius_of(state.map().terrain_at(here)));
-                if (wide) earned.emplace_back(here, wide_reveal_radius);
+                if (wide > 0) earned.emplace_back(here, wide);
             };
-            record_stand(false);
+            record_stand(0);
 
             std::size_t rotation = 0;
             for (int step = 0; step < 60; ++step) {
                 const GameEvent event = step_around(state, rotation);
                 const auto& attempt = std::get<MoveAttemptedEvent>(event.data);
                 if (attempt.outcome.result != MoveResult::moved) continue;
-                record_stand(attempt.wide_reveal_granted);
+                record_stand(attempt.wide_reveal_radius);
 
                 for (const Coordinates cell : cells) {
                     if (state.visibility().at(cell) == CellVisibility::unexplored) continue;
@@ -528,10 +530,12 @@ TEST_CASE("a vantage point shows ground that standing there could not") {
                 if (!(state.actor_position() == feature.position)) continue;
                 ++vantages_entered;
 
-                // Sight after the climb is the wide square, which is strictly wider
-                // than any terrain's own radius - including the mountain's.
-                const int own = visibility_radius_of(state.map().terrain_at(feature.position));
-                CHECK(own < wide_reveal_radius);
+                // Sight after the climb is the vantage's own square, which is
+                // strictly wider than the radius of the ground it stands on - so
+                // even a summit on a mountain shows more than the mountain does.
+                const Terrain ground = state.map().terrain_at(feature.position);
+                const int own = visibility_radius_of(ground);
+                CHECK(own < vantage_reveal_radius_of(vantage_kind_of(ground)));
                 std::uint64_t visible = 0;
                 std::uint64_t beyond_own = 0;
                 for (const Coordinates cell : all_cells(state.map())) {

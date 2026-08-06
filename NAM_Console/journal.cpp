@@ -14,7 +14,15 @@ struct EntryFormatter {
         return "Found a hidden site off the route (" + std::to_string(entry.ordinal) + " of " +
                std::to_string(entry.total) + ").";
     }
-    std::string operator()(const VantageEntry&) const {
+    std::string operator()(const VantageEntry& entry) const {
+        switch (entry.kind) {
+            case VantageKind::cairn:
+                return "Stopped at a cairn and read the nearer ground.";
+            case VantageKind::lookout:
+                return "Climbed to a lookout and the level opened up.";
+            case VantageKind::summit:
+                return "Stood on the summit and read the whole valley.";
+        }
         return "Climbed to a vantage point and the level opened up.";
     }
     std::string operator()(const LandmarkEntry& entry) const {
@@ -51,9 +59,9 @@ void Journal::record_event(const GameEvent& event, const JournalContext& context
     // larger milestone rather than twice. Only the level's first vantage point
     // becomes an entry: a level opens up once, and a sweep that climbs every one
     // of them would otherwise flood the run's entry budget.
-    if (move->wide_reveal_granted && !level_vantage_logged_ &&
+    if (move->granted_wide_reveal() && !level_vantage_logged_ &&
         move->objective_update.transition != ObjectiveTransition::landmark_discovered) {
-        entries_.push_back(JournalEntry{VantageEntry{event.sequence}});
+        entries_.push_back(JournalEntry{VantageEntry{event.sequence, context.vantage_kind}});
         level_vantage_logged_ = true;
     }
 

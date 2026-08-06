@@ -60,7 +60,14 @@ TEST_CASE("a move onto authored content keeps the ordinary terrain wording") {
     CHECK(plain.feature.has_value() == false);
     CHECK(describe_move(vantage) == describe_move(plain));
 
-    CHECK(describe_vantage_reached().find("vantage point") != std::string::npos);
+    // Each kind of viewpoint is described as itself, and each says what came
+    // into view, so a player learns the vocabulary from the message alone.
+    CHECK(describe_vantage_reached(VantageKind::cairn).find("cairn") != std::string::npos);
+    CHECK(describe_vantage_reached(VantageKind::lookout).find("lookout") != std::string::npos);
+    CHECK(describe_vantage_reached(VantageKind::summit).find("summit") != std::string::npos);
+    for (const VantageKind kind : all_vantage_kinds) {
+        CHECK(describe_vantage_reached(kind).find("view") != std::string::npos);
+    }
 }
 
 TEST_CASE("move outcomes map to distinct human-readable sentences") {

@@ -9,6 +9,7 @@
 #include "game_event.h"
 #include "map_parser.h"
 #include "move_outcome.h"
+#include "vantage.h"
 #include "objective.h"
 #include "terrain.h"
 
@@ -41,7 +42,7 @@ namespace nam::console {
 // The latest-event message shown when a move first fires a vantage point. It
 // replaces the ordinary move wording for that command, because the wide reveal is
 // the thing that happened.
-[[nodiscard]] std::string describe_vantage_reached();
+[[nodiscard]] std::string describe_vantage_reached(VantageKind kind);
 
 // A user-facing explanation of why a map failed to load, including the source
 // and line/column when the parser reported them.

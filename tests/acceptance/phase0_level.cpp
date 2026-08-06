@@ -202,7 +202,7 @@ TEST_CASE("the phase 0 walk is granted a wide reveal on first landmark entry") {
         const auto* move = std::get_if<MoveAttemptedEvent>(&event.data);
         REQUIRE(move != nullptr);
         if (move->objective_update.transition != ObjectiveTransition::landmark_discovered) continue;
-        CHECK(move->wide_reveal_granted);
+        CHECK(move->wide_reveal_radius == landmark_reveal_radius);
         checked = true;
     }
     CHECK(checked);

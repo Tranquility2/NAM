@@ -7,6 +7,7 @@
 
 #include "game_event.h"
 #include "level_tier.h"
+#include "vantage.h"
 
 namespace nam::console {
 
@@ -44,6 +45,7 @@ struct DiscoveryEntry {
 // only opens up once.
 struct VantageEntry {
     std::uint64_t sequence = 0;
+    VantageKind kind = VantageKind::cairn;
 };
 
 // The move that first entered the landmark cell, revealing the exit bearing and a
@@ -94,6 +96,9 @@ struct JournalContext {
     // The level's discovery tallies read after the event was applied.
     std::uint32_t discoveries_found = 0;
     std::uint32_t discovery_total = 0;
+    // What kind of viewpoint the actor is standing on, read after the event was
+    // applied. Only meaningful on a move that fired a vantage point.
+    VantageKind vantage_kind = VantageKind::cairn;
 };
 
 // Aggregates the ordered core event stream into structured journal entries. The

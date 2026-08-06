@@ -1,5 +1,7 @@
 #include "game_state.h"
 
+#include "vantage.h"
+
 #include <algorithm>
 #include <optional>
 #include <utility>
@@ -63,7 +65,7 @@ GameEvent GameState::move(Direction direction) {
     const ObjectiveStatus objective_before = objective_.status;
     ObjectiveTransition objective_transition = ObjectiveTransition::none;
     bool discovery_recorded = false;
-    bool wide_reveal_granted = false;
+    int wide_reveal = 0;
 
     if (outcome.result == MoveResult::moved) {
         actor_position_ = outcome.to;
@@ -77,7 +79,7 @@ GameEvent GameState::move(Direction direction) {
         // state. Blocked attempts never advance the objective.
         objective_transition = advance_objective(objective_, actor_position_);
         if (objective_transition == ObjectiveTransition::landmark_discovered) {
-            wide_reveal_granted = true;
+            wide_reveal = landmark_reveal_radius;
         }
 
         // Resolve the authored content on the destination. Both kinds fire exactly
@@ -96,17 +98,23 @@ GameEvent GameState::move(Direction direction) {
                     discovery_recorded = true;
                     break;
                 case LevelFeatureKind::vantage_point:
-                    wide_reveal_granted = true;
+                    // How far a vantage point sees is decided by the ground it was
+                    // built on. A cell that is both the landmark and a vantage
+                    // point grants whichever reaches further rather than twice.
+                    wide_reveal = std::max(
+                        wide_reveal,
+                        vantage_reveal_radius_of(
+                            vantage_kind_of(map_.terrain_at(actor_position_))));
                     break;
             }
         }
 
         // A wide reveal is applied last, over the terrain square already revealed.
-        // reveal_square demotes what it does not cover, and the wide square always
-        // contains the terrain square, so the second call widens sight without
-        // forgetting anything the first call showed.
-        if (wide_reveal_granted) {
-            visibility_.reveal_square(actor_position_, wide_reveal_radius);
+        // reveal_square demotes what it does not cover, and every wide radius
+        // exceeds the terrain radius of the ground granting it, so the second call
+        // widens sight without forgetting anything the first call showed.
+        if (wide_reveal > 0) {
+            visibility_.reveal_square(actor_position_, wide_reveal);
         }
     }
 
@@ -115,7 +123,7 @@ GameEvent GameState::move(Direction direction) {
     event.data = MoveAttemptedEvent{direction, outcome,
                                     ObjectiveUpdate{objective_before, objective_.status,
                                                     objective_transition},
-                                    discovery_recorded, wide_reveal_granted};
+                                    discovery_recorded, wide_reveal};
     ++next_event_sequence_;
     return event;
 }

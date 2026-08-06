@@ -10,6 +10,7 @@
 #include "journal.h"
 #include "level_tier.h"
 #include "move_outcome.h"
+#include "visibility.h"
 #include "objective.h"
 #include "terrain.h"
 
@@ -39,7 +40,8 @@ GameEvent discovery_event(std::uint64_t sequence, Direction direction,
 GameEvent vantage_event(std::uint64_t sequence, Direction direction,
                         ObjectiveTransition transition = ObjectiveTransition::none) {
     GameEvent event = move_event(sequence, direction, Terrain::hill, transition);
-    std::get<MoveAttemptedEvent>(event.data).wide_reveal_granted = true;
+    std::get<MoveAttemptedEvent>(event.data).wide_reveal_radius =
+        vantage_reveal_radius_of(VantageKind::lookout);
     return event;
 }
 
@@ -74,9 +76,22 @@ TEST_SUITE("journal") {
 
 TEST_CASE("the first vantage point of a level becomes a notable encounter") {
     Journal journal;
-    journal.record_event(vantage_event(1, Direction::right), ctx("Glass River Exit"));
+    JournalContext context = ctx("Glass River Exit");
+    context.vantage_kind = VantageKind::lookout;
+    journal.record_event(vantage_event(1, Direction::right), context);
     REQUIRE(journal.size() == 1);
-    CHECK(prose_of(journal)[0] == "Climbed to a vantage point and the level opened up.");
+    CHECK(prose_of(journal)[0] == "Climbed to a lookout and the level opened up.");
+}
+
+TEST_CASE("the journal says which kind of viewpoint the level opened up from") {
+    for (const VantageKind kind : all_vantage_kinds) {
+        Journal journal;
+        JournalContext context = ctx("Glass River Exit");
+        context.vantage_kind = kind;
+        journal.record_event(vantage_event(1, Direction::right), context);
+        REQUIRE(journal.size() == 1);
+        CHECK(prose_of(journal)[0].find(std::string(to_string(kind))) != std::string::npos);
+    }
 }
 
 TEST_CASE("a level opens up once no matter how many vantage points are climbed") {

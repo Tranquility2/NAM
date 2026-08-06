@@ -32,16 +32,23 @@
 // cell. Re-entering an already-found discovery is an ordinary step, so a frontend
 // can log the moment once without tracking which cells it has already seen.
 //
-// `wide_reveal_granted` is true on the move that fires a vantage point for the
-// first time, and on the move that first reaches the level's named landmark. Both
-// grant the same one-off wide sight, so a frontend can report that the level
-// opened up without re-deriving which cells changed.
+// `wide_reveal_radius` is the radius of the one-off reveal this move granted, or
+// zero when it granted none. A vantage point fires one on first entry, sized by
+// what kind of viewpoint it turned out to be (see vantage.h), and reaching the
+// level's named landmark fires one of `landmark_reveal_radius`. Carrying the
+// radius rather than a flag lets a frontend, and the acceptance gate, say exactly
+// how far the level opened up without re-deriving which cells changed.
 struct MoveAttemptedEvent {
     Direction direction{};
     MoveOutcome outcome{};
     ObjectiveUpdate objective_update{};
     bool discovery_recorded = false;
-    bool wide_reveal_granted = false;
+    int wide_reveal_radius = 0;
+
+    // Whether this move opened the level up at all.
+    [[nodiscard]] constexpr bool granted_wide_reveal() const noexcept {
+        return wide_reveal_radius > 0;
+    }
 };
 
 // The payload of a GameEvent. A variant so command families can add their own

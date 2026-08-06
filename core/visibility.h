@@ -52,8 +52,9 @@ private:
     std::vector<CellVisibility> cells_;
 };
 
-// The radius of a wide reveal: the one-off sight a vantage point grants on first
-// entry, and the sight granted by reaching the level's named landmark. It is
-// deliberately larger than any terrain's own radius (the widest is the mountain's)
-// so a wide reveal always shows ground that standing there could not.
-inline constexpr int wide_reveal_radius = 9;
+// The radius of the reveal granted by reaching the level's named landmark: the
+// peak moment of a level, so it is deliberately larger than any terrain's own
+// radius (the widest is the mountain's) and always shows ground that standing
+// there could not. Vantage points grant their own radii, sized by what kind of
+// viewpoint they are; see vantage.h.
+inline constexpr int landmark_reveal_radius = 9;

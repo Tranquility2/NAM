@@ -67,7 +67,15 @@ std::string describe_discovery_found(std::uint32_t found, std::uint32_t total) {
     return "Found a discovery (" + std::to_string(found) + " of " + std::to_string(total) + ").";
 }
 
-std::string describe_vantage_reached() {
+std::string describe_vantage_reached(VantageKind kind) {
+    switch (kind) {
+        case VantageKind::cairn:
+            return "Reached a cairn; the nearby land came into view.";
+        case VantageKind::lookout:
+            return "Climbed a lookout; the surrounding land came into view.";
+        case VantageKind::summit:
+            return "Gained the summit; the whole valley came into view.";
+    }
     return "Reached a vantage point; the surrounding land came into view.";
 }
 

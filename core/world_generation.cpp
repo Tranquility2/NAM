@@ -1,5 +1,7 @@
 #include "world_generation.h"
 
+#include "vantage.h"
+
 #include <array>
 #include <cstddef>
 #include <optional>
@@ -828,11 +830,6 @@ std::uint64_t hash_seed_text(std::string_view text) noexcept {
     return hash;
 }
 
-// Place one cell per content slot. Candidates are the slot zone's walkable cells
-// in row-major order, minus the spawn, the exit, and any cell already taken, so
-// placement is platform-independent and no two features share a cell. One bounded
-// draw per slot selects the cell. Returns nothing when a slot has no candidate,
-// which fails the whole candidate and retries with fresh terrain.
 // Place one feature per content slot on the cell whose real detour comes closest
 // to the slot's band under this level's seeded profile.
 //
@@ -842,9 +839,25 @@ std::uint64_t hash_seed_text(std::string_view text) noexcept {
 // than picking uniformly inside the zone and letting the cost fall where it may.
 // Where several cells tie at the same distance from the target, the seed breaks
 // the tie, which keeps identical prices from collapsing onto one fixed cell.
+//
+// A vantage point breaks that tie differently: among the cells that cost the
+// player exactly the same, it takes the highest ground, because what a vantage
+// point is worth is decided by the terrain under it (see vantage.h). The
+// preference is free by construction -- it only ever chooses between cells the
+// price rule had already declared equal -- so the ordering the bands establish
+// can never be inverted by it.
+//
+// Returns nothing when a slot has no candidate, which fails the whole candidate
+// and retries with fresh terrain.
 [[nodiscard]] std::optional<std::vector<LevelFeature>> place_content(
     const GenerationProfile& profile, const LevelTemplate& level, const RouteLayout& layout,
     DetourProfile detour_profile, Pcg32& engine, const std::vector<Terrain>& cells) {
+    struct Candidate {
+        Coordinates position{};
+        std::int64_t miss = 0;
+        std::size_t rank = 0;
+    };
+
     std::vector<LevelFeature> features;
     features.reserve(level.content_slots.size());
 
@@ -861,9 +874,9 @@ std::uint64_t hash_seed_text(std::string_view text) noexcept {
     for (const ContentSlot& slot : level.content_slots) {
         const std::int64_t target = static_cast<std::int64_t>(
             target_detour_moves(slot.band, detour_profile, static_cast<std::uint64_t>(direct)));
+        const bool prefers_high_ground = slot.kind == LevelFeatureKind::vantage_point;
 
-        std::vector<Coordinates> candidates;
-        std::int64_t best_miss = 0;
+        std::vector<Candidate> eligible;
         for (int y = slot.zone.min_y; y <= slot.zone.max_y; ++y) {
             for (int x = slot.zone.min_x; x <= slot.zone.max_x; ++x) {
                 const std::size_t ux = static_cast<std::size_t>(x);
@@ -901,14 +914,34 @@ std::uint64_t hash_seed_text(std::string_view text) noexcept {
                 const std::int64_t detour =
                     static_cast<std::int64_t>(from_spawn[index]) +
                     static_cast<std::int64_t>(from_exit[index]) - static_cast<std::int64_t>(direct);
-                const std::int64_t miss = detour > target ? (detour - target) : (target - detour);
-                if (candidates.empty() || miss < best_miss) {
-                    best_miss = miss;
-                    candidates.clear();
-                    candidates.push_back(position);
-                } else if (miss == best_miss) {
-                    candidates.push_back(position);
+                eligible.push_back(
+                    Candidate{position, detour > target ? (detour - target) : (target - detour),
+                              vantage_rank_of(vantage_kind_of(cells[index]))});
+            }
+        }
+        if (eligible.empty()) {
+            return std::nullopt;
+        }
+
+        std::int64_t best_miss = eligible.front().miss;
+        for (const Candidate& candidate : eligible) {
+            best_miss = std::min(best_miss, candidate.miss);
+        }
+
+        std::size_t best_rank = 0;
+        if (prefers_high_ground) {
+            for (const Candidate& candidate : eligible) {
+                if (candidate.miss == best_miss) {
+                    best_rank = std::max(best_rank, candidate.rank);
                 }
+            }
+        }
+
+        std::vector<Coordinates> candidates;
+        for (const Candidate& candidate : eligible) {
+            if (candidate.miss == best_miss &&
+                (!prefers_high_ground || candidate.rank == best_rank)) {
+                candidates.push_back(candidate.position);
             }
         }
         if (candidates.empty()) {

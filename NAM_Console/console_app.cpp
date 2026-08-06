@@ -154,6 +154,7 @@ JournalContext ConsoleApp::journal_context() const {
     context.total_levels = expedition_.total_levels();
     context.discoveries_found = state().discoveries_found();
     context.discovery_total = state().discovery_total();
+    context.vantage_kind = vantage_kind_of(state().map().terrain_at(state().actor_position()));
     return context;
 }
 
@@ -167,8 +168,9 @@ ObjectiveTransition ConsoleApp::apply_move(Direction direction, bool& emphasize)
     // A first discovery replaces the ordinary move wording; an objective transition
     // outranks it below, because reaching the landmark or the exit is the more
     // important thing that happened on that command.
-    if (payload.wide_reveal_granted) {
-        hud_.set_message(describe_vantage_reached());
+    if (payload.granted_wide_reveal()) {
+        hud_.set_message(describe_vantage_reached(
+            vantage_kind_of(state().map().terrain_at(state().actor_position()))));
     }
     if (payload.discovery_recorded) {
         hud_.set_message(

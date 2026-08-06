@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <array>
 #include <cstdint>
 #include <cstddef>
 #include <optional>
@@ -12,6 +13,7 @@
 #include "level_template.h"
 #include "map.h"
 #include "objective.h"
+#include "vantage.h"
 #include "visibility.h"
 #include "terrain.h"
 #include "world_generation.h"
@@ -105,14 +107,14 @@ TEST_CASE("a vantage point grants one wide reveal on first entry and is then ine
     CHECK(*preview.feature == LevelFeatureKind::vantage_point);
 
     const GameEvent first = state.move(Direction::right);
-    CHECK(movement(first).wide_reveal_granted);
+    CHECK(movement(first).granted_wide_reveal());
     CHECK_FALSE(movement(first).discovery_recorded);
 
     // Leaving and returning does not fire it again.
     static_cast<void>(state.move(Direction::down));
     const GameEvent again = state.move(Direction::up);
     CHECK(movement(again).outcome.result == MoveResult::moved);
-    CHECK_FALSE(movement(again).wide_reveal_granted);
+    CHECK_FALSE(movement(again).granted_wide_reveal());
 }
 
 TEST_CASE("a vantage point is an ordinary walkable cell and never blocks") {
@@ -125,34 +127,50 @@ TEST_CASE("a vantage point is an ordinary walkable cell and never blocks") {
     CHECK(state.actor_position() == Coordinates{2, 1});
 }
 
-TEST_CASE("a vantage point reveals ground no terrain radius could reach") {
-    // A wide arena so the reveal is not clipped away by the map edges. The vantage
-    // sits far enough from the spawn that the cell checked below is outside the
-    // spawn's own sight square but inside the vantage's.
-    constexpr std::size_t width = 31;
-    constexpr std::size_t height = 25;
-    std::vector<Terrain> cells(width * height, Terrain::open);
-    for (std::size_t x = 0; x < width; ++x) {
-        cells[x] = Terrain::cliff;
-        cells[(height - 1) * width + x] = Terrain::cliff;
-    }
-    for (std::size_t y = 1; y + 1 < height; ++y) {
-        cells[y * width] = Terrain::cliff;
-        cells[y * width + width - 1] = Terrain::cliff;
-    }
-    const Coordinates spawn{15, 12};
-    LevelLayout layout;
-    layout.exit = Coordinates{1, 1};
-    layout.features = {LevelFeature{Coordinates{16, 12}, LevelFeatureKind::vantage_point}};
-    GameState state(Map(width, height, std::move(cells), spawn, std::move(layout)));
+TEST_CASE("a vantage point reveals ground the terrain under it never could") {
+    // A wide arena so no reveal is clipped by the map edges. What a vantage point
+    // shows depends on the ground it was built on, so each kind is checked against
+    // both what its own terrain would have shown and what the next kind down does.
+    struct Ground {
+        Terrain terrain;
+        VantageKind kind;
+    };
+    for (const Ground ground : {Ground{Terrain::open, VantageKind::cairn},
+                                Ground{Terrain::hill, VantageKind::lookout},
+                                Ground{Terrain::mountain, VantageKind::summit}}) {
+        constexpr std::size_t width = 41;
+        constexpr std::size_t height = 33;
+        std::vector<Terrain> cells(width * height, Terrain::open);
+        for (std::size_t x = 0; x < width; ++x) {
+            cells[x] = Terrain::cliff;
+            cells[(height - 1) * width + x] = Terrain::cliff;
+        }
+        for (std::size_t y = 1; y + 1 < height; ++y) {
+            cells[y * width] = Terrain::cliff;
+            cells[y * width + width - 1] = Terrain::cliff;
+        }
+        const Coordinates spawn{20, 16};
+        const Coordinates viewpoint{21, 16};
+        cells[static_cast<std::size_t>(viewpoint.y) * width +
+              static_cast<std::size_t>(viewpoint.x)] = ground.terrain;
 
-    // Open ground sees 3, so a cell 8 away is still unexplored before the vantage.
-    const Coordinates distant{16 + 8, 12};
-    REQUIRE(state.visibility().at(distant) == CellVisibility::unexplored);
+        LevelLayout layout;
+        layout.exit = Coordinates{1, 1};
+        layout.features = {LevelFeature{viewpoint, LevelFeatureKind::vantage_point}};
+        GameState state(Map(width, height, std::move(cells), spawn, std::move(layout)));
 
-    const GameEvent event = state.move(Direction::right);
-    REQUIRE(movement(event).wide_reveal_granted);
-    CHECK(state.visibility().at(distant) == CellVisibility::visible);
+        const int reach = vantage_reveal_radius_of(ground.kind);
+        const Coordinates within{viewpoint.x + reach, viewpoint.y};
+        const Coordinates beyond{viewpoint.x + reach + 1, viewpoint.y};
+        REQUIRE(state.visibility().at(within) == CellVisibility::unexplored);
+
+        const GameEvent event = state.move(Direction::right);
+        REQUIRE(movement(event).wide_reveal_radius == reach);
+        CHECK(state.visibility().at(within) == CellVisibility::visible);
+        CHECK(state.visibility().at(beyond) != CellVisibility::visible);
+        // Climbing always beats merely standing there, even on a mountain.
+        CHECK(visibility_radius_of(ground.terrain) < reach);
+    }
 }
 
 TEST_CASE("a discovery is recorded once and grants no wide reveal") {
@@ -166,7 +184,7 @@ TEST_CASE("a discovery is recorded once and grants no wide reveal") {
 
     const GameEvent first = state.move(Direction::right);
     CHECK(movement(first).discovery_recorded);
-    CHECK_FALSE(movement(first).wide_reveal_granted);
+    CHECK_FALSE(movement(first).granted_wide_reveal());
     CHECK(state.discoveries_found() == 1u);
 
     // Re-entering the same cell is an ordinary step.
@@ -235,6 +253,120 @@ TEST_CASE("content placement is deterministic for one tier and seed") {
 TEST_CASE("the feature kind identifiers are stable and non-localized") {
     CHECK(std::string(to_string(LevelFeatureKind::discovery)) == "discovery");
     CHECK(std::string(to_string(LevelFeatureKind::vantage_point)) == "vantage_point");
+}
+
+TEST_CASE("the vantage kind identifiers are stable and non-localized") {
+    CHECK(std::string(to_string(VantageKind::cairn)) == "cairn");
+    CHECK(std::string(to_string(VantageKind::lookout)) == "lookout");
+    CHECK(std::string(to_string(VantageKind::summit)) == "summit");
+}
+
+TEST_CASE("a vantage point takes its kind from the ground and the higher ground sees further") {
+    // The map and the name can never disagree because there is only one of them:
+    // the kind is read back off the terrain rather than stored beside it.
+    CHECK(vantage_kind_of(Terrain::mountain) == VantageKind::summit);
+    CHECK(vantage_kind_of(Terrain::hill) == VantageKind::lookout);
+    for (const Terrain terrain :
+         {Terrain::open, Terrain::fields, Terrain::forest, Terrain::shallow_water,
+          Terrain::deep_water, Terrain::cliff}) {
+        CHECK(vantage_kind_of(terrain) == VantageKind::cairn);
+    }
+
+    CHECK(vantage_rank_of(VantageKind::cairn) < vantage_rank_of(VantageKind::lookout));
+    CHECK(vantage_rank_of(VantageKind::lookout) < vantage_rank_of(VantageKind::summit));
+    CHECK(vantage_reveal_radius_of(VantageKind::cairn) <
+          vantage_reveal_radius_of(VantageKind::lookout));
+    CHECK(vantage_reveal_radius_of(VantageKind::lookout) <
+          vantage_reveal_radius_of(VantageKind::summit));
+
+    // Every kind is worth the walk: each one out-sees simply standing on the
+    // ground it was built on.
+    for (const Terrain terrain :
+         {Terrain::open, Terrain::fields, Terrain::forest, Terrain::shallow_water,
+          Terrain::hill, Terrain::mountain}) {
+        CHECK(visibility_radius_of(terrain) <
+              vantage_reveal_radius_of(vantage_kind_of(terrain)));
+    }
+}
+
+TEST_CASE("a vantage point takes the best ground on offer without charging for it") {
+    // Preferring high ground has to be free. If a level would pay even one extra
+    // move for a summit the authored ordering of the content could invert, so the
+    // preference only ever breaks a tie between cells that cost exactly the same.
+    for (const LevelTier tier :
+         {LevelTier::small, LevelTier::medium, LevelTier::large, LevelTier::x_large}) {
+        for (std::uint64_t index = 0; index < kProbeSeeds; ++index) {
+            const WorldGenerationResult result = generate_level(tier, probe_seed(index));
+            REQUIRE(std::holds_alternative<GeneratedWorld>(result));
+            const GeneratedWorld& world = std::get<GeneratedWorld>(result);
+            const LevelTemplate level = template_of(tier, world.exit_corner);
+            const std::vector<LevelFeature>& placed = world.map.layout().features;
+            REQUIRE(placed.size() == 3u);
+
+            const std::optional<std::int64_t> direct =
+                walk_length(world.map, world.map.spawn(), world.exit_cell);
+            REQUIRE(direct.has_value());
+
+            for (std::size_t slot = 0; slot < placed.size(); ++slot) {
+                if (placed[slot].kind != LevelFeatureKind::vantage_point) continue;
+                const ContentSlot& authored = level.content_slots[slot];
+                const std::int64_t target = static_cast<std::int64_t>(target_detour_moves(
+                    authored.band, world.detour_profile, static_cast<std::uint64_t>(*direct)));
+
+                const std::optional<std::int64_t> chosen =
+                    detour_of(world.map, world.exit_cell, placed[slot].position);
+                REQUIRE(chosen.has_value());
+                const std::int64_t chosen_miss =
+                    *chosen > target ? (*chosen - target) : (target - *chosen);
+                const std::size_t chosen_rank =
+                    vantage_rank_of(vantage_kind_of(world.map.terrain_at(placed[slot].position)));
+
+                for (int y = authored.zone.min_y; y <= authored.zone.max_y; ++y) {
+                    for (int x = authored.zone.min_x; x <= authored.zone.max_x; ++x) {
+                        const Coordinates candidate{x, y};
+                        if (!is_walkable(world.map.terrain_at(candidate))) continue;
+                        if (candidate == world.map.spawn()) continue;
+                        if (candidate == world.exit_cell) continue;
+                        if (level.entry_zone.contains(candidate)) continue;
+                        bool taken = false;
+                        for (std::size_t before = 0; before < slot; ++before) {
+                            if (placed[before].position == candidate) taken = true;
+                        }
+                        if (taken) continue;
+                        const std::optional<std::int64_t> other =
+                            detour_of(world.map, world.exit_cell, candidate);
+                        if (!other) continue;
+                        const std::int64_t miss =
+                            *other > target ? (*other - target) : (target - *other);
+                        if (miss != chosen_miss) continue;
+                        CHECK(vantage_rank_of(vantage_kind_of(world.map.terrain_at(candidate))) <=
+                              chosen_rank);
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("every tier offers all three kinds of viewpoint across a spread of seeds") {
+    // Kind follows terrain, so this is really a claim about generation: no tier
+    // is so flat that the player only ever meets cairns.
+    for (const LevelTier tier :
+         {LevelTier::small, LevelTier::medium, LevelTier::large, LevelTier::x_large}) {
+        std::array<int, vantage_kind_count> seen{};
+        for (std::uint64_t index = 0; index < kProbeSeeds; ++index) {
+            const WorldGenerationResult result = generate_level(tier, probe_seed(index));
+            REQUIRE(std::holds_alternative<GeneratedWorld>(result));
+            const GeneratedWorld& world = std::get<GeneratedWorld>(result);
+            for (const LevelFeature& feature : world.map.layout().features) {
+                if (feature.kind != LevelFeatureKind::vantage_point) continue;
+                seen[vantage_rank_of(vantage_kind_of(world.map.terrain_at(feature.position)))] += 1;
+            }
+        }
+        for (const int count : seen) {
+            CHECK(count > 0);
+        }
+    }
 }
 
 TEST_CASE("a detour band costs more the further out it is and a profile scales them together") {
