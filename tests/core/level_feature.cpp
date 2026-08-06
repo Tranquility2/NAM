@@ -70,6 +70,85 @@ const MoveAttemptedEvent& movement(const GameEvent& event) {
     return *to_cell + *to_exit - *direct;
 }
 
+// Every cell's detour price at once. Asking `detour_of` per candidate runs two
+// searches per cell, which is fast enough by hand but times out under the
+// sanitizers when a test scans whole zones across a spread of seeds; two sweeps
+// per map answer the same question for every cell.
+class DetourField {
+  public:
+    DetourField(const Map& map, Coordinates exit_cell)
+        : width_(map.width()),
+          from_spawn_(sweep(map, map.spawn())),
+          from_exit_(sweep(map, exit_cell)) {
+        const std::optional<std::int64_t> direct = at(from_spawn_, exit_cell);
+        direct_ = direct.value_or(-1);
+    }
+
+    [[nodiscard]] bool has_direct_walk() const noexcept { return direct_ >= 0; }
+
+    [[nodiscard]] std::int64_t direct_walk() const noexcept { return direct_; }
+
+    [[nodiscard]] std::optional<std::int64_t> detour(Coordinates cell) const {
+        const std::optional<std::int64_t> to_cell = at(from_spawn_, cell);
+        const std::optional<std::int64_t> to_exit = at(from_exit_, cell);
+        if (!to_cell || !to_exit || !has_direct_walk()) {
+            return std::nullopt;
+        }
+        return *to_cell + *to_exit - direct_;
+    }
+
+  private:
+    static constexpr std::int64_t kUnreached = -1;
+
+    [[nodiscard]] static std::vector<std::int64_t> sweep(const Map& map, Coordinates origin) {
+        std::vector<std::int64_t> distance(map.width() * map.height(), kUnreached);
+        if (!is_walkable(map.terrain_at(origin))) {
+            return distance;
+        }
+        std::vector<Coordinates> queue{origin};
+        distance[static_cast<std::size_t>(origin.y) * map.width() +
+                 static_cast<std::size_t>(origin.x)] = 0;
+        for (std::size_t head = 0; head < queue.size(); ++head) {
+            const Coordinates cell = queue[head];
+            const std::size_t index =
+                static_cast<std::size_t>(cell.y) * map.width() + static_cast<std::size_t>(cell.x);
+            const std::int64_t next = distance[index] + 1;
+            const Coordinates neighbours[4] = {{cell.x + 1, cell.y},
+                                               {cell.x - 1, cell.y},
+                                               {cell.x, cell.y + 1},
+                                               {cell.x, cell.y - 1}};
+            for (const Coordinates neighbour : neighbours) {
+                if (neighbour.x < 0 || neighbour.y < 0) continue;
+                if (static_cast<std::size_t>(neighbour.x) >= map.width()) continue;
+                if (static_cast<std::size_t>(neighbour.y) >= map.height()) continue;
+                if (!is_walkable(map.terrain_at(neighbour))) continue;
+                const std::size_t at_neighbour = static_cast<std::size_t>(neighbour.y) *
+                                                     map.width() +
+                                                 static_cast<std::size_t>(neighbour.x);
+                if (distance[at_neighbour] != kUnreached) continue;
+                distance[at_neighbour] = next;
+                queue.push_back(neighbour);
+            }
+        }
+        return distance;
+    }
+
+    [[nodiscard]] std::optional<std::int64_t> at(const std::vector<std::int64_t>& field,
+                                                 Coordinates cell) const {
+        const std::size_t index =
+            static_cast<std::size_t>(cell.y) * width_ + static_cast<std::size_t>(cell.x);
+        if (index >= field.size() || field[index] == kUnreached) {
+            return std::nullopt;
+        }
+        return field[index];
+    }
+
+    std::size_t width_;
+    std::vector<std::int64_t> from_spawn_;
+    std::vector<std::int64_t> from_exit_;
+    std::int64_t direct_ = -1;
+};
+
 // A spread of seeds wide enough to meet every profile on every tier.
 constexpr std::uint64_t kProbeSeeds = 36u;
 
@@ -303,18 +382,17 @@ TEST_CASE("a vantage point takes the best ground on offer without charging for i
             const std::vector<LevelFeature>& placed = world.map.layout().features;
             REQUIRE(placed.size() == 3u);
 
-            const std::optional<std::int64_t> direct =
-                walk_length(world.map, world.map.spawn(), world.exit_cell);
-            REQUIRE(direct.has_value());
+            const DetourField field(world.map, world.exit_cell);
+            REQUIRE(field.has_direct_walk());
+            const std::uint64_t direct = static_cast<std::uint64_t>(field.direct_walk());
 
             for (std::size_t slot = 0; slot < placed.size(); ++slot) {
                 if (placed[slot].kind != LevelFeatureKind::vantage_point) continue;
                 const ContentSlot& authored = level.content_slots[slot];
-                const std::int64_t target = static_cast<std::int64_t>(target_detour_moves(
-                    authored.band, world.detour_profile, static_cast<std::uint64_t>(*direct)));
+                const std::int64_t target = static_cast<std::int64_t>(
+                    target_detour_moves(authored.band, world.detour_profile, direct));
 
-                const std::optional<std::int64_t> chosen =
-                    detour_of(world.map, world.exit_cell, placed[slot].position);
+                const std::optional<std::int64_t> chosen = field.detour(placed[slot].position);
                 REQUIRE(chosen.has_value());
                 const std::int64_t chosen_miss =
                     *chosen > target ? (*chosen - target) : (target - *chosen);
@@ -333,8 +411,7 @@ TEST_CASE("a vantage point takes the best ground on offer without charging for i
                             if (placed[before].position == candidate) taken = true;
                         }
                         if (taken) continue;
-                        const std::optional<std::int64_t> other =
-                            detour_of(world.map, world.exit_cell, candidate);
+                        const std::optional<std::int64_t> other = field.detour(candidate);
                         if (!other) continue;
                         const std::int64_t miss =
                             *other > target ? (*other - target) : (target - *other);
@@ -411,17 +488,16 @@ TEST_CASE("content is placed on the cell in its zone that comes closest to its p
             const std::vector<LevelFeature>& placed = world.map.layout().features;
             REQUIRE(placed.size() == level.content_slots.size());
 
-            const std::optional<std::int64_t> direct =
-                walk_length(world.map, world.map.spawn(), world.exit_cell);
-            REQUIRE(direct.has_value());
+            const DetourField field(world.map, world.exit_cell);
+            REQUIRE(field.has_direct_walk());
+            const std::uint64_t direct = static_cast<std::uint64_t>(field.direct_walk());
 
             for (std::size_t slot = 0; slot < placed.size(); ++slot) {
                 const ContentSlot& authored = level.content_slots[slot];
-                const std::int64_t target = static_cast<std::int64_t>(target_detour_moves(
-                    authored.band, world.detour_profile, static_cast<std::uint64_t>(*direct)));
+                const std::int64_t target = static_cast<std::int64_t>(
+                    target_detour_moves(authored.band, world.detour_profile, direct));
 
-                const std::optional<std::int64_t> chosen =
-                    detour_of(world.map, world.exit_cell, placed[slot].position);
+                const std::optional<std::int64_t> chosen = field.detour(placed[slot].position);
                 REQUIRE(chosen.has_value());
                 const std::int64_t chosen_miss =
                     *chosen > target ? (*chosen - target) : (target - *chosen);
@@ -438,8 +514,7 @@ TEST_CASE("content is placed on the cell in its zone that comes closest to its p
                             if (placed[before].position == candidate) earlier_slot_took_it = true;
                         }
                         if (earlier_slot_took_it) continue;
-                        const std::optional<std::int64_t> other =
-                            detour_of(world.map, world.exit_cell, candidate);
+                        const std::optional<std::int64_t> other = field.detour(candidate);
                         if (!other) continue;
                         const std::int64_t miss =
                             *other > target ? (*other - target) : (target - *other);
