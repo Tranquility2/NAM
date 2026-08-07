@@ -101,9 +101,9 @@ TEST_CASE("an expedition starts on the small tier with no carried state") {
 
     CHECK(expedition.numeric_seed() == kSeed);
     CHECK(expedition.current_tier() == LevelTier::small);
-    CHECK(expedition.final_tier() == prototype_final_tier);
+    CHECK(expedition.final_tier() == expedition_final_tier);
     CHECK(expedition.completed_levels() == 0u);
-    CHECK(expedition.total_levels() == 2u);
+    CHECK(expedition.total_levels() == 4u);
     CHECK_FALSE(expedition.completed());
     CHECK(expedition.total_score() == 0u);
     CHECK(expedition.total_discoveries_found() == 0u);
@@ -128,23 +128,32 @@ TEST_CASE("completing a level advances the tier and generates the next level") {
     CHECK_FALSE(expedition.state().objective_completed());
 }
 
-TEST_CASE("the prototype expedition ends after the medium tier") {
+TEST_CASE("an expedition plays every tier in order and ends after the last one") {
+    const LevelTier chain[] = {LevelTier::small, LevelTier::medium, LevelTier::large,
+                               LevelTier::x_large};
     Expedition expedition(kSeed);
-    REQUIRE(finish_level(expedition.state()));
-    REQUIRE(expedition.complete_level(LevelPerformance{}) == LevelTransition::advanced);
+    REQUIRE(expedition.total_levels() == 4u);
+
+    for (std::size_t level = 0; level + 1u < 4u; ++level) {
+        CHECK(expedition.current_tier() == chain[level]);
+        REQUIRE(finish_level(expedition.state()));
+        REQUIRE(expedition.complete_level(LevelPerformance{}) == LevelTransition::advanced);
+    }
+    CHECK(expedition.current_tier() == LevelTier::x_large);
     REQUIRE(finish_level(expedition.state()));
 
     CHECK(expedition.complete_level(LevelPerformance{}) == LevelTransition::expedition_completed);
     CHECK(expedition.completed());
-    CHECK(expedition.completed_levels() == 2u);
-    CHECK(expedition.summaries().size() == 2u);
-    CHECK(expedition.summaries()[0].tier == LevelTier::small);
-    CHECK(expedition.summaries()[1].tier == LevelTier::medium);
+    CHECK(expedition.completed_levels() == 4u);
+    REQUIRE(expedition.summaries().size() == 4u);
+    for (std::size_t level = 0; level < 4u; ++level) {
+        CHECK(expedition.summaries()[level].tier == chain[level]);
+    }
 
     // A finished expedition never scores again.
     CHECK(expedition.complete_level(LevelPerformance{}) == LevelTransition::none);
-    CHECK(expedition.completed_levels() == 2u);
-    CHECK(expedition.summaries().size() == 2u);
+    CHECK(expedition.completed_levels() == 4u);
+    CHECK(expedition.summaries().size() == 4u);
 }
 
 TEST_CASE("completing a level before its objective finishes is an explicit no-op") {
@@ -168,8 +177,7 @@ TEST_CASE("score and discoveries accumulate across the whole expedition") {
     REQUIRE(available_first > 0u);
 
     REQUIRE(finish_level(expedition.state()));
-    REQUIRE(expedition.complete_level(LevelPerformance{30u}) ==
-            LevelTransition::expedition_completed);
+    REQUIRE(expedition.complete_level(LevelPerformance{30u}) == LevelTransition::advanced);
 
     CHECK(expedition.total_score() ==
           after_first + expedition.summaries()[1].score.value);
@@ -192,8 +200,7 @@ TEST_CASE("sweeping a level earns the bonus that doubles the next level's discov
     CHECK(expedition.active_bonus() == ExpeditionBonus::keen_eye);
 
     REQUIRE(sweep_level(expedition.state()));
-    REQUIRE(expedition.complete_level(LevelPerformance{}) ==
-            LevelTransition::expedition_completed);
+    REQUIRE(expedition.complete_level(LevelPerformance{}) == LevelTransition::advanced);
 
     const LevelSummary& second = expedition.summaries()[1];
     CHECK(second.applied_bonus == ExpeditionBonus::keen_eye);
@@ -389,7 +396,7 @@ TEST_CASE("walking a level inside par earns the pathfinder bonus and doubles the
     std::uint64_t second_moves = 0;
     REQUIRE(finish_level_directly(expedition.state(), second_moves));
     REQUIRE(expedition.complete_level(LevelPerformance{second_moves}) ==
-            LevelTransition::expedition_completed);
+            LevelTransition::advanced);
 
     const LevelSummary& second = expedition.summaries()[1];
     CHECK(second.applied_bonus == expedition.summaries()[0].earned_bonus);

@@ -35,9 +35,8 @@ namespace {
 // this sweep measures real runs against the number the design states rather than
 // against a copy of it that could drift.
 //
-// Every tier of a run, so the budget is measured over the whole chain rather
-// than the two tiers the prototype currently plays.
-constexpr LevelTier kFinalTier = LevelTier::x_large;
+// The budget is measured over a whole run, which is every tier.
+constexpr LevelTier kFinalTier = expedition_final_tier;
 
 // How thoroughly a scripted run plays each level. `sweep` is the worst case for
 // the journal: it stands on every viewpoint the level placed and re-crosses the

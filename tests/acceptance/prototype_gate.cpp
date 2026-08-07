@@ -96,9 +96,7 @@ std::vector<Direction> walk_to(GameState& state, Coordinates target) {
     return cells;
 }
 
-// Every tier in ascending order. Phase 2 generates all four, so the structural
-// invariants below are asserted on the whole chain rather than on the two tiers
-// the Phase 1 prototype happened to play.
+// Every tier in ascending order, which is also the chain a real run plays.
 constexpr std::array<LevelTier, 4> kAllTiers{LevelTier::small, LevelTier::medium,
                                              LevelTier::large, LevelTier::x_large};
 
@@ -189,14 +187,16 @@ enum class Style {
 
 TEST_SUITE("prototype_gate") {
 
-TEST_CASE("every seeded prototype run is solvable end to end") {
+TEST_CASE("every seeded run is solvable end to end over the whole four-tier chain") {
     for (const std::uint64_t seed : gate_seeds()) {
         const Expedition finished = play(seed, Style::direct);
         CHECK(finished.completed());
         CHECK(finished.completed_levels() == finished.total_levels());
-        REQUIRE(finished.summaries().size() == 2u);
+        REQUIRE(finished.summaries().size() == 4u);
         CHECK(finished.summaries()[0].tier == LevelTier::small);
         CHECK(finished.summaries()[1].tier == LevelTier::medium);
+        CHECK(finished.summaries()[2].tier == LevelTier::large);
+        CHECK(finished.summaries()[3].tier == LevelTier::x_large);
     }
 }
 
@@ -353,7 +353,7 @@ TEST_CASE("a full sweep stays comfortably inside the soft move budget") {
 TEST_CASE("sweeping a level earns the bonus for the next one") {
     for (const std::uint64_t seed : gate_seeds()) {
         const Expedition thorough = play(seed, Style::sweep);
-        REQUIRE(thorough.summaries().size() == 2u);
+        REQUIRE(thorough.summaries().size() == 4u);
         CHECK(thorough.summaries()[0].earned_bonus == ExpeditionBonus::keen_eye);
         CHECK(thorough.summaries()[1].applied_bonus == ExpeditionBonus::keen_eye);
         // The bonus has to be visible in the arithmetic, not only in the label.
@@ -361,11 +361,12 @@ TEST_CASE("sweeping a level earns the bonus for the next one") {
     }
 }
 
-TEST_CASE("the prototype run is a proportionate slice of the full four-tier chain") {
-    // "A normal two-tier run scales toward a 10-15 minute four-tier expedition"
-    // cannot be timed by machine, but the ground a run has to cover can be
-    // measured. Explorable area must grow strictly with the tier on every seed,
-    // and the prototype must be a real but minor part of the whole chain.
+TEST_CASE("every tier of a run asks strictly more of the player than the one before") {
+    // "A run scales toward a 10-15 minute four-tier expedition" cannot be timed
+    // by machine, but the ground a run has to cover can be measured. Explorable
+    // area must grow strictly with the tier on every seed, so a run gets longer
+    // as it goes rather than plateauing, and no single tier may dominate the
+    // whole chain.
     std::vector<std::uint64_t> total_route_cost(4, 0);
     for (const std::uint64_t seed : gate_seeds()) {
         std::vector<std::uint64_t> reachable;
@@ -380,12 +381,16 @@ TEST_CASE("the prototype run is a proportionate slice of the full four-tier chai
         CHECK(reachable[1] < reachable[2]);
         CHECK(reachable[2] < reachable[3]);
 
-        const std::uint64_t prototype = reachable[0] + reachable[1];
-        const std::uint64_t whole = prototype + reachable[2] + reachable[3];
-        // Between a twentieth and two thirds of the full expedition: long enough to
-        // judge the loop, short enough that the remaining tiers still matter.
-        CHECK(prototype * 20u >= whole);
-        CHECK(prototype * 3u <= whole * 2u);
+        // Each tier is between 1.4x and 2.2x the ground of the one before. The
+        // band is what makes the chain feel like a climb rather than a plateau or
+        // a wall, and it is the shape the tier dimensions already imply: 21x11,
+        // 27x15, 39x21 and 51x27 grow geometrically, which is also why the last
+        // tier is about half the whole chain and no "no tier dominates" bound can
+        // hold.
+        for (std::size_t tier = 1; tier < reachable.size(); ++tier) {
+            CHECK(reachable[tier] * 10u >= reachable[tier - 1u] * 14u);
+            CHECK(reachable[tier] * 10u <= reachable[tier - 1u] * 22u);
+        }
     }
 
     // Route length is seeded content, so a single seed may invert two neighbouring

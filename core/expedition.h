@@ -137,15 +137,17 @@ struct LevelPerformance {
     std::uint64_t moves_taken = 0;
 };
 
-// The prototype plays Small then Medium. Phase 2 extends this to x_large.
-inline constexpr LevelTier prototype_final_tier = LevelTier::medium;
+// A full expedition plays every tier in order: Small, Medium, Large, X-Large.
+// The chain is the whole of the run's structure — there is no other progression —
+// so the final tier is the one number that says how long a run is.
+inline constexpr LevelTier expedition_final_tier = LevelTier::x_large;
 
 class Expedition {
 public:
     // Build the expedition's first level from a run seed. Generation is expected
     // to succeed for every tier; a seed that exhausts the candidate limit throws,
     // which callers avoid by generating through generate_level first.
-    explicit Expedition(std::uint64_t numeric_seed, LevelTier final_tier = prototype_final_tier);
+    explicit Expedition(std::uint64_t numeric_seed, LevelTier final_tier = expedition_final_tier);
 
     // A one-level expedition around an already-built level. Handcrafted maps and
     // the built-in map are not part of a tier chain, so completing this level ends

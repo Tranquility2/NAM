@@ -58,7 +58,7 @@ struct ComponentLimits {
 };
 
 // Everything one tier needs to grow and validate a candidate. Grouping the whole
-// recipe here is what lets Small and Medium share a single implementation while
+// recipe here is what lets all four tiers share a single implementation while
 // each keeps its own released numbers.
 struct GenerationProfile {
     std::size_t width = 0u;

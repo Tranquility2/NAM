@@ -1015,13 +1015,17 @@ TEST_CASE("a plain expedition reports each level and continues into the next") {
     CHECK(app.run_plain(input, out) == 0);
     const std::string output = out.str();
 
-    // The interlude names the tier still to come; the final report closes the run.
-    CHECK(output.find("Result: Medium level ahead. 1 of 2 complete.") != std::string::npos);
-    CHECK(output.find("Result: expedition complete. All 2 levels finished.") !=
+    // Each interlude names the tier still to come; the final report closes the run.
+    CHECK(output.find("Result: Medium level ahead. 1 of 4 complete.") != std::string::npos);
+    CHECK(output.find("Result: Large level ahead. 2 of 4 complete.") != std::string::npos);
+    CHECK(output.find("Result: X-Large level ahead. 3 of 4 complete.") != std::string::npos);
+    CHECK(output.find("Result: expedition complete. All 4 levels finished.") !=
           std::string::npos);
-    // The second level is announced with its tier and position in the chain.
-    CHECK(output.find("Medium level (2 of 2).") != std::string::npos);
-    CHECK(count_substr(output, "EXPEDITION REPORT") == 2u);
+    // Every level after the first is announced with its tier and place in the chain.
+    CHECK(output.find("Medium level (2 of 4).") != std::string::npos);
+    CHECK(output.find("Large level (3 of 4).") != std::string::npos);
+    CHECK(output.find("X-Large level (4 of 4).") != std::string::npos);
+    CHECK(count_substr(output, "EXPEDITION REPORT") == 4u);
 }
 
 TEST_CASE("the expedition score accumulates across levels in the final report") {
@@ -1032,9 +1036,11 @@ TEST_CASE("the expedition score accumulates across levels in the final report") 
     const std::string output = out.str();
 
     // Every level report closes with the running expedition section.
-    CHECK(count_substr(output, "EXPEDITION\n") == 2u);
-    CHECK(output.find(" over 1 of 2 levels") != std::string::npos);
-    CHECK(output.find(" over 2 of 2 levels") != std::string::npos);
+    CHECK(count_substr(output, "EXPEDITION\n") == 4u);
+    for (const char* progress : {" over 1 of 4 levels", " over 2 of 4 levels",
+                                 " over 3 of 4 levels", " over 4 of 4 levels"}) {
+        CHECK(output.find(progress) != std::string::npos);
+    }
 }
 
 TEST_CASE("a thorough run logs its discoveries and keeps the journal within budget") {
@@ -1044,26 +1050,25 @@ TEST_CASE("a thorough run logs its discoveries and keeps the journal within budg
     REQUIRE(app.run_plain(input, out) == 0);
     const std::string output = out.str();
 
-    CHECK(output.find("Discoveries: 2 / 2") != std::string::npos);
+    CHECK(output.find("Discoveries: 4 / 4") != std::string::npos);
     CHECK(output.find("Bonus earned: keen eye.") != std::string::npos);
     CHECK(output.find("Bonus spent: keen eye doubled this level's discoveries.") !=
           std::string::npos);
 
     // The journal is the expedition-wide record, so the final report holds every
-    // level's entries. Both levels place one discovery and visiting them both is
+    // level's entries. Every level places one discovery and visiting them all is
     // what earns the carried bonus.
     const std::size_t journal = output.rfind("EXPEDITION JOURNAL");
     REQUIRE(journal != std::string::npos);
     const std::string final_journal = output.substr(journal);
-    CHECK(count_substr(final_journal, "Found a hidden site off the route (1 of 1).") == 2u);
+    CHECK(count_substr(final_journal, "Found a hidden site off the route (1 of 1).") == 4u);
 
-    // Three entries per level are guaranteed -- setting out, reaching the landmark,
-    // and finishing -- so both levels always contribute six. Stepping onto a
-    // vantage point adds one more, and there are two per level, so a thorough run
-    // lands somewhere between six and ten. The budget is what is being checked
-    // here, not which of those a particular sweep happens to hit.
-    CHECK(count_substr(final_journal, "\n6. ") == 1u);
-    CHECK(count_substr(final_journal, "\n11. ") == 0u);
+    // A level reports at most one of each category, so four levels cannot exceed
+    // journal_entry_budget. A thorough run hits the cap on every level, which is
+    // exactly the case the budget was raised for.
+    CHECK(count_substr(final_journal, "\n" + std::to_string(journal_entry_budget) + ". ") == 1u);
+    CHECK(count_substr(final_journal, "\n" + std::to_string(journal_entry_budget + 1u) + ". ") ==
+          0u);
 }
 
 TEST_CASE("an interlude is trimmed to the level it describes") {
@@ -1073,17 +1078,17 @@ TEST_CASE("an interlude is trimmed to the level it describes") {
     REQUIRE(app.run_plain(input, out) == 0);
     const std::string output = out.str();
 
-    // Two reports are printed, but only the last one closes the run, so the route
-    // map, the replay identity and the journal listing appear exactly once.
-    REQUIRE(count_substr(output, "EXPEDITION REPORT") == 2u);
+    // One report is printed per level, but only the last one closes the run, so
+    // the route map, the replay identity and the journal listing appear once.
+    REQUIRE(count_substr(output, "EXPEDITION REPORT") == 4u);
     CHECK(count_substr(output, "ROUTE MAP") == 1u);
     CHECK(count_substr(output, "ROUTE LEGEND") == 1u);
     CHECK(count_substr(output, "WORLD\n") == 1u);
     CHECK(count_substr(output, "EXPEDITION JOURNAL") == 1u);
 
-    // Everything that describes the level just played is on both.
-    CHECK(count_substr(output, "STATISTICS") == 2u);
-    CHECK(count_substr(output, "Explored: ") == 2u);
+    // Everything that describes the level just played is on every one of them.
+    CHECK(count_substr(output, "STATISTICS") == 4u);
+    CHECK(count_substr(output, "Explored: ") == 4u);
 
     const std::size_t last = output.rfind("EXPEDITION REPORT");
     CHECK(output.rfind("ROUTE MAP") > last);
@@ -1141,8 +1146,9 @@ TEST_CASE("an interactive interlude returns to gameplay on the next level") {
             frames += '\n';
         }
     }
-    CHECK(count_substr(frames, "EXPEDITION REPORT") >= 2u);
-    CHECK(frames.find("Medium level (2 of 2).") != std::string::npos);
+    CHECK(count_substr(frames, "EXPEDITION REPORT") >= 4u);
+    CHECK(frames.find("Medium level (2 of 4).") != std::string::npos);
+    CHECK(frames.find("X-Large level (4 of 4).") != std::string::npos);
 }
 
 TEST_CASE("a standalone level is a one-level expedition with no carryover lines") {
