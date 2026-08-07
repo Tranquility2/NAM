@@ -60,7 +60,9 @@ target_link_libraries(nam_doctest_main PUBLIC nam_doctest)
 set(NAM_FIXTURES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/fixtures)
 
 # Build a doctest executable from SOURCES against LINK, and register its cases
-# with LABELS. NAM_FIXTURES_DIR is passed as a compile definition so tests open
+# with LABELS. LINK is multi-value: a target may need more than one NAM library,
+# as the acceptance sweeps do when they measure a console budget over real core
+# play. NAM_FIXTURES_DIR is passed as a compile definition so tests open
 # fixtures by absolute path regardless of the working directory.
 #
 # Labels arrive on two axes and need two mechanisms. doctest's ADD_LABELS gives
@@ -72,7 +74,7 @@ set(NAM_FIXTURES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/fixtures)
 # doctest publishes; a second set_tests_properties call adds to the labels
 # already on a test rather than replacing them.
 function(nam_add_test_executable name)
-    cmake_parse_arguments(ARG "" "LINK" "SOURCES;LABELS" ${ARGN})
+    cmake_parse_arguments(ARG "" "" "LINK;SOURCES;LABELS" ${ARGN})
     add_executable(${name} ${ARG_SOURCES})
     target_link_libraries(${name} PRIVATE ${ARG_LINK} nam_doctest_main nam_warnings)
     target_compile_definitions(${name} PRIVATE NAM_FIXTURES_DIR="${NAM_FIXTURES_DIR}")

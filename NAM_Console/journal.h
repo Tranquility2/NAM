@@ -26,16 +26,30 @@ namespace nam::console {
 //
 // Entries fall into the four categories the prototype can produce: an optional
 // discovery, a notable encounter, an objective milestone, and a level completion.
-// A full level yields about three entries, which keeps a four-tier run near its
-// budget: the notable encounter is logged once per level, so sweeping a level for
-// every vantage point on it still costs one entry.
+// A level yields at most one of each, so a level costs at most four entries and a
+// four-tier expedition is bounded at sixteen — `journal_entry_budget`. That bound
+// is structural rather than a hope: every category is capped per level, and the
+// notable encounter is capped however many viewpoints a thorough sweep climbs.
+//
+// The budget was twelve while a level had three moments to report. Guaranteeing a
+// terrain set-piece on every route gave every level a fourth, so the bound moved
+// with the content rather than the journal collapsing two different moments into
+// one line. Sixteen entries still read in a single screen, and every one of them
+// names something the run actually did.
 //
 // A level offers two things that could fill its notable-encounter slot: crossing
 // the terrain set-piece, which every route does, and climbing a vantage point,
 // which only some do. Whichever happens first takes the slot. Sharing one slot is
-// what keeps the run's entry budget exactly where it was before levels had a
-// crossing, and it means the journal reports the moment the player actually had
-// rather than always the same one.
+// what stops a thorough sweep from spending the whole run's budget on viewpoints,
+// and it means the journal reports the moment the player actually had rather than
+// always the same one.
+
+// The most entries one whole expedition can produce: four per level over the four
+// tiers. The console budget sweep measures real played runs against this, so a
+// new kind of entry cannot be added without either fitting inside a level's four
+// categories or moving this number deliberately.
+inline constexpr std::size_t journal_entries_per_level = 4;
+inline constexpr std::size_t journal_entry_budget = journal_entries_per_level * 4;
 
 // An optional find the actor entered for the first time. `ordinal` is its place
 // in the level's discovery order, so an entry reads as progress rather than as a
@@ -148,8 +162,8 @@ private:
     // A level has one notable encounter. Later vantage points repeat a moment the
     // player has already had, so they are collapsed by design rather than
     // truncated away: a thorough sweep steps on several and would otherwise spend
-    // the whole twelve-entry run budget on them. The set-piece crossing shares the
-    // same slot, so adding it cost the budget nothing.
+    // the whole run's entry budget on them. The set-piece crossing shares the
+    // same slot, so a level still reports exactly one encounter.
     bool level_encounter_logged_ = false;
 };
 

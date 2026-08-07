@@ -211,6 +211,49 @@ TEST_CASE("j is reserved for the journal and is no longer a movement alias") {
     CHECK_FALSE(is_quit_event(KeyEvent::of_character('j')));
 }
 
+TEST_CASE("the accepted command set is exactly the one the prototype shipped") {
+    // The command budget is a design constraint, not an accident: content
+    // variety must never be paid for with another key to learn. This scans every
+    // printable ASCII character and every non-character key, and pins the exact
+    // set that means anything, so adding a command anywhere fails here first.
+    std::string movement_letters;
+    std::string quit_letters;
+    std::string journal_letters;
+    for (int code = 32; code < 127; ++code) {
+        const char character = static_cast<char>(code);
+        const KeyEvent event = KeyEvent::of_character(character);
+        if (direction_for(event).has_value()) movement_letters.push_back(character);
+        if (is_quit_event(event)) quit_letters.push_back(character);
+        if (is_journal_event(event)) journal_letters.push_back(character);
+    }
+    CHECK(movement_letters == "ADHKLSWadhklsw");
+    CHECK(quit_letters == "Qq");
+    CHECK(journal_letters == "Jj");
+
+    // No character does two jobs, so no key's meaning depends on the screen.
+    for (const char character : movement_letters) {
+        CHECK(quit_letters.find(character) == std::string::npos);
+        CHECK(journal_letters.find(character) == std::string::npos);
+    }
+    CHECK(quit_letters.find_first_of(journal_letters) == std::string::npos);
+
+    // Exactly four non-character keys command anything; the rest are transport
+    // or terminal events the application handles but the player never presses as
+    // a command.
+    const Key non_character_keys[] = {
+        Key::up,     Key::down,      Key::left,      Key::right,   Key::home,
+        Key::end,    Key::page_up,   Key::page_down, Key::enter,   Key::escape,
+        Key::resize, Key::interrupt, Key::unknown,   Key::end_of_input};
+    std::size_t commanding = 0;
+    for (const Key key : non_character_keys) {
+        const KeyEvent event = KeyEvent::of(key);
+        if (direction_for(event).has_value() || is_quit_event(event) || is_journal_event(event)) {
+            ++commanding;
+        }
+    }
+    CHECK(commanding == 5);  // Four arrows plus Escape for quit.
+}
+
 TEST_CASE("non-movement events yield no direction") {
     CHECK_FALSE(direction_for(KeyEvent::of_character('q')).has_value());
     CHECK_FALSE(direction_for(KeyEvent::of(Key::home)).has_value());

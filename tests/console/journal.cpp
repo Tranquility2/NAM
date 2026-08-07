@@ -178,8 +178,9 @@ TEST_CASE("the journal says which crossing the level made the player take") {
 }
 
 TEST_CASE("a crossing and a vantage point share the level's one encounter entry") {
-    // Adding the crossing must not widen the run's entry budget, so whichever
-    // moment comes first takes the slot and the other is collapsed.
+    // A level reports one notable encounter however many moments could have
+    // filled it, so whichever comes first takes the slot and the other is
+    // collapsed. That is what holds the per-level cap at four.
     Journal crossing_first;
     crossing_first.record_event(crossing_event(1, Direction::right, SetPieceKind::ford),
                                 ctx("Glass River Exit"));
@@ -399,7 +400,11 @@ TEST_CASE("a completion inside an expedition names the tier and the level number
                       "1 of 2 discoveries found)."));
 }
 
-TEST_CASE("a whole level stays within three journal entries") {
+TEST_CASE("a whole level stays within its per-level entry cap") {
+    // A level reports at most one of each category: its discovery, its notable
+    // encounter, its landmark, and its completion. That per-level cap is what
+    // bounds the whole run at journal_entry_budget, so it is checked here on a
+    // level that produces one of each.
     Journal journal;
     JournalContext context = ctx("North Ridge");
     context.total_levels = 2;
@@ -417,6 +422,8 @@ TEST_CASE("a whole level stays within three journal entries") {
         context);
 
     CHECK(journal.size() == 3);
+    CHECK(journal.size() <= journal_entries_per_level);
+    CHECK(journal_entry_budget == journal_entries_per_level * 4u);
 }
 
 }  // TEST_SUITE("journal")
