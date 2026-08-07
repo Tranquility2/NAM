@@ -4,6 +4,7 @@
 #include <variant>
 
 #include "exploration.h"
+#include "messages.h"
 #include "world_generation.h"
 
 namespace nam::console {
@@ -87,6 +88,10 @@ ExpeditionReport build_expedition_report(
     score_input.actual_moves = move_count;
     score_input.discoveries_found = carryover.discoveries_found;
     score_input.discovery_multiplier = discovery_multiplier_of(carryover.applied_bonus);
+    // Both multipliers, because the core applies both. Leaving the budget one at
+    // its default made a pathfinder level's *displayed* score disagree with the
+    // score the core actually banked into the expedition total.
+    score_input.budget_multiplier = budget_multiplier_of(carryover.applied_bonus);
 
     ExpeditionReport report{map, visibility};
     report.landmark_name = objective.name;
@@ -134,23 +139,79 @@ std::string format_report_story(const ExpeditionReport& report) {
 }
 
 std::vector<std::string> format_report_statistics(const ExpeditionReport& report) {
+    const ExpeditionScore& score = report.score;
+
+    // The most this level could have paid, given the bonus that was actually in
+    // force. Every component line reads "<earned> of <possible>", so a player can
+    // see at a glance which bucket they left points in rather than being handed a
+    // total with nothing to compare it against.
+    const std::uint64_t discovery_maximum = std::uint64_t{report.carryover.discovery_total} *
+                                            completed_score_per_discovery *
+                                            score.discovery_multiplier;
+    const std::uint64_t budget_maximum = completed_budget_award * score.budget_multiplier;
+    const std::uint64_t score_maximum = completed_exit_award + completed_exploration_maximum +
+                                        discovery_maximum + budget_maximum;
+
     std::vector<std::string> lines;
     lines.emplace_back("STATISTICS");
-    lines.push_back("Score: " + std::to_string(report.score.value) + " (exit " +
-                    std::to_string(report.score.completion_value) + ", explored " +
-                    std::to_string(report.score.exploration_value) + " / " +
-                    std::to_string(completed_exploration_maximum) + ", discoveries " +
-                    std::to_string(report.score.discovery_value) + ", budget " +
-                    std::to_string(report.score.budget_value) + ")");
-    lines.push_back("Discoveries: " + std::to_string(report.carryover.discoveries_found) + " / " +
-                    std::to_string(report.carryover.discovery_total));
-    lines.push_back("Explored: " + std::to_string(report.explored_reachable_cells) + " / " +
+    lines.push_back("Score: " + std::to_string(score.value) + " of " +
+                    std::to_string(score_maximum) + " possible");
+    lines.push_back("Exit: " + std::to_string(score.completion_value) + " of " +
+                    std::to_string(completed_exit_award) + ", reached");
+    lines.push_back("Explored: " + std::to_string(score.exploration_value) + " of " +
+                    std::to_string(completed_exploration_maximum) + ", " +
+                    std::to_string(report.explored_reachable_cells) + " of " +
                     std::to_string(report.total_reachable_cells) + " cells (" +
-                    std::to_string(report.score.explored_percent) + "%)");
-    lines.push_back("Moves: " + std::to_string(report.move_count) + " " +
-                    plural(report.move_count, "move", "moves") + " of " +
-                    std::to_string(report.score.move_budget) + " budgeted, " +
-                    std::to_string(report.blocked_attempts) + " blocked");
+                    std::to_string(score.explored_percent) + "%)");
+
+    std::string discoveries;
+    if (report.carryover.discovery_total == 0) {
+        // A handcrafted map may place no optional content at all. "0 of 0, 0 of 0
+        // found" would be four numbers saying nothing.
+        discoveries = "Discoveries: none placed on this level";
+    } else {
+        discoveries = "Discoveries: " + std::to_string(score.discovery_value) + " of " +
+                      std::to_string(discovery_maximum) + ", " +
+                      std::to_string(report.carryover.discoveries_found) + " of " +
+                      std::to_string(report.carryover.discovery_total) + " found";
+        if (score.discovery_multiplier > 1) {
+            discoveries += ", " + bonus_name_lower(report.carryover.applied_bonus) +
+                           " multiplied by " + std::to_string(score.discovery_multiplier);
+        }
+    }
+    lines.push_back(std::move(discoveries));
+
+    std::string budget = "Budget: " + std::to_string(score.budget_value) + " of " +
+                         std::to_string(budget_maximum) + ", " +
+                         std::to_string(score.actual_moves) + " " +
+                         plural(score.actual_moves, "move", "moves") + " of " +
+                         std::to_string(score.move_budget) + " budgeted";
+    if (score.moves_over_budget > 0) {
+        // The loss the player actually took, after the carried multiplier, rather
+        // than the pre-multiplier deduction they never see.
+        const std::uint64_t lost = budget_maximum > score.budget_value
+                                       ? budget_maximum - score.budget_value
+                                       : 0;
+        budget += ", " + std::to_string(score.moves_over_budget) + " " +
+                  plural(score.moves_over_budget, "move", "moves") + " over cost " +
+                  std::to_string(lost);
+    } else if (score.budget_multiplier > 1) {
+        budget += ", " + bonus_name_lower(report.carryover.applied_bonus) + " multiplied by " +
+                  std::to_string(score.budget_multiplier);
+    }
+    lines.push_back(std::move(budget));
+
+    // Par is the pathfinder test, so saying whether it was met tells a player why
+    // they did or did not carry that bonus forward. A level too small to have a
+    // par cannot be walked efficiently, so it is not mentioned there.
+    std::string moves = "Moves: " + std::to_string(report.move_count) + " " +
+                        plural(report.move_count, "move", "moves");
+    if (score.par_moves > 0) {
+        moves += ", par " + std::to_string(score.par_moves) +
+                 (score.actual_moves <= score.par_moves ? " beaten" : " missed");
+    }
+    moves += ", " + std::to_string(report.blocked_attempts) + " blocked";
+    lines.push_back(std::move(moves));
     return lines;
 }
 
@@ -168,12 +229,16 @@ std::vector<std::string> format_report_expedition(const ExpeditionReport& report
                     std::to_string(report.carryover.expedition_discoveries_found) + " / " +
                     std::to_string(report.carryover.expedition_discoveries_available));
     if (report.carryover.applied_bonus != ExpeditionBonus::none) {
-        lines.emplace_back("Bonus spent: keen eye doubled this level's discoveries.");
+        lines.push_back("Bonus spent: " + bonus_name_lower(report.carryover.applied_bonus) +
+                        ". This level's " + bonus_effect_clause(report.carryover.applied_bonus) +
+                        ".");
     }
     // A bonus is only worth announcing while there is a next level to carry it to.
     if (!report.carryover.expedition_completed &&
         report.carryover.earned_bonus != ExpeditionBonus::none) {
-        lines.emplace_back("Bonus earned: keen eye. The next level's discoveries are worth double.");
+        lines.push_back("Bonus earned: " + bonus_name_lower(report.carryover.earned_bonus) +
+                        ". The next level's " + bonus_effect_clause(report.carryover.earned_bonus) +
+                        ".");
     }
     return lines;
 }

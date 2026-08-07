@@ -1,5 +1,7 @@
 #include "messages.h"
 
+#include <cctype>
+
 namespace nam::console {
 
 namespace {
@@ -155,22 +157,44 @@ std::string completion_reminder() {
     return "Run complete. Press Enter or q to exit.";
 }
 
+std::string bonus_name(ExpeditionBonus bonus) {
+    switch (bonus) {
+        case ExpeditionBonus::none:       return std::string();
+        case ExpeditionBonus::keen_eye:   return "Keen eye";
+        case ExpeditionBonus::surveyor:   return "Surveyor";
+        case ExpeditionBonus::pathfinder: return "Pathfinder";
+    }
+    // Exhaustive switch above; the fallback keeps the function total for every
+    // compiler in the portability baseline.
+    return std::string();
+}
+
+std::string bonus_name_lower(ExpeditionBonus bonus) {
+    std::string name = bonus_name(bonus);
+    if (!name.empty()) {
+        name[0] = static_cast<char>(std::tolower(static_cast<unsigned char>(name[0])));
+    }
+    return name;
+}
+
+std::string bonus_effect_clause(ExpeditionBonus bonus) {
+    switch (bonus) {
+        case ExpeditionBonus::none:       return std::string();
+        case ExpeditionBonus::keen_eye:   return "discoveries are worth double";
+        case ExpeditionBonus::surveyor:   return "viewpoints see further";
+        case ExpeditionBonus::pathfinder: return "budget award is worth double";
+    }
+    // Exhaustive switch above; the fallback keeps the function total for every
+    // compiler in the portability baseline.
+    return std::string();
+}
+
 std::string describe_level_started(LevelTier tier, std::uint32_t level_number,
                                    std::uint32_t total_levels, ExpeditionBonus bonus) {
     std::string text = std::string(to_string(tier)) + " level (" +
                        std::to_string(level_number) + " of " + std::to_string(total_levels) + ").";
-    switch (bonus) {
-        case ExpeditionBonus::none:
-            break;
-        case ExpeditionBonus::keen_eye:
-            text += " Keen eye: discoveries here are worth double.";
-            break;
-        case ExpeditionBonus::surveyor:
-            text += " Surveyor: every viewpoint here sees further.";
-            break;
-        case ExpeditionBonus::pathfinder:
-            text += " Pathfinder: walking this level well is worth double.";
-            break;
+    if (bonus != ExpeditionBonus::none) {
+        text += " " + bonus_name(bonus) + ": this level's " + bonus_effect_clause(bonus) + ".";
     }
     return text;
 }

@@ -286,15 +286,11 @@ static_assert(legend_terrain.size() == 8, "legend must list every Terrain enumer
 }
 
 // The user-facing name of the carried bonus, or an empty string when none is
-// active so callers can append it unconditionally.
+// active so callers can append it unconditionally. The wording is owned by
+// `messages.h` so the HUD, the level-start line, and the report can never name
+// the same bonus differently.
 [[nodiscard]] std::string bonus_text(const HudProgress& progress) {
-    switch (progress.bonus) {
-        case ExpeditionBonus::none:       return std::string();
-        case ExpeditionBonus::keen_eye:   return "Keen eye";
-        case ExpeditionBonus::surveyor:   return "Surveyor";
-        case ExpeditionBonus::pathfinder: return "Pathfinder";
-    }
-    return std::string();
+    return bonus_name(progress.bonus);
 }
 
 // The sight range the actor's current terrain grants, shared by every HUD layout.

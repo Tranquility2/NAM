@@ -597,9 +597,12 @@ TEST_CASE("plain single-cell map prints the report once and exits immediately") 
     CHECK(count_substr(output, "EXPEDITION REPORT") == 1);
     CHECK(output.find("The party found " + name + " and reached the exit in 0 moves.") !=
           std::string::npos);
-    CHECK(output.find("Score: 2000 (exit 1000, explored 800 / 800, discoveries 0, budget 200)") !=
-          std::string::npos);
-    CHECK(output.find("Moves: 0 moves of 0 budgeted, 0 blocked") != std::string::npos);
+    CHECK(output.find("Score: 2000 of 2000 possible") != std::string::npos);
+    CHECK(output.find("Explored: 800 of 800, 1 of 1 cells (100%)") != std::string::npos);
+    // A single cell has no budget and so no par to beat, which is the case the
+    // par note is deliberately silent about.
+    CHECK(output.find("Budget: 200 of 200, 0 moves of 0 budgeted") != std::string::npos);
+    CHECK(output.find("Moves: 0 moves, 0 blocked") != std::string::npos);
     CHECK(output.find("Goodbye") == std::string::npos);  // immediate quiet exit.
 }
 
@@ -1050,9 +1053,11 @@ TEST_CASE("a thorough run logs its discoveries and keeps the journal within budg
     REQUIRE(app.run_plain(input, out) == 0);
     const std::string output = out.str();
 
-    CHECK(output.find("Discoveries: 4 / 4") != std::string::npos);
-    CHECK(output.find("Bonus earned: keen eye.") != std::string::npos);
-    CHECK(output.find("Bonus spent: keen eye doubled this level's discoveries.") !=
+    CHECK(output.find("Discoveries: 1600 of 1600, 4 of 4 found, keen eye multiplied by 2") !=
+          std::string::npos);
+    CHECK(output.find("Bonus earned: keen eye. The next level's discoveries are worth double.") !=
+          std::string::npos);
+    CHECK(output.find("Bonus spent: keen eye. This level's discoveries are worth double.") !=
           std::string::npos);
 
     // The journal is the expedition-wide record, so the final report holds every

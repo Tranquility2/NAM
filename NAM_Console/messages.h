@@ -82,6 +82,23 @@ namespace nam::console {
 // player enters any command other than an acknowledgement.
 [[nodiscard]] std::string completion_reminder();
 
+// The player-facing name of a bonus, capitalized for a label or the start of a
+// sentence, e.g. "Keen eye". Empty for ExpeditionBonus::none.
+//
+// This and `bonus_effect_clause` are the only places a bonus is put into words.
+// Every site that names one - the HUD, the level-start line, and the report -
+// goes through them, because the report used to hardcode "keen eye" and so named
+// the wrong bonus for every surveyor and pathfinder run.
+[[nodiscard]] std::string bonus_name(ExpeditionBonus bonus);
+
+// The same name in the lower case a mid-sentence mention needs, e.g. "keen eye".
+[[nodiscard]] std::string bonus_name_lower(ExpeditionBonus bonus);
+
+// What a bonus does to the level it applies to, as a clause completing a phrase
+// such as "this level's" or "the next level's", e.g. "discoveries are worth
+// double". Empty for ExpeditionBonus::none.
+[[nodiscard]] std::string bonus_effect_clause(ExpeditionBonus bonus);
+
 // The HUD line that opens a level of a multi-level expedition, naming the tier,
 // the position in the chain, and any bonus carried into it.
 [[nodiscard]] std::string describe_level_started(LevelTier tier, std::uint32_t level_number,

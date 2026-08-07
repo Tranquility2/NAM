@@ -97,6 +97,33 @@ ExpeditionReport build_report(const LevelObjective& objective, const Map& map,
                                    world_identity_from(Settings{}), move_count, attempt_count);
 }
 
+// A level whose only variable is the bonus that was in force, so a case can vary
+// the bonus and read back exactly what the report says about it.
+ExpeditionReport bonus_report(ExpeditionBonus applied, ExpeditionBonus earned,
+                              std::uint64_t move_count) {
+    const Map map = row_map("......", Coordinates{0, 0});
+    const LevelObjective objective =
+        make_objective(Coordinates{5, 0}, "Glass River Exit", ObjectiveStatus::completed, 5, 6);
+    VisibilityMap visibility(6, 1);
+    visibility.reveal_square(Coordinates{2, 0}, 8);
+    Journal journal;
+    RouteHistory route(Coordinates{0, 0});
+
+    ExpeditionCarryover carryover;
+    carryover.levels_completed = 1;
+    carryover.total_levels = 2;
+    carryover.expedition_completed = false;
+    carryover.next_tier = LevelTier::medium;
+    carryover.discoveries_found = 2;
+    carryover.discovery_total = 2;
+    carryover.applied_bonus = applied;
+    carryover.earned_bonus = earned;
+
+    return build_expedition_report(objective, map, visibility, journal, route,
+                                   world_identity_from(Settings{}), move_count, move_count,
+                                   carryover);
+}
+
 }  // namespace
 
 TEST_SUITE("expedition_report") {
@@ -243,12 +270,14 @@ TEST_CASE("completed report shows result story statistics and legend wording") {
           "The party found Glass River Exit and reached the exit in 3 moves.");
 
     const std::vector<std::string> stats = format_report_statistics(report);
-    REQUIRE(stats.size() == 5);
+    REQUIRE(stats.size() == 7);
     CHECK(stats[0] == "STATISTICS");
-    CHECK(stats[1] == "Score: 2000 (exit 1000, explored 800 / 800, discoveries 0, budget 200)");
-    CHECK(stats[2] == "Discoveries: 0 / 0");
-    CHECK(stats[3] == "Explored: 6 / 6 cells (100%)");
-    CHECK(stats[4] == "Moves: 3 moves of 4 budgeted, 1 blocked");
+    CHECK(stats[1] == "Score: 2000 of 2000 possible");
+    CHECK(stats[2] == "Exit: 1000 of 1000, reached");
+    CHECK(stats[3] == "Explored: 800 of 800, 6 of 6 cells (100%)");
+    CHECK(stats[4] == "Discoveries: none placed on this level");
+    CHECK(stats[5] == "Budget: 200 of 200, 3 moves of 4 budgeted");
+    CHECK(stats[6] == "Moves: 3 moves, par 1 missed, 1 blocked");
 
     // A standalone level has no separate expedition section to repeat itself in.
     CHECK(format_report_expedition(report).empty());
@@ -302,8 +331,9 @@ TEST_CASE("the move line uses singular grammar for a single move") {
         build_report(objective, map, visibility, journal, route, 1, 1);
 
     const std::vector<std::string> stats = format_report_statistics(report);
-    REQUIRE(stats.size() == 5);
-    CHECK(stats[4] == "Moves: 1 move of 4 budgeted, 0 blocked");
+    REQUIRE(stats.size() == 7);
+    CHECK(stats[5] == "Budget: 200 of 200, 1 move of 4 budgeted");
+    CHECK(stats[6] == "Moves: 1 move, par 1 beaten, 0 blocked");
 }
 
 TEST_CASE("report line sections appear in the required order") {
@@ -365,3 +395,103 @@ TEST_CASE("plain report block ends with one newline has no ansi and is determini
 }
 
 }  // TEST_SUITE("expedition_report")
+
+TEST_SUITE("expedition_report_bonus") {
+
+// The report used to hardcode "keen eye" in both bonus sentences, so a surveyor
+// or pathfinder run was told it had earned and spent a bonus it never held. Each
+// bonus must name itself and describe its own effect.
+TEST_CASE("every bonus names itself in the report rather than borrowing keen eye's name") {
+    struct Expectation {
+        ExpeditionBonus bonus;
+        const char* name;
+        const char* clause;
+    };
+    const Expectation expectations[] = {
+        {ExpeditionBonus::keen_eye, "keen eye", "discoveries are worth double"},
+        {ExpeditionBonus::surveyor, "surveyor", "viewpoints see further"},
+        {ExpeditionBonus::pathfinder, "pathfinder", "budget award is worth double"},
+    };
+
+    for (const Expectation& expected : expectations) {
+        const ExpeditionReport report = bonus_report(expected.bonus, expected.bonus, 1);
+        const std::string text = join_lines(format_report_expedition(report));
+
+        CHECK(text.find("Bonus spent: " + std::string(expected.name) + ". This level's " +
+                        expected.clause + ".") != std::string::npos);
+        CHECK(text.find("Bonus earned: " + std::string(expected.name) + ". The next level's " +
+                        expected.clause + ".") != std::string::npos);
+
+        // No other bonus may be named, which is what the old hardcoded wording
+        // violated for two of the three.
+        for (const Expectation& other : expectations) {
+            if (other.bonus == expected.bonus) continue;
+            CHECK(text.find(other.name) == std::string::npos);
+        }
+    }
+}
+
+// The report recomputes the level score for display while the core computes the
+// banked one. It once passed only the discovery multiplier, so a pathfinder level
+// showed a budget award half the size of the one it was actually paid.
+TEST_CASE("the displayed score applies both carried multipliers just as the core does") {
+    const ExpeditionReport plain = bonus_report(ExpeditionBonus::none, ExpeditionBonus::none, 1);
+    const ExpeditionReport pathfinder =
+        bonus_report(ExpeditionBonus::pathfinder, ExpeditionBonus::none, 1);
+    const ExpeditionReport keen =
+        bonus_report(ExpeditionBonus::keen_eye, ExpeditionBonus::none, 1);
+
+    CHECK(plain.score.budget_value == completed_budget_award);
+    CHECK(pathfinder.score.budget_value == completed_budget_award * 2);
+    CHECK(pathfinder.score.value == plain.score.value + completed_budget_award);
+
+    CHECK(keen.score.discovery_value == plain.score.discovery_value * 2);
+    CHECK(keen.score.budget_value == completed_budget_award);
+}
+
+// Every score component is shown with what it earned and the most it could have
+// earned, so a player can see which bucket they left points in.
+TEST_CASE("the breakdown shows par and the cost of running over budget") {
+    // Six reachable cells give a budget of four and a par of one, so nine moves
+    // is five past the budget and well past par.
+    const ExpeditionReport over = bonus_report(ExpeditionBonus::none, ExpeditionBonus::none, 9);
+    REQUIRE(over.score.move_budget == 4);
+    REQUIRE(over.score.par_moves == 1);
+    REQUIRE(over.score.moves_over_budget == 5);
+
+    const std::string text = join_lines(format_report_statistics(over));
+    CHECK(text.find("Budget: 175 of 200, 9 moves of 4 budgeted, 5 moves over cost 25") !=
+          std::string::npos);
+    CHECK(text.find("Moves: 9 moves, par 1 missed, 0 blocked") != std::string::npos);
+
+    // Beating par is the pathfinder test, so the line has to say so.
+    const ExpeditionReport under = bonus_report(ExpeditionBonus::none, ExpeditionBonus::none, 1);
+    const std::string under_text = join_lines(format_report_statistics(under));
+    CHECK(under_text.find("Moves: 1 move, par 1 beaten, 0 blocked") != std::string::npos);
+    CHECK(under_text.find("Budget: 200 of 200, 1 move of 4 budgeted") != std::string::npos);
+    CHECK(under_text.find("over cost") == std::string::npos);
+}
+
+// The multiplier is stated where it is applied, so a bonus that paid off is
+// visible in the line whose number it changed.
+TEST_CASE("a doubled component says which bonus doubled it") {
+    const ExpeditionReport keen =
+        bonus_report(ExpeditionBonus::keen_eye, ExpeditionBonus::none, 1);
+    const std::string keen_text = join_lines(format_report_statistics(keen));
+    CHECK(keen_text.find("Discoveries: 800 of 800, 2 of 2 found, keen eye multiplied by 2") !=
+          std::string::npos);
+
+    const ExpeditionReport pathfinder =
+        bonus_report(ExpeditionBonus::pathfinder, ExpeditionBonus::none, 1);
+    const std::string pathfinder_text = join_lines(format_report_statistics(pathfinder));
+    CHECK(pathfinder_text.find(
+              "Budget: 400 of 400, 1 move of 4 budgeted, pathfinder multiplied by 2") !=
+          std::string::npos);
+
+    // The possible total moves with the bonus, so the score is compared against
+    // what this run could really have scored: 1000 exit, 800 explored, 400 for
+    // two discoveries, and a doubled 400 budget award.
+    CHECK(pathfinder_text.find("of 2600 possible") != std::string::npos);
+}
+
+}  // TEST_SUITE("expedition_report_bonus")
