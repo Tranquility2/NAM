@@ -4,13 +4,16 @@
 #include <cctype>
 #include <cstdint>
 #include <iostream>
+#include <optional>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include "expedition_score.h"
 #include "exploration.h"
 #include "game_event.h"
 #include "messages.h"
+#include "replay.h"
 
 namespace nam::console {
 
@@ -49,6 +52,20 @@ enum class PlainCommand { none, quit, journal, up, down, left, right, unknown };
     if (normalized == "a" || normalized == "h" || normalized == "left") return PlainCommand::left;
     if (normalized == "d" || normalized == "l" || normalized == "right") return PlainCommand::right;
     return PlainCommand::unknown;
+}
+
+// The plain command one direction of a decoded replay string stands for, so an
+// expanded string runs through exactly the same handling as a typed command.
+[[nodiscard]] PlainCommand plain_command_of(Direction direction) noexcept {
+    switch (direction) {
+        case Direction::up:    return PlainCommand::up;
+        case Direction::down:  return PlainCommand::down;
+        case Direction::left:  return PlainCommand::left;
+        case Direction::right: return PlainCommand::right;
+    }
+    // Exhaustive switch above; the fallback keeps the function total for every
+    // compiler in the portability baseline.
+    return PlainCommand::up;
 }
 
 // The one initial HUD line, shared by both modes so the seed notice cannot drift
@@ -161,6 +178,10 @@ JournalContext ConsoleApp::journal_context() const {
 ObjectiveTransition ConsoleApp::apply_move(Direction direction, bool& emphasize) {
     const GameEvent event = state().move(direction);
     const MoveAttemptedEvent& payload = std::get<MoveAttemptedEvent>(event.data);
+    // Recorded before the outcome is inspected, because a blocked attempt is still
+    // a command the run made: dropping it would change the attempt count a replay
+    // reproduces.
+    commands_.push_back(direction);
     hud_.record_event(event);
     journal_.record_event(event, journal_context());
     route_history_.record_event(event);
@@ -231,6 +252,7 @@ void ConsoleApp::enter_completion() {
     // The whole-run record, not just the running totals: the final report tabulates
     // every level, so a four-level run does not leave the first three unrecorded.
     carryover.levels = expedition_.summaries();
+    carryover.commands = commands_;
     if (!expedition_.completed()) {
         carryover.next_tier = expedition_.current_tier();
     }
@@ -652,10 +674,10 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
     output << renderer.render_plain(make_input(false));
     output.flush();
 
-    std::string line;
-    while (std::getline(input, line)) {
-        const std::string command = normalize_command(line);
-        const PlainCommand parsed = parse_plain_command(command);
+    // Apply one decoded command. Returns true when the command ended the run, so
+    // the caller returns immediately and no later command is read.
+    const auto apply_plain_command = [&](PlainCommand parsed,
+                                         const std::string& command) -> bool {
         bool emphasize = false;
 
         // A journal command prints the complete journal block once and immediately
@@ -664,7 +686,7 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
         if (parsed == PlainCommand::journal) {
             output << renderer.render_journal_plain(journal_);
             output.flush();
-            continue;
+            return false;
         }
 
         switch (presentation_) {
@@ -676,23 +698,23 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
                         hud_.set_message("Goodbye.");
                         output << renderer.render_plain(make_input(false));
                         output.flush();
-                        return 0;
+                        return true;
                     case PlainCommand::none:
                         hud_.set_message("Position held. Enter a move or q to quit.");
                         output << renderer.render_plain(make_input(false));
                         output.flush();
                         break;
                     case PlainCommand::up:
-                        if (present_move_result(apply_move(Direction::up, emphasize))) return 0;
+                        if (present_move_result(apply_move(Direction::up, emphasize))) return true;
                         break;
                     case PlainCommand::down:
-                        if (present_move_result(apply_move(Direction::down, emphasize))) return 0;
+                        if (present_move_result(apply_move(Direction::down, emphasize))) return true;
                         break;
                     case PlainCommand::left:
-                        if (present_move_result(apply_move(Direction::left, emphasize))) return 0;
+                        if (present_move_result(apply_move(Direction::left, emphasize))) return true;
                         break;
                     case PlainCommand::right:
-                        if (present_move_result(apply_move(Direction::right, emphasize))) return 0;
+                        if (present_move_result(apply_move(Direction::right, emphasize))) return true;
                         break;
                     case PlainCommand::unknown:
                         hud_.set_message("Unknown command '" + command +
@@ -714,7 +736,7 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
                         presentation_ = Presentation::gameplay;
                         output << renderer.render_plain(make_input(false));
                         output.flush();
-                        return 0;
+                        return true;
                     case PlainCommand::none:
                         // An empty line dismisses the discovery screen to gameplay
                         // without emitting an event (REQ-020).
@@ -723,16 +745,16 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
                         output.flush();
                         break;
                     case PlainCommand::up:
-                        if (present_move_result(apply_move(Direction::up, emphasize))) return 0;
+                        if (present_move_result(apply_move(Direction::up, emphasize))) return true;
                         break;
                     case PlainCommand::down:
-                        if (present_move_result(apply_move(Direction::down, emphasize))) return 0;
+                        if (present_move_result(apply_move(Direction::down, emphasize))) return true;
                         break;
                     case PlainCommand::left:
-                        if (present_move_result(apply_move(Direction::left, emphasize))) return 0;
+                        if (present_move_result(apply_move(Direction::left, emphasize))) return true;
                         break;
                     case PlainCommand::right:
-                        if (present_move_result(apply_move(Direction::right, emphasize))) return 0;
+                        if (present_move_result(apply_move(Direction::right, emphasize))) return true;
                         break;
                     case PlainCommand::unknown:
                         // An unknown command keeps the discovery screen active and
@@ -744,14 +766,41 @@ int ConsoleApp::run_plain(std::istream& input, std::ostream& output) {
                 break;
 
             case Presentation::level_complete:
-                // Unreachable: completion returns 0 immediately above. The defensive
+                // Unreachable: completion returns immediately above. The defensive
                 // return keeps the switch total and guarantees no post-ending command
                 // processing (REQ-035 / REQ-151).
-                return 0;
+                return true;
 
             case Presentation::journal:
                 break;  // Plain mode never enters the journal presentation state.
         }
+        return false;
+    };
+
+    std::string line;
+    while (std::getline(input, line)) {
+        const std::string command = normalize_command(line);
+        const PlainCommand parsed = parse_plain_command(command);
+
+        // A line that names no command may still be a compact replay string, which
+        // is how a finished run is handed back to be replayed. Named commands are
+        // matched first, so "down", "left", and "quit" keep their meaning and only
+        // a line made purely of direction letters and repeat counts is expanded.
+        if (parsed == PlainCommand::unknown) {
+            if (const std::optional<std::vector<Direction>> moves = decode_replay(command)) {
+                bool finished = false;
+                for (const Direction direction : *moves) {
+                    if (apply_plain_command(plain_command_of(direction), command)) {
+                        finished = true;
+                        break;
+                    }
+                }
+                if (finished) return 0;
+                continue;
+            }
+        }
+
+        if (apply_plain_command(parsed, command)) return 0;
     }
 
     // End of input in an unfinished run keeps the existing plain goodbye. A

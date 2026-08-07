@@ -141,6 +141,11 @@ private:
     // The ordered route (spawn plus every successful destination), recorded from
     // the same event stream as the HUD and journal (REQ-019 / TASK-010).
     RouteHistory route_history_;
+    // Every movement command the run has made, across every level. Unlike the
+    // route, this is never reset on an advance: it is the record the final report
+    // encodes into a replay string, and a replay has to start from the first
+    // command of the first level.
+    std::vector<Direction> commands_;
     Presentation presentation_ = Presentation::gameplay;
     // The presentation the journal was opened from, restored on dismiss or exit.
     Presentation previous_presentation_ = Presentation::gameplay;

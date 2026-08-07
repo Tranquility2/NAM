@@ -27,6 +27,8 @@ set(nam_console_lib_sources
     messages.h
     renderer.cpp
     renderer.h
+    replay.cpp
+    replay.h
     settings.cpp
     settings.h
     frame.h

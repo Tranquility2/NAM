@@ -1043,6 +1043,25 @@ constexpr LevelTier kTierChain[] = {LevelTier::small, LevelTier::medium, LevelTi
     return std::strtoull(output.c_str() + at + marker.size(), nullptr, 10);
 }
 
+// The last report a run printed, from its WORLD heading to the end of the output.
+// Everything a replay has to reproduce lives here: the recorded commands, the
+// route map, the per-level table, and the totals.
+[[nodiscard]] std::string final_report_of(const std::string& output) {
+    const std::size_t at = output.rfind("WORLD\n");
+    if (at == std::string::npos) return {};
+    return output.substr(at);
+}
+
+// The compact command string a report printed, without its label.
+[[nodiscard]] std::string recorded_commands(const std::string& output) {
+    const std::string marker = "\nCommands: ";
+    const std::size_t at = output.rfind(marker);
+    if (at == std::string::npos) return {};
+    const std::size_t begin = at + marker.size();
+    const std::size_t end = output.find('\n', begin);
+    return output.substr(begin, end == std::string::npos ? end : end - begin);
+}
+
 }  // namespace
 
 TEST_SUITE("console_app") {
@@ -1236,6 +1255,82 @@ TEST_CASE("a standalone level is a one-level expedition with no carryover lines"
     CHECK(output.find("Result: level complete.") != std::string::npos);
     CHECK(output.find("Expedition score:") == std::string::npos);
     CHECK(output.find("level ahead") == std::string::npos);
+}
+
+TEST_CASE("the commands a finished run prints replay that run exactly") {
+    // Play the whole four-level expedition, then hand the string it printed back
+    // to a fresh run of the same world. This is the point of recording commands:
+    // the report has to be enough on its own to reproduce the run it describes,
+    // across every level rather than only the one that ended it.
+    ConsoleApp played(Expedition(kExpeditionSeed), Settings{});
+    std::istringstream walk(commands_to_finish(kExpeditionSeed));
+    std::ostringstream played_out;
+    REQUIRE(played.run_plain(walk, played_out) == 0);
+    const std::string played_output = played_out.str();
+
+    const std::string commands = recorded_commands(played_output);
+    REQUIRE_FALSE(commands.empty());
+
+    ConsoleApp replayed(Expedition(kExpeditionSeed), Settings{});
+    std::istringstream replay(commands + "\n");
+    std::ostringstream replayed_out;
+    REQUIRE(replayed.run_plain(replay, replayed_out) == 0);
+    const std::string replayed_output = replayed_out.str();
+
+    // Byte-identical final reports: same route map, same per-level table, same
+    // totals, and the replay records back the same string it was given.
+    CHECK(final_report_of(replayed_output) == final_report_of(played_output));
+    CHECK(recorded_commands(replayed_output) == commands);
+    // The record spans the whole expedition, so its move total is the run's, not
+    // just the last level's.
+    CHECK(expedition_total_score(replayed_output) == expedition_total_score(played_output));
+}
+
+TEST_CASE("the recorded commands include an attempt terrain refused") {
+    // The corridor is one cell tall, so the two ups are refused. They move nothing
+    // but they do change the attempt count the report states, and a record that
+    // dropped them would describe a shorter run than the one that was played.
+    std::string played_output;
+    REQUIRE(run_plain_state(make_corridor_state(), "w\nw\nd\nd\nd\n", played_output) == 0);
+
+    CHECK(played_output.find("Moves: 3 moves, 2 blocked") != std::string::npos);
+    CHECK(recorded_commands(played_output) == "2w3d");
+
+    std::string replayed_output;
+    REQUIRE(run_plain_state(make_corridor_state(), "2w3d\n", replayed_output) == 0);
+
+    CHECK(final_report_of(replayed_output) == final_report_of(played_output));
+}
+
+TEST_CASE("a line of direction letters is played as those moves") {
+    std::string output;
+    REQUIRE(run_plain_state(make_corridor_state(), "2dd\n", output) == 0);
+
+    CHECK(output.find("Result: level complete.") != std::string::npos);
+    CHECK(output.find("Unknown command") == std::string::npos);
+    CHECK(recorded_commands(output) == "3d");
+}
+
+TEST_CASE("a word that is not a replay is still an unknown command") {
+    // The fallback must not turn a typo into moves: "save" is all letters but only
+    // some of them name directions, so it has to be refused whole.
+    std::string output;
+    REQUIRE(run_plain_state(make_corridor_state(), "hello\nsave\nq\n", output) == 0);
+
+    CHECK(count_substr(output, "Unknown command 'hello'") == 1u);
+    CHECK(count_substr(output, "Unknown command 'save'") == 1u);
+    CHECK(output.find("Result: level complete.") == std::string::npos);
+}
+
+TEST_CASE("the single-letter aliases keep their meaning beside the replay letters") {
+    // h, k, and l move but are not replay letters, so decoding must never see them
+    // and each must still be exactly one step.
+    std::string output;
+    REQUIRE(run_plain_state(make_corridor_state(), "l\nl\nl\n", output) == 0);
+
+    CHECK(output.find("Result: level complete.") != std::string::npos);
+    CHECK(output.find("Unknown command") == std::string::npos);
+    CHECK(recorded_commands(output) == "3d");
 }
 
 }  // TEST_SUITE("console_app")

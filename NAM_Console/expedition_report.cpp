@@ -5,6 +5,7 @@
 
 #include "exploration.h"
 #include "messages.h"
+#include "replay.h"
 #include "world_generation.h"
 
 namespace nam::console {
@@ -353,10 +354,10 @@ std::vector<std::string> format_report_levels(const ExpeditionReport& report) {
     return lines;
 }
 
-std::vector<std::string> format_report_identity(const ExpeditionReport& report) {
-    const WorldIdentity& identity = report.identity;
+// The source and run-again lines for a world. Split out so the replay string can
+// be appended once rather than in each of the four branches.
+[[nodiscard]] std::vector<std::string> format_world_source(const WorldIdentity& identity) {
     std::vector<std::string> lines;
-    lines.emplace_back("WORLD");
     switch (identity.source) {
         case WorldSource::text_seed:
             lines.emplace_back("Source: expedition (text seed)");
@@ -386,6 +387,22 @@ std::vector<std::string> format_report_identity(const ExpeditionReport& report) 
     // compiler in the portability baseline.
     lines.emplace_back("Source: built-in map");
     lines.emplace_back("Run again: nam_console");
+    return lines;
+}
+
+std::vector<std::string> format_report_identity(const ExpeditionReport& report) {
+    std::vector<std::string> lines;
+    lines.emplace_back("WORLD");
+    const std::vector<std::string> source = format_world_source(report.identity);
+    lines.insert(lines.end(), source.begin(), source.end());
+
+    // The run itself, next to the world it was played in. The two together are the
+    // whole replay: the world line reproduces the map, this reproduces the play.
+    // Plain mode accepts the string as written, so it can be piped or pasted back.
+    const std::string commands = encode_replay(report.carryover.commands);
+    if (!commands.empty()) {
+        lines.push_back("Commands: " + commands);
+    }
     return lines;
 }
 

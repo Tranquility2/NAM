@@ -12,4 +12,5 @@ nam_add_test_executable(nam_console_tests
         app_state.cpp
         console_app.cpp
         journal.cpp
+        replay.cpp
         expedition_report.cpp)

@@ -13,6 +13,7 @@ set(_moves_stdin ${CMAKE_CURRENT_SOURCE_DIR}/stdin_moves.txt)
 set(_level_stdin ${CMAKE_CURRENT_SOURCE_DIR}/stdin_level.txt)
 set(_wander_stdin ${CMAKE_CURRENT_SOURCE_DIR}/stdin_wander.txt)
 set(_phase0_stdin ${CMAKE_CURRENT_SOURCE_DIR}/stdin_phase0_level.txt)
+set(_phase0_replay_stdin ${CMAKE_CURRENT_SOURCE_DIR}/stdin_phase0_replay.txt)
 
 # add a CLI test: name plus driver options forwarded as -D definitions. The
 # TIMEOUT matters more here than for the unit suites: these launch the real
@@ -93,10 +94,24 @@ nam_add_cli_test(cli_run_level_wander_deterministic
 nam_add_cli_test(cli_run_phase0_level
     "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}
     -DEXPECT_CODE=0
-    "-DEXPECT_CONTAINS=Result: level complete.|Budget: 150 of 200, 46 moves of 36 budgeted, 10 moves over cost 50|Moves: 46 moves, par 10 missed, 0 blocked|Explored: 800 of 800, 55 of 55 cells (100%)|Sighted Moon Strand Crossing|Reached the exit after Moon Strand Crossing"
+    "-DEXPECT_CONTAINS=Result: level complete.|Commands: 12d2s12a2s12d2s4a|Budget: 150 of 200, 46 moves of 36 budgeted, 10 moves over cost 50|Moves: 46 moves, par 10 missed, 0 blocked|Explored: 800 of 800, 55 of 55 cells (100%)|Sighted Moon Strand Crossing|Reached the exit after Moon Strand Crossing"
     -DFORBID_ESC=1)
 nam_add_cli_test(cli_run_phase0_level_deterministic
     "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}
+    -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
+
+# The report's own record, replayed through the real executable. The stdin script
+# here is the single compact string the scripted run above prints as its
+# "Commands:" line, so the two runs must agree on every reported figure. This is
+# the shipped-binary proof that a report is enough to reproduce the run it
+# describes, without a side file or an extra flag.
+nam_add_cli_test(cli_run_phase0_replay
+    "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_replay_stdin}
+    -DEXPECT_CODE=0
+    "-DEXPECT_CONTAINS=Result: level complete.|Commands: 12d2s12a2s12d2s4a|Budget: 150 of 200, 46 moves of 36 budgeted, 10 moves over cost 50|Moves: 46 moves, par 10 missed, 0 blocked|Explored: 800 of 800, 55 of 55 cells (100%)"
+    -DFORBID_ESC=1)
+nam_add_cli_test(cli_run_phase0_replay_deterministic
+    "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_replay_stdin}
     -DEXPECT_CODE=0 -DEXPECT_DETERMINISTIC=1)
 
 # --- seeded expedition integration -------------------------------------

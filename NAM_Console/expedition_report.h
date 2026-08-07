@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "coordinates.h"
+#include "direction.h"
 #include "expedition.h"
 #include "expedition_score.h"
 #include "game_event.h"
@@ -111,6 +112,12 @@ struct ExpeditionCarryover {
     // Empty when the caller has no expedition to draw from, in which case the
     // per-level section is simply omitted.
     std::vector<LevelSummary> levels;
+
+    // Every movement command the run has made, across every level, in order. This
+    // carries across levels for the same reason the journal does: it is a record
+    // of the whole run, not of the level that happens to be ending. The report
+    // encodes it into the compact replay string a finished run is reproduced from.
+    std::vector<Direction> commands;
 };
 
 // The complete report snapshot. Map and visibility come first so the aggregate can
