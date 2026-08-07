@@ -200,19 +200,93 @@ TEST_CASE("every seeded run is solvable end to end over the whole four-tier chai
     }
 }
 
-TEST_CASE("the same seed replays the same prototype run exactly") {
+TEST_CASE("the same seed replays the same run exactly") {
+    // Determinism over a whole four-tier run, field by field. The earlier version
+    // of this compared three fields per level, so any of the score parts, the
+    // carried bonuses, or the progression counters could have drifted without it
+    // noticing. Every field of every summary is compared now, in three styles,
+    // because a style that never leaves the route exercises none of the content
+    // bookkeeping.
     for (const std::uint64_t seed : gate_seeds()) {
-        const Expedition first = play(seed, Style::thorough);
-        const Expedition second = play(seed, Style::thorough);
-        REQUIRE(first.summaries().size() == second.summaries().size());
-        for (std::size_t i = 0; i < first.summaries().size(); ++i) {
-            CHECK(first.summaries()[i].tier == second.summaries()[i].tier);
-            CHECK(first.summaries()[i].score.value == second.summaries()[i].score.value);
-            CHECK(first.summaries()[i].discoveries_found ==
-                  second.summaries()[i].discoveries_found);
+        for (const Style style : {Style::direct, Style::thorough, Style::sweep}) {
+            const Expedition first = play(seed, style);
+            const Expedition second = play(seed, style);
+
+            REQUIRE(first.summaries().size() == second.summaries().size());
+            REQUIRE(first.summaries().size() == expedition_level_count);
+            for (std::size_t i = 0; i < first.summaries().size(); ++i) {
+                const LevelSummary& a = first.summaries()[i];
+                const LevelSummary& b = second.summaries()[i];
+                CHECK(a.tier == b.tier);
+                CHECK(a.discoveries_found == b.discoveries_found);
+                CHECK(a.discovery_total == b.discovery_total);
+                CHECK(a.vantages_reached == b.vantages_reached);
+                CHECK(a.vantage_total == b.vantage_total);
+                CHECK(a.applied_bonus == b.applied_bonus);
+                CHECK(a.earned_bonus == b.earned_bonus);
+
+                CHECK(a.score.value == b.score.value);
+                CHECK(a.score.completion_value == b.score.completion_value);
+                CHECK(a.score.explored_reachable_cells == b.score.explored_reachable_cells);
+                CHECK(a.score.total_reachable_cells == b.score.total_reachable_cells);
+                CHECK(a.score.explored_percent == b.score.explored_percent);
+                CHECK(a.score.exploration_value == b.score.exploration_value);
+                CHECK(a.score.discoveries_found == b.score.discoveries_found);
+                CHECK(a.score.discovery_multiplier == b.score.discovery_multiplier);
+                CHECK(a.score.discovery_value == b.score.discovery_value);
+                CHECK(a.score.actual_moves == b.score.actual_moves);
+                CHECK(a.score.move_budget == b.score.move_budget);
+                CHECK(a.score.moves_over_budget == b.score.moves_over_budget);
+                CHECK(a.score.par_moves == b.score.par_moves);
+                CHECK(a.score.budget_multiplier == b.score.budget_multiplier);
+                CHECK(a.score.budget_value == b.score.budget_value);
+            }
+
+            // The progression counters, which no per-level comparison can see.
+            CHECK(first.total_score() == second.total_score());
+            CHECK(first.total_discoveries_found() == second.total_discoveries_found());
+            CHECK(first.total_discoveries_available() == second.total_discoveries_available());
+            CHECK(first.completed_levels() == second.completed_levels());
+            CHECK(first.total_levels() == second.total_levels());
+            CHECK(first.completed() == second.completed());
+            CHECK(first.active_bonus() == second.active_bonus());
+            CHECK(first.current_tier() == second.current_tier());
         }
-        CHECK(first.total_score() == second.total_score());
-        CHECK(first.total_discoveries_found() == second.total_discoveries_found());
+    }
+}
+
+TEST_CASE("a whole run's totals are exactly the sum of the levels it played") {
+    // Progression bookkeeping, checked against the summaries rather than trusted.
+    // A run's totals are what the player is finally shown, and they are
+    // accumulated as levels complete, so nothing else in the suite would notice
+    // an accumulator that dropped or double-counted a level.
+    for (const std::uint64_t seed : gate_seeds()) {
+        for (const Style style : {Style::direct, Style::thorough, Style::sweep}) {
+            const Expedition run = play(seed, style);
+            REQUIRE(run.summaries().size() == expedition_level_count);
+            CHECK(run.completed());
+            CHECK(run.completed_levels() == expedition_level_count);
+            CHECK(run.summaries().back().tier == expedition_final_tier);
+
+            std::uint64_t score = 0;
+            std::uint32_t found = 0;
+            std::uint32_t available = 0;
+            ExpeditionBonus carried = ExpeditionBonus::none;
+            for (const LevelSummary& summary : run.summaries()) {
+                // Each level is played under exactly the bonus the level before it
+                // earned, which is the whole of the carry rule.
+                CHECK(summary.applied_bonus == carried);
+                carried = summary.earned_bonus;
+
+                score += summary.score.value;
+                found += summary.discoveries_found;
+                available += summary.discovery_total;
+            }
+            CHECK(run.total_score() == score);
+            CHECK(run.total_discoveries_found() == found);
+            CHECK(run.total_discoveries_available() == available);
+            CHECK(run.active_bonus() == carried);
+        }
     }
 }
 

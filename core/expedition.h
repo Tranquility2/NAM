@@ -142,6 +142,12 @@ struct LevelPerformance {
 // so the final tier is the one number that says how long a run is.
 inline constexpr LevelTier expedition_final_tier = LevelTier::x_large;
 
+// How many levels a full run plays. Derived from the chain so it cannot disagree
+// with it, and so nothing has to hardcode a level count the way twelve tests once
+// did while a run stopped at Medium.
+inline constexpr std::size_t expedition_level_count =
+    index_of(expedition_final_tier) + 1u;
+
 class Expedition {
 public:
     // Build the expedition's first level from a run seed. Generation is expected
