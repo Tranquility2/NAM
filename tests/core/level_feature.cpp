@@ -380,7 +380,7 @@ TEST_CASE("a vantage point takes the best ground on offer without charging for i
             const GeneratedWorld& world = std::get<GeneratedWorld>(result);
             const LevelTemplate level = template_of(tier, world.exit_corner);
             const std::vector<LevelFeature>& placed = world.map.layout().features;
-            REQUIRE(placed.size() == 3u);
+            REQUIRE(placed.size() == level.content_slots.size());
 
             const DetourField field(world.map, world.exit_cell);
             REQUIRE(field.has_direct_walk());
@@ -530,14 +530,21 @@ TEST_CASE("a level never asks more for the thing it hands the player on the way"
     // The authored ordering, checked against the price the player really pays: the
     // first vantage point is nearly free, the second is a visible choice, and the
     // discovery is the trip the level actually charges for.
+    //
+    // The claim is about that opening trio, which every tier places and places
+    // first. Larger tiers append further pairs that deliberately reuse the same
+    // zones at other bands, so they are not a continuation of this ordering; they
+    // are checked below for being placed and reachable at all.
     for (const LevelTier tier :
          {LevelTier::small, LevelTier::medium, LevelTier::large, LevelTier::x_large}) {
         for (std::uint64_t index = 0; index < kProbeSeeds; ++index) {
             const WorldGenerationResult result = generate_level(tier, probe_seed(index));
             REQUIRE(std::holds_alternative<GeneratedWorld>(result));
             const GeneratedWorld& world = std::get<GeneratedWorld>(result);
+            const LevelTemplate level = template_of(tier, world.exit_corner);
             const std::vector<LevelFeature>& placed = world.map.layout().features;
-            REQUIRE(placed.size() == 3u);
+            REQUIRE(placed.size() == level.content_slots.size());
+            REQUIRE(placed.size() >= 3u);
 
             const std::optional<std::int64_t> near =
                 detour_of(world.map, world.exit_cell, placed[0].position);
@@ -552,6 +559,40 @@ TEST_CASE("a level never asks more for the thing it hands the player on the way"
             CHECK(*near <= *aside);
             CHECK(*aside <= *away);
             CHECK(*away > 0);
+
+            // Every extra slot a larger tier adds still lands somewhere the player
+            // can actually walk to, and no two features share a cell.
+            for (std::size_t slot = 0; slot < placed.size(); ++slot) {
+                CHECK(detour_of(world.map, world.exit_cell, placed[slot].position).has_value());
+                for (std::size_t other = slot + 1u; other < placed.size(); ++other) {
+                    CHECK(placed[slot].position != placed[other].position);
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("content scales with the tier so the biggest level is not the emptiest") {
+    // A Small level has about 164 reachable cells and an X-Large one about 1209,
+    // so a fixed content budget would make the largest level the thinnest per
+    // step. Every tier above Small adds one discovery and one vantage point.
+    constexpr std::size_t expected_discoveries[] = {1u, 2u, 3u, 4u};
+    constexpr std::size_t expected_vantages[] = {2u, 3u, 4u, 5u};
+    const LevelTier tiers[] = {LevelTier::small, LevelTier::medium, LevelTier::large,
+                               LevelTier::x_large};
+    for (std::size_t index = 0; index < 4u; ++index) {
+        for (std::uint64_t seed = 0; seed < kProbeSeeds; ++seed) {
+            const WorldGenerationResult result = generate_level(tiers[index], probe_seed(seed));
+            REQUIRE(std::holds_alternative<GeneratedWorld>(result));
+            const GeneratedWorld& world = std::get<GeneratedWorld>(result);
+            std::size_t discoveries = 0;
+            std::size_t vantages = 0;
+            for (const LevelFeature& feature : world.map.layout().features) {
+                if (feature.kind == LevelFeatureKind::discovery) ++discoveries;
+                if (feature.kind == LevelFeatureKind::vantage_point) ++vantages;
+            }
+            CHECK(discoveries == expected_discoveries[index]);
+            CHECK(vantages == expected_vantages[index]);
         }
     }
 }

@@ -175,11 +175,11 @@ TEST_CASE("climbing every viewpoint on a level costs the journal one entry") {
                 }
             }
             CHECK(encounters == 1u);
-            CHECK(journal.size() <= journal_entries_per_level);
+            CHECK(journal.size() <= journal_entry_budget_for(state.discovery_total()));
 
             REQUIRE(walk_to(state, state.objective().landmark, journal, base));
             REQUIRE(walk_to(state, state.objective().exit_cell, journal, base));
-            CHECK(journal.size() <= journal_entries_per_level);
+            CHECK(journal.size() <= journal_entry_budget_for(state.discovery_total()));
             if (expedition.complete_level(LevelPerformance{}) != LevelTransition::advanced) {
                 break;
             }

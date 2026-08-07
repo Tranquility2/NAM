@@ -1056,17 +1056,18 @@ TEST_CASE("a thorough run logs its discoveries and keeps the journal within budg
           std::string::npos);
 
     // The journal is the expedition-wide record, so the final report holds every
-    // level's entries. Every level places one discovery and visiting them all is
-    // what earns the carried bonus.
+    // level's entries. Content scales with the tier, so the four levels hold one,
+    // two, three and four discoveries, and visiting them all is what earns the
+    // carried bonus.
     const std::size_t journal = output.rfind("EXPEDITION JOURNAL");
     REQUIRE(journal != std::string::npos);
     const std::string final_journal = output.substr(journal);
-    CHECK(count_substr(final_journal, "Found a hidden site off the route (1 of 1).") == 4u);
+    CHECK(count_substr(final_journal, "Found a hidden site off the route") == 1u + 2u + 3u + 4u);
+    CHECK(count_substr(final_journal, "Found a hidden site off the route (1 of 1).") == 1u);
+    CHECK(count_substr(final_journal, "Found a hidden site off the route (4 of 4).") == 1u);
 
-    // A level reports at most one of each category, so four levels cannot exceed
-    // journal_entry_budget. A thorough run hits the cap on every level, which is
-    // exactly the case the budget was raised for.
-    CHECK(count_substr(final_journal, "\n" + std::to_string(journal_entry_budget) + ". ") == 1u);
+    // A thorough run reports every moment every level can offer, which is the case
+    // journal_entry_budget bounds. Nothing may be numbered past it.
     CHECK(count_substr(final_journal, "\n" + std::to_string(journal_entry_budget + 1u) + ". ") ==
           0u);
 }

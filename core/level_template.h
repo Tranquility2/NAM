@@ -180,6 +180,23 @@ struct ContentSlot {
     DetourBand band = DetourBand::passing;
 };
 
+// How many extra discovery-and-vantage pairs a tier places beyond the three
+// slots every level has. Small places none; every larger tier adds one more
+// pair, giving 1/2/3/4 discoveries and 2/3/4/5 vantage points.
+//
+// Content scales because area does. A Small level has about 164 reachable cells
+// and an X-Large one about 1209, so a fixed content budget would make the
+// largest level by far the thinnest per step.
+[[nodiscard]] constexpr std::size_t extra_content_pairs_of(LevelTier tier) noexcept {
+    switch (tier) {
+        case LevelTier::small:   return 0u;
+        case LevelTier::medium:  return 1u;
+        case LevelTier::large:   return 2u;
+        case LevelTier::x_large: return 3u;
+    }
+    return 0u;
+}
+
 // Everything a tier fixes about a level's shape.
 struct LevelTemplate {
     // The protected square around the spawn. No terrain feature is grown here, so

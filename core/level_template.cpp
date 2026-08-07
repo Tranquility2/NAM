@@ -1,6 +1,7 @@
 #include "level_template.h"
 
 #include <algorithm>
+#include <array>
 
 #include "direction.h"
 
@@ -93,6 +94,32 @@ LevelTemplate template_of(LevelTier tier, ExitCorner corner) {
         ContentSlot{flank_zone, LevelFeatureKind::vantage_point, DetourBand::moderate},
         ContentSlot{far_zone, LevelFeatureKind::discovery, DetourBand::committed},
     };
+
+    // Content scales with the tier so the biggest level is not the emptiest. A
+    // Small level has 164 reachable cells and an X-Large one has 1209, so the
+    // three slots above -- which were the whole of a level's content on every
+    // tier -- left X-Large offering one discovery per 1209 cells against Small's
+    // one per 164.
+    //
+    // Every tier above Small adds one discovery and one vantage point, giving
+    // 1/2/3/4 discoveries and 2/3/4/5 vantage points. The extra slots reuse the
+    // three zones with different bands rather than inventing new regions: the
+    // band is what prices a detour, so the same zone at a different band is a
+    // genuinely different offer, and `place_content` already refuses to put two
+    // features on one cell.
+    const std::array<ContentSlot, 6> extra{{
+        ContentSlot{flank_zone, LevelFeatureKind::discovery, DetourBand::moderate},
+        ContentSlot{far_zone, LevelFeatureKind::vantage_point, DetourBand::committed},
+        ContentSlot{near_zone, LevelFeatureKind::discovery, DetourBand::passing},
+        ContentSlot{near_zone, LevelFeatureKind::vantage_point, DetourBand::moderate},
+        ContentSlot{far_zone, LevelFeatureKind::discovery, DetourBand::passing},
+        ContentSlot{flank_zone, LevelFeatureKind::vantage_point, DetourBand::passing},
+    }};
+    const std::size_t extra_pairs = extra_content_pairs_of(tier);
+    for (std::size_t pair = 0; pair < extra_pairs; ++pair) {
+        level.content_slots.push_back(extra[pair * 2u]);
+        level.content_slots.push_back(extra[pair * 2u + 1u]);
+    }
     return level;
 }
 

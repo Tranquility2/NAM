@@ -422,8 +422,11 @@ TEST_CASE("a whole level stays within its per-level entry cap") {
         context);
 
     CHECK(journal.size() == 3);
-    CHECK(journal.size() <= journal_entries_per_level);
-    CHECK(journal_entry_budget == journal_entries_per_level * 4u);
+    CHECK(journal.size() <= journal_entry_budget_for(context.discovery_total));
+    // A level holding one discovery reports at most its three fixed moments plus
+    // that one, and the run budget is the same formula summed over the tiers.
+    CHECK(journal_entry_budget_for(1) == journal_fixed_entries_per_level + 1u);
+    CHECK(journal_entry_budget == 4u * journal_fixed_entries_per_level + 1u + 2u + 3u + 4u);
 }
 
 }  // TEST_SUITE("journal")

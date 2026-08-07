@@ -24,18 +24,10 @@ namespace nam::console {
 // through the immediate HUD message and the final statistics; only durable
 // milestones become entries, so a full run stays readable end to end.
 //
-// Entries fall into the four categories the prototype can produce: an optional
-// discovery, a notable encounter, an objective milestone, and a level completion.
-// A level yields at most one of each, so a level costs at most four entries and a
-// four-tier expedition is bounded at sixteen — `journal_entry_budget`. That bound
-// is structural rather than a hope: every category is capped per level, and the
-// notable encounter is capped however many viewpoints a thorough sweep climbs.
-//
-// The budget was twelve while a level had three moments to report. Guaranteeing a
-// terrain set-piece on every route gave every level a fourth, so the bound moved
-// with the content rather than the journal collapsing two different moments into
-// one line. Sixteen entries still read in a single screen, and every one of them
-// names something the run actually did.
+// Entries fall into four categories: a discovery, a notable encounter, an
+// objective milestone, and a level completion. Three of those are capped at one
+// per level; only discoveries scale, because a level reports each one it hands
+// the player.
 //
 // A level offers two things that could fill its notable-encounter slot: crossing
 // the terrain set-piece, which every route does, and climbing a vantage point,
@@ -44,12 +36,33 @@ namespace nam::console {
 // and it means the journal reports the moment the player actually had rather than
 // always the same one.
 
-// The most entries one whole expedition can produce: four per level over the four
-// tiers. The console budget sweep measures real played runs against this, so a
-// new kind of entry cannot be added without either fitting inside a level's four
-// categories or moving this number deliberately.
-inline constexpr std::size_t journal_entries_per_level = 4;
-inline constexpr std::size_t journal_entry_budget = journal_entries_per_level * 4;
+// The fixed moments every level can report at most once: the notable encounter,
+// the objective milestone, and the completion.
+inline constexpr std::size_t journal_fixed_entries_per_level = 3;
+
+// The most entries a level can produce: its three fixed moments plus one per
+// discovery it holds.
+//
+// This is a formula rather than a number because the number kept going stale. It
+// was twelve while a level had three moments to report, then sixteen once a
+// guaranteed terrain set-piece gave every level a fourth, and it would have gone
+// stale again the moment content started scaling with the tier: a Small level
+// holds one discovery and an X-Large one holds four. Each time the honest fix was
+// to move the bound with the content rather than let the journal collapse two
+// different moments into one line, so the bound now follows the content by
+// construction.
+[[nodiscard]] constexpr std::size_t journal_entry_budget_for(std::size_t discovery_total) noexcept {
+    return journal_fixed_entries_per_level + discovery_total;
+}
+
+// The most entries one whole expedition can produce: the per-level bound summed
+// over the four tiers, whose discovery totals are 1, 2, 3 and 4. The console
+// budget sweep measures real played runs against this, so a new kind of entry
+// cannot be added without either fitting inside a level's categories or moving
+// this deliberately.
+inline constexpr std::size_t journal_entry_budget =
+    journal_entry_budget_for(1) + journal_entry_budget_for(2) + journal_entry_budget_for(3) +
+    journal_entry_budget_for(4);
 
 // An optional find the actor entered for the first time. `ordinal` is its place
 // in the level's discovery order, so an entry reads as progress rather than as a
