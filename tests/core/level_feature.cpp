@@ -600,8 +600,13 @@ TEST_CASE("content scales with the tier so the biggest level is not the emptiest
 TEST_CASE("some levels keep their content close and others make the player range") {
     // The variation this step exists to deliver. Averaged over a seed spread, a
     // sprawling level really does cost more to see in full than a tight one, and
-    // every profile turns up often enough to be worth authoring for.
-    for (const LevelTier tier : {LevelTier::small, LevelTier::large}) {
+    // every profile a tier is allowed turns up often enough to be worth authoring
+    // for. The allowed set is the tier's, not the whole enum, so the sweep is
+    // taken over each tier's own choices.
+    for (const LevelTier tier :
+         {LevelTier::small, LevelTier::medium, LevelTier::large, LevelTier::x_large}) {
+        const DetourProfileChoices choices = detour_profiles_of(tier);
+        const std::size_t first = static_cast<std::size_t>(choices.first);
         std::int64_t totals[3] = {0, 0, 0};
         std::int64_t counts[3] = {0, 0, 0};
         for (std::uint64_t index = 0; index < kProbeSeeds * 4u; ++index) {
@@ -612,15 +617,48 @@ TEST_CASE("some levels keep their content close and others make the player range
                 detour_of(world.map, world.exit_cell, world.map.layout().features[2].position);
             REQUIRE(away.has_value());
             const std::size_t bucket = static_cast<std::size_t>(world.detour_profile);
+            // A tier never draws a profile outside its own run of the enum.
+            REQUIRE(bucket >= first);
+            REQUIRE(bucket < first + choices.count);
             totals[bucket] += *away;
             ++counts[bucket];
         }
-        for (const std::int64_t count : counts) {
-            CHECK(count > 0);
+        for (std::size_t offset = 0; offset < choices.count; ++offset) {
+            CHECK(counts[first + offset] > 0);
         }
-        CHECK(totals[0] * counts[1] < totals[1] * counts[0]);
-        CHECK(totals[1] * counts[2] < totals[2] * counts[1]);
+        // Each allowed profile ranges further than the one before it.
+        for (std::size_t offset = 0; offset + 1u < choices.count; ++offset) {
+            const std::size_t lower = first + offset;
+            const std::size_t upper = lower + 1u;
+            CHECK(totals[lower] * counts[upper] < totals[upper] * counts[lower]);
+        }
     }
+}
+
+TEST_CASE("the opening level never sprawls and the closing one never runs tight") {
+    // A combination of rules that already exist: the run opens gently and ends
+    // demanding, while every level still varies by seed. Checked on generated
+    // levels rather than only on the table, because the draw has to respect the
+    // tier's offset as well as its count.
+    CHECK(detour_profiles_of(LevelTier::small).first == DetourProfile::tight);
+    CHECK(detour_profiles_of(LevelTier::small).count == 2u);
+    CHECK(detour_profiles_of(LevelTier::x_large).first == DetourProfile::even);
+    CHECK(detour_profiles_of(LevelTier::x_large).count == 2u);
+
+    for (std::uint64_t index = 0; index < kProbeSeeds * 4u; ++index) {
+        const WorldGenerationResult small = generate_level(LevelTier::small, probe_seed(index));
+        REQUIRE(std::holds_alternative<GeneratedWorld>(small));
+        CHECK(std::get<GeneratedWorld>(small).detour_profile != DetourProfile::sprawling);
+
+        const WorldGenerationResult largest = generate_level(LevelTier::x_large, probe_seed(index));
+        REQUIRE(std::holds_alternative<GeneratedWorld>(largest));
+        CHECK(std::get<GeneratedWorld>(largest).detour_profile != DetourProfile::tight);
+    }
+
+    // The middle of the run keeps the full range, so it is where a seed can still
+    // surprise the player in either direction.
+    CHECK(detour_profiles_of(LevelTier::medium).count == detour_profile_count);
+    CHECK(detour_profiles_of(LevelTier::large).count == detour_profile_count);
 }
 
 TEST_CASE("the same seed always spreads its content the same way") {

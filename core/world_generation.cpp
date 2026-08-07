@@ -1065,9 +1065,11 @@ WorldGenerationResult generate_level(LevelTier tier, std::uint64_t numeric_seed)
             static_cast<ExitCorner>(engine.next_bounded(exit_corner_count));
         // How widely this candidate spreads its content is drawn next, before any
         // terrain, so a rejected candidate can range differently as well as exit
-        // elsewhere.
-        const DetourProfile detour_profile =
-            static_cast<DetourProfile>(engine.next_bounded(detour_profile_count));
+        // elsewhere. The choices are the tier's, not the whole enum: a Small level
+        // never sprawls and an X-Large one never runs tight.
+        const DetourProfileChoices choices = detour_profiles_of(tier);
+        const DetourProfile detour_profile = static_cast<DetourProfile>(
+            static_cast<std::uint32_t>(choices.first) + engine.next_bounded(choices.count));
         const LevelTemplate level = template_of(tier, corner);
         const RouteLayout layout = draw_route(profile, level, tier, engine);
         if (!grow_candidate(profile, layout.reserved, engine, cells) ||

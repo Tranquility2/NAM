@@ -149,6 +149,31 @@ inline constexpr std::uint32_t detour_profile_count = 3u;
     return "even";
 }
 
+// The detour profiles a tier is allowed to draw, as the first profile and how
+// many follow it. The enum is ordered by how far content strays from the route,
+// so a tier's choices are always a contiguous run of it.
+//
+// The profile was drawn uniformly on every tier, which let a Small level - the
+// one that teaches the game - sprawl exactly as far as the X-Large finale, and
+// let the finale run as tight as the opener. Biasing it by tier is a combination
+// of rules that already exist rather than a new rule: Small never sprawls,
+// X-Large never runs tight, and the two middle tiers keep the full range, so the
+// run opens gently and ends demanding while every level still varies by seed.
+struct DetourProfileChoices {
+    DetourProfile first = DetourProfile::tight;
+    std::uint32_t count = detour_profile_count;
+};
+
+[[nodiscard]] constexpr DetourProfileChoices detour_profiles_of(LevelTier tier) noexcept {
+    switch (tier) {
+        case LevelTier::small:   return DetourProfileChoices{DetourProfile::tight, 2u};
+        case LevelTier::medium:  return DetourProfileChoices{DetourProfile::tight, 3u};
+        case LevelTier::large:   return DetourProfileChoices{DetourProfile::tight, 3u};
+        case LevelTier::x_large: return DetourProfileChoices{DetourProfile::even, 2u};
+    }
+    return DetourProfileChoices{DetourProfile::tight, detour_profile_count};
+}
+
 // The profile's scaling of every band, in parts per thousand.
 [[nodiscard]] constexpr std::uint32_t detour_scale_permille_of(DetourProfile profile) noexcept {
     switch (profile) {
