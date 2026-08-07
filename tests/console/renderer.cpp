@@ -561,6 +561,30 @@ TEST_CASE("the HUD names the carried bonus only while it is active") {
     CHECK(join_visible(compact).find("Keen eye") != std::string::npos);
 }
 
+TEST_CASE("every carried bonus has its own HUD name") {
+    // Three ways to earn a bonus are only worth having if the HUD says which one
+    // the player is carrying, so no two may share a name and none may be blank.
+    const Map map = open_map(8, 4);
+    const Renderer renderer(plain_config());
+
+    std::vector<std::string> names;
+    for (const ExpeditionBonus bonus : earnable_bonuses) {
+        RenderInput input = make_input(map);
+        input.progress.bonus = bonus;
+        const std::string plain = renderer.render_plain(input);
+        const std::string name = std::string(to_string(bonus));
+        // The identifier is not the wording, so the HUD must not leak it.
+        CHECK(plain.find(name) == std::string::npos);
+        names.push_back(plain);
+    }
+    for (std::size_t left = 0; left < names.size(); ++left) {
+        CHECK_FALSE(names[left].empty());
+        for (std::size_t right = left + 1u; right < names.size(); ++right) {
+            CHECK(names[left] != names[right]);
+        }
+    }
+}
+
 TEST_CASE("the explored share is floored and never exceeds one hundred percent") {
     const Map map = open_map(8, 4);
     const Renderer renderer(plain_config());

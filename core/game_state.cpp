@@ -6,11 +6,12 @@
 #include <optional>
 #include <utility>
 
-GameState::GameState(Map map)
+GameState::GameState(Map map, int vantage_reveal_bonus)
     : map_(std::move(map)),
       objective_(create_level_objective(map_)),
       actor_position_(map_.spawn()),
-      visibility_(map_.width(), map_.height()) {
+      visibility_(map_.width(), map_.height()),
+      vantage_reveal_bonus_(vantage_reveal_bonus > 0 ? vantage_reveal_bonus : 0) {
     // map_ is declared before objective_, actor_position_, and visibility_, so it
     // is fully constructed here and map_.spawn()/width()/height() and the exit
     // placement read the moved-into member, not the moved-from argument. Reveal
@@ -21,8 +22,9 @@ GameState::GameState(Map map)
 
     feature_resolved_.assign(features().size(), false);
     for (const LevelFeature& feature : features()) {
-        if (feature.kind == LevelFeatureKind::discovery) {
-            ++discovery_total_;
+        switch (feature.kind) {
+            case LevelFeatureKind::discovery:     ++discovery_total_; break;
+            case LevelFeatureKind::vantage_point: ++vantage_total_; break;
         }
     }
 }
@@ -100,12 +102,15 @@ GameEvent GameState::move(Direction direction) {
                     break;
                 case LevelFeatureKind::vantage_point:
                     // How far a vantage point sees is decided by the ground it was
-                    // built on. A cell that is both the landmark and a vantage
-                    // point grants whichever reaches further rather than twice.
+                    // built on, plus whatever reach this level was started with. A
+                    // cell that is both the landmark and a vantage point grants
+                    // whichever reaches further rather than twice.
+                    ++vantages_reached_;
                     wide_reveal = std::max(
                         wide_reveal,
                         vantage_reveal_radius_of(
-                            vantage_kind_of(map_.terrain_at(actor_position_))));
+                            vantage_kind_of(map_.terrain_at(actor_position_))) +
+                            vantage_reveal_bonus_);
                     break;
             }
         }

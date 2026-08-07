@@ -241,6 +241,54 @@ TEST_CASE("a zero multiplier is treated as the neutral one") {
 
 // --- Robustness --------------------------------------------------------------
 
+TEST_CASE("par is a fifth of the budget and floors rather than rounding up") {
+    CHECK(par_moves_for(0) == 0);
+    CHECK(par_moves_for(100) == 20);
+    // 164 * 20 / 100 = 32.8, and par never rounds in the player's favour.
+    CHECK(par_moves_for(164) == 32);
+    // A level too small to have a fifth of a move has no par to beat.
+    CHECK(par_moves_for(4) == 0);
+
+    CompletedScoreInput input;
+    input.total_reachable_cells = 400;
+    const ExpeditionScore score = compute_completed_score(input);
+    CHECK(score.par_moves == 80);
+    CHECK(score.par_moves < score.move_budget);
+}
+
+TEST_CASE("the carried bonus multiplies what survives of the budget award") {
+    CompletedScoreInput input;
+    input.total_reachable_cells = 100;
+    input.actual_moves = 100;  // Exactly on budget: nothing lost.
+    input.budget_multiplier = 2;
+
+    const ExpeditionScore full = compute_completed_score(input);
+    CHECK(full.budget_multiplier == 2);
+    CHECK(full.budget_value == completed_budget_award * 2);
+
+    // Overspending empties the bucket before the multiplier reaches it, so a
+    // bonus rewards efficiency instead of excusing its absence.
+    input.actual_moves = 110;
+    const ExpeditionScore spent = compute_completed_score(input);
+    CHECK(spent.moves_over_budget == 10);
+    CHECK(spent.budget_value ==
+          (completed_budget_award - 10 * completed_penalty_per_move_over_budget) * 2);
+
+    input.actual_moves = 100 + completed_budget_award;  // Far past the award.
+    CHECK(compute_completed_score(input).budget_value == 0);
+}
+
+TEST_CASE("a zero budget multiplier is treated as the neutral one") {
+    CompletedScoreInput input;
+    input.total_reachable_cells = 100;
+    input.actual_moves = 100;
+    input.budget_multiplier = 0;
+
+    const ExpeditionScore score = compute_completed_score(input);
+    CHECK(score.budget_multiplier == 1);
+    CHECK(score.budget_value == completed_budget_award);
+}
+
 TEST_CASE("scoring is overflow-safe at extreme counters") {
     constexpr std::uint64_t huge = std::numeric_limits<std::uint64_t>::max();
     CompletedScoreInput input;
@@ -249,12 +297,13 @@ TEST_CASE("scoring is overflow-safe at extreme counters") {
     input.actual_moves = huge;
     input.discoveries_found = huge;
     input.discovery_multiplier = huge;
+    input.budget_multiplier = huge;
 
     const ExpeditionScore score = compute_completed_score(input);
     CHECK(score.explored_percent <= 100);
     CHECK(score.exploration_value <= completed_exploration_maximum);
-    CHECK(score.budget_value == completed_budget_award);  // Nothing is over budget.
-    CHECK(score.value == huge);                           // Saturated, never wrapped.
+    CHECK(score.par_moves <= score.move_budget);
+    CHECK(score.value == huge);  // Saturated, never wrapped.
 }
 
 }  // TEST_SUITE("expedition_score")

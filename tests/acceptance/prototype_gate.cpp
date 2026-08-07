@@ -306,10 +306,11 @@ TEST_CASE("a level score is exactly its published parts") {
                                      score.discovery_value + score.budget_value);
             CHECK(score.completion_value == completed_exit_award);
             CHECK(score.exploration_value <= completed_exploration_maximum);
-            CHECK(score.budget_value <= completed_budget_award);
+            CHECK(score.budget_value <= completed_budget_award * score.budget_multiplier);
             CHECK(score.discovery_value == score.discoveries_found * completed_score_per_discovery *
                                                score.discovery_multiplier);
             CHECK(score.move_budget == move_budget_for(score.total_reachable_cells));
+            CHECK(score.par_moves == par_moves_for(score.total_reachable_cells));
             summed += score.value;
         }
         CHECK(finished.total_score() == summed);

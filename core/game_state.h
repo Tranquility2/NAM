@@ -20,8 +20,11 @@
 // shared, serialized, or reloaded without entangling actor state.
 class GameState {
 public:
-    // Start the actor on the map's spawn point.
-    explicit GameState(Map map);
+    // Start the actor on the map's spawn point. `vantage_reveal_bonus` widens
+    // every vantage point on this level by that many cells; it is the only way
+    // anything outside the level reaches into it. The core keeps it as a plain
+    // radius so GameState never has to know what an expedition or a bonus is.
+    explicit GameState(Map map, int vantage_reveal_bonus = 0);
 
     [[nodiscard]] const Map& map() const noexcept { return map_; }
     [[nodiscard]] Coordinates actor_position() const noexcept { return actor_position_; }
@@ -78,13 +81,26 @@ public:
     // move that first entered it and is then inert, like the authored content.
     [[nodiscard]] bool set_piece_crossed() const noexcept { return set_piece_crossed_; }
 
-    // How many distinct discoveries the actor has entered. Vantage points are
-    // stateless one-off reveals, so only discoveries are counted.
+    // How many distinct discoveries the actor has entered. Only discoveries are
+    // counted here; vantage points have their own tally below.
     [[nodiscard]] std::uint32_t discoveries_found() const noexcept { return discoveries_found_; }
 
     // How many discoveries this level placed, i.e. the denominator of the
     // discovery statistic.
     [[nodiscard]] std::uint32_t discovery_total() const noexcept { return discovery_total_; }
+
+    // How many distinct vantage points the actor has stood on. A vantage point
+    // is still a one-off reveal that is inert afterwards; this only records that
+    // it fired, so a run can be measured against the level's viewpoints.
+    [[nodiscard]] std::uint32_t vantages_reached() const noexcept { return vantages_reached_; }
+
+    // How many vantage points this level placed, i.e. the denominator of the
+    // vantage statistic.
+    [[nodiscard]] std::uint32_t vantage_total() const noexcept { return vantage_total_; }
+
+    // The extra sight radius every vantage point on this level grants, carried in
+    // from outside the level. Zero on a level played without one.
+    [[nodiscard]] int vantage_reveal_bonus() const noexcept { return vantage_reveal_bonus_; }
 
     // Compute the outcome of moving one step without changing any state.
     [[nodiscard]] MoveOutcome peek(Direction direction) const;
@@ -120,4 +136,7 @@ private:
     bool set_piece_crossed_ = false;
     std::uint32_t discoveries_found_ = 0;
     std::uint32_t discovery_total_ = 0;
+    std::uint32_t vantages_reached_ = 0;
+    std::uint32_t vantage_total_ = 0;
+    int vantage_reveal_bonus_ = 0;
 };

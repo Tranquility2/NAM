@@ -19,14 +19,34 @@
 // discovery tally, one simple bonus, the current tier, and the run identity.
 // Nothing else survives a level, because each level owns a fresh GameState.
 
-// The one simple carried bonus the prototype grants. It must stay immediately
-// understandable and must never grow into an inventory.
+// The one simple carried bonus the prototype grants. There are three ways to
+// earn one, but only ever one is carried, so a run is never an inventory: the
+// player reads a single line and knows what the next level owes them.
+//
+// Each bonus sharpens the thing it was earned for, so the reward always names
+// the same skill as the test.
 enum class ExpeditionBonus {
     none,
     // Earned by sweeping a level: uncovering at least keen_eye_explored_percent
     // of it *and* entering every discovery on it. The next level's discoveries
     // are worth double.
     keen_eye,
+    // Earned by standing on every vantage point a level placed. Every vantage
+    // point on the next level sees surveyor_vantage_reveal_bonus cells further.
+    surveyor,
+    // Earned by reaching the exit within the level's par move count. The next
+    // level's budget award is worth double.
+    pathfinder,
+};
+
+// Every bonus, in the fixed precedence order a level resolves ties by: hardest
+// first. A level that qualifies for more than one carries the first of these it
+// earned. `none` is not listed, because it is the absence of a bonus rather than
+// one of them.
+inline constexpr ExpeditionBonus earnable_bonuses[] = {
+    ExpeditionBonus::keen_eye,
+    ExpeditionBonus::surveyor,
+    ExpeditionBonus::pathfinder,
 };
 
 // The share of a level that must be uncovered to earn keen_eye. Finding every
@@ -36,20 +56,51 @@ enum class ExpeditionBonus {
 // says.
 inline constexpr std::uint64_t keen_eye_explored_percent = 90;
 
+// How much further a surveyor's vantage points see. It is one full step of the
+// vantage ladder (cairn 5, lookout 9, summit 13), so the bonus reads as "every
+// viewpoint is one class better" rather than as an arbitrary number.
+inline constexpr int surveyor_vantage_reveal_bonus = 4;
+
 // The multiplier a bonus applies to the next level's discovery score.
 [[nodiscard]] constexpr std::uint64_t discovery_multiplier_of(ExpeditionBonus bonus) noexcept {
     switch (bonus) {
-        case ExpeditionBonus::none:     return 1;
-        case ExpeditionBonus::keen_eye: return 2;
+        case ExpeditionBonus::none:       return 1;
+        case ExpeditionBonus::keen_eye:   return 2;
+        case ExpeditionBonus::surveyor:   return 1;
+        case ExpeditionBonus::pathfinder: return 1;
     }
     return 1;
+}
+
+// The multiplier a bonus applies to the next level's budget award.
+[[nodiscard]] constexpr std::uint64_t budget_multiplier_of(ExpeditionBonus bonus) noexcept {
+    switch (bonus) {
+        case ExpeditionBonus::none:       return 1;
+        case ExpeditionBonus::keen_eye:   return 1;
+        case ExpeditionBonus::surveyor:   return 1;
+        case ExpeditionBonus::pathfinder: return 2;
+    }
+    return 1;
+}
+
+// The extra sight radius a bonus adds to every vantage point on the next level.
+[[nodiscard]] constexpr int vantage_reveal_bonus_of(ExpeditionBonus bonus) noexcept {
+    switch (bonus) {
+        case ExpeditionBonus::none:       return 0;
+        case ExpeditionBonus::keen_eye:   return 0;
+        case ExpeditionBonus::surveyor:   return surveyor_vantage_reveal_bonus;
+        case ExpeditionBonus::pathfinder: return 0;
+    }
+    return 0;
 }
 
 // A stable, non-localized identifier. Frontends choose the user-facing wording.
 [[nodiscard]] constexpr std::string_view to_string(ExpeditionBonus bonus) noexcept {
     switch (bonus) {
-        case ExpeditionBonus::none:     return "none";
-        case ExpeditionBonus::keen_eye: return "keen_eye";
+        case ExpeditionBonus::none:       return "none";
+        case ExpeditionBonus::keen_eye:   return "keen_eye";
+        case ExpeditionBonus::surveyor:   return "surveyor";
+        case ExpeditionBonus::pathfinder: return "pathfinder";
     }
     return "none";
 }
@@ -61,11 +112,22 @@ struct LevelSummary {
     ExpeditionScore score{};
     std::uint32_t discoveries_found = 0;
     std::uint32_t discovery_total = 0;
+    std::uint32_t vantages_reached = 0;
+    std::uint32_t vantage_total = 0;
     // The bonus that was active while this level was played.
     ExpeditionBonus applied_bonus = ExpeditionBonus::none;
     // The bonus this level earned for the next one.
     ExpeditionBonus earned_bonus = ExpeditionBonus::none;
 };
+
+// Whether a finished level met one specific bonus's test. Each test is written
+// so a level that offered nothing to find cannot pass it by default: sweeping
+// zero discoveries or zero vantage points is not an achievement.
+[[nodiscard]] bool earned_bonus_test(ExpeditionBonus bonus, const LevelSummary& summary) noexcept;
+
+// The single bonus a finished level carries forward: the first of
+// `earnable_bonuses` whose test it passed, hardest first, or none.
+[[nodiscard]] ExpeditionBonus earned_bonus_of(const LevelSummary& summary) noexcept;
 
 // What the frontend measured over one level. The core does not observe input, so
 // the counters a run accumulates are handed back at completion time. Only the
@@ -146,4 +208,7 @@ private:
 
 // Build the GameState for one tier of a run. Exposed so a frontend can preview a
 // tier, and so the expedition and its tests share one construction path.
-[[nodiscard]] GameState make_level_state(LevelTier tier, std::uint64_t numeric_seed);
+// `vantage_reveal_bonus` is the reach a carried bonus adds to this level's
+// vantage points; it is zero for a level played without one.
+[[nodiscard]] GameState make_level_state(LevelTier tier, std::uint64_t numeric_seed,
+                                         int vantage_reveal_bonus = 0);

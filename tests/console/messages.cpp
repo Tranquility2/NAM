@@ -183,4 +183,25 @@ TEST_CASE("objective-screen reminders and restored completion wording are exact"
     CHECK(restored_completion_message("Glass River Exit").find("Goodbye") == std::string::npos);
 }
 
+TEST_CASE("a level's opening line says what the carried bonus is worth here") {
+    // Three bonuses only help if the line that announces one says what it does,
+    // in this level's terms, without ever printing the core's identifier.
+    const std::string plain = describe_level_started(LevelTier::small, 1, 2, ExpeditionBonus::none);
+    CHECK(plain == "Small level (1 of 2).");
+
+    std::vector<std::string> lines;
+    for (const ExpeditionBonus bonus : earnable_bonuses) {
+        const std::string text = describe_level_started(LevelTier::small, 2, 2, bonus);
+        CHECK(text.rfind("Small level (2 of 2).", 0) == 0);
+        CHECK(text.size() > plain.size());
+        CHECK(text.find(std::string(to_string(bonus))) == std::string::npos);
+        lines.push_back(text);
+    }
+    for (std::size_t left = 0; left < lines.size(); ++left) {
+        for (std::size_t right = left + 1u; right < lines.size(); ++right) {
+            CHECK(lines[left] != lines[right]);
+        }
+    }
+}
+
 }  // TEST_SUITE("messages")

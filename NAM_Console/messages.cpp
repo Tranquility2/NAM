@@ -159,8 +159,18 @@ std::string describe_level_started(LevelTier tier, std::uint32_t level_number,
                                    std::uint32_t total_levels, ExpeditionBonus bonus) {
     std::string text = std::string(to_string(tier)) + " level (" +
                        std::to_string(level_number) + " of " + std::to_string(total_levels) + ").";
-    if (bonus == ExpeditionBonus::keen_eye) {
-        text += " Keen eye: discoveries here are worth double.";
+    switch (bonus) {
+        case ExpeditionBonus::none:
+            break;
+        case ExpeditionBonus::keen_eye:
+            text += " Keen eye: discoveries here are worth double.";
+            break;
+        case ExpeditionBonus::surveyor:
+            text += " Surveyor: every viewpoint here sees further.";
+            break;
+        case ExpeditionBonus::pathfinder:
+            text += " Pathfinder: walking this level well is worth double.";
+            break;
     }
     return text;
 }

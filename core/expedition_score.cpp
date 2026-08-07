@@ -71,13 +71,19 @@ ExpeditionScore compute_completed_score(const CompletedScoreInput& input) noexce
                        score.discovery_multiplier);
 
     // The budget is soft: overspending empties this one bucket and can never
-    // reach into the three earned above it.
+    // reach into the three earned above it. A carried multiplier scales only what
+    // survives the overspend, so a bonus rewards efficiency rather than excusing
+    // its absence.
     score.actual_moves = input.actual_moves;
     score.move_budget = move_budget_for(score.total_reachable_cells);
+    score.par_moves = par_moves_for(score.total_reachable_cells);
     score.moves_over_budget = saturating_sub(score.actual_moves, score.move_budget);
-    score.budget_value = saturating_sub(
-        completed_budget_award,
-        saturating_mul(score.moves_over_budget, completed_penalty_per_move_over_budget));
+    score.budget_multiplier = input.budget_multiplier == 0 ? 1 : input.budget_multiplier;
+    score.budget_value = saturating_mul(
+        saturating_sub(
+            completed_budget_award,
+            saturating_mul(score.moves_over_budget, completed_penalty_per_move_over_budget)),
+        score.budget_multiplier);
 
     score.value = saturating_add(score.completion_value, score.exploration_value);
     score.value = saturating_add(score.value, score.discovery_value);

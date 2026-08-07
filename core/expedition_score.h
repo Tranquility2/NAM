@@ -17,8 +17,9 @@
 // took, weighed only against a deliberately generous budget derived from the
 // level's own size. `discoveries_found` is the optional content the run entered,
 // and `discovery_multiplier` is the carried bonus applied to it (1 when no bonus
-// is active). A multiplier of 0 is treated as 1 so a default-constructed input
-// still scores discoveries.
+// is active). `budget_multiplier` is the carried bonus applied to what survives
+// of the budget award. A multiplier of 0 is treated as 1 so a default-constructed
+// input still scores.
 //
 // There is no shortest-route input and no blocked-attempt input. The score no
 // longer measures how closely a run tracked the direct line, because measuring
@@ -29,6 +30,7 @@ struct CompletedScoreInput {
     std::uint64_t actual_moves = 0;
     std::uint64_t discoveries_found = 0;
     std::uint64_t discovery_multiplier = 1;
+    std::uint64_t budget_multiplier = 1;
 };
 
 // The transparent score breakdown. `value` is the sum of the four components;
@@ -52,10 +54,13 @@ struct ExpeditionScore {
     std::uint64_t discovery_multiplier = 1;
     std::uint64_t discovery_value = 0;
 
-    // The soft move budget.
+    // The soft move budget, and the tighter par a run beats to walk the level
+    // efficiently.
     std::uint64_t actual_moves = 0;
     std::uint64_t move_budget = 0;
     std::uint64_t moves_over_budget = 0;
+    std::uint64_t par_moves = 0;
+    std::uint64_t budget_multiplier = 1;
     std::uint64_t budget_value = 0;
 };
 
@@ -87,11 +92,40 @@ inline constexpr std::uint64_t completed_penalty_per_move_over_budget = 5;
     return total_reachable_cells;
 }
 
+// The share of the move budget that counts as par: a level walked efficiently
+// rather than merely inside the generous budget.
+//
+// The number is measured, not chosen. Over 60 seeds per tier, the optimal
+// route — landmark then exit, with full knowledge of the map — costs 6.6% of the
+// budget on Small, falling to 2.8% on X-Large. A fifth of the budget therefore
+// gives a player roughly three times the perfect route on every tier, which is
+// what makes par something a real run under fog can reach without being handed
+// to a run that wanders.
+//
+// Par is deliberately *not* a multiple of the shortest legal route. That length
+// is a fifteenth of the budget on Small and a thirty-sixth on X-Large, so the
+// same multiple of it would mean a different thing on every tier.
+//
+// Par does not exclude a thorough run by construction: a level that reveals a
+// lot from high ground can be swept cheaply. Making the two mutually exclusive
+// would require a threshold below the direct route on some tiers, which would
+// make par unreachable. The fixed precedence in `earnable_bonuses` resolves the
+// overlap instead.
+inline constexpr std::uint64_t completed_par_percent = 20;
+
+// The par move count for a level: the tighter target a run beats to have walked
+// it efficiently. Purely a level property, so every frontend agrees on par
+// without replaying the run.
+[[nodiscard]] constexpr std::uint64_t par_moves_for(std::uint64_t total_reachable_cells) noexcept {
+    return move_budget_for(total_reachable_cells) * completed_par_percent / 100;
+}
+
 // Compute the deterministic score for a completed level:
 //   * completed_exit_award for reaching the exit at all;
 //   * completed_exploration_maximum scaled linearly by the explored fraction;
 //   * completed_score_per_discovery per discovery, times the carried multiplier;
 //   * completed_budget_award less completed_penalty_per_move_over_budget for
-//     every move past the budget, floored at zero.
+//     every move past the budget, floored at zero, times the carried budget
+//     multiplier.
 // Overflow-safe: a hostile counter saturates instead of wrapping.
 [[nodiscard]] ExpeditionScore compute_completed_score(const CompletedScoreInput& input) noexcept;

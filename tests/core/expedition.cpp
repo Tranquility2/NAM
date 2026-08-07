@@ -20,8 +20,11 @@ namespace {
 
 // Walk the actor to `target` along the core's deterministic shortest path,
 // issuing real moves so every step charges stamina and advances the objective
-// exactly as play would. Returns false when the target is unreachable.
-bool walk_to(GameState& state, Coordinates target) {
+// exactly as play would. When `moves` is given, every step taken is counted into
+// it, so a test can report the run's real move total to complete_level rather
+// than the zero a default LevelPerformance carries. Returns false when the target
+// is unreachable.
+bool walk_to(GameState& state, Coordinates target, std::uint64_t* moves = nullptr) {
     while (state.actor_position() != target) {
         const std::vector<Coordinates> path =
             shortest_path(state.map(), state.actor_position(), target);
@@ -34,9 +37,31 @@ bool walk_to(GameState& state, Coordinates target) {
             const std::optional<Direction> direction = direction_of(delta);
             REQUIRE(direction.has_value());
             static_cast<void>(state.move(*direction));
+            if (moves != nullptr) {
+                ++*moves;
+            }
         }
     }
     return true;
+}
+
+// Play the current level straight to its exit through the landmark, counting
+// every move. This is the efficient run par is meant to reward.
+bool finish_level_directly(GameState& state, std::uint64_t& moves) {
+    return walk_to(state, state.objective().landmark, &moves) &&
+           walk_to(state, state.objective().exit_cell, &moves) && state.objective_completed();
+}
+
+// Play the current level standing on every viewpoint before finishing, counting
+// every move. This is the run the surveyor bonus is meant to reward.
+bool finish_level_surveying(GameState& state, std::uint64_t& moves) {
+    for (const LevelFeature& feature : state.features()) {
+        if (feature.kind == LevelFeatureKind::vantage_point &&
+            !walk_to(state, feature.position, &moves)) {
+            return false;
+        }
+    }
+    return finish_level_directly(state, moves);
 }
 
 // Play the current level to its exit through the landmark, without detouring.
@@ -183,7 +208,10 @@ TEST_CASE("collecting every discovery without uncovering the level earns nothing
     // ground unseen depends on where generation puts the discovery, so rather than
     // pin one seed and re-pin it whenever placement changes, this scans a small
     // band, requires that collecting everything really does leave some levels well
-    // short, and checks that none of those short runs earned the bonus.
+    // short, and checks that none of those short runs passed the keen eye test.
+    // The other bonuses are tested by their own measures and are not the subject
+    // here, so this asks the keen eye test directly rather than reading the one
+    // bonus the level happened to carry.
     std::size_t short_runs = 0;
     for (std::uint64_t offset = 0; offset < 16u; ++offset) {
         Expedition expedition(kSeed + offset);
@@ -194,20 +222,19 @@ TEST_CASE("collecting every discovery without uncovering the level earns nothing
         const LevelSummary& summary = expedition.summaries()[0];
         if (summary.score.explored_percent < keen_eye_explored_percent) {
             ++short_runs;
-            CHECK(summary.earned_bonus == ExpeditionBonus::none);
+            CHECK_FALSE(earned_bonus_test(ExpeditionBonus::keen_eye, summary));
         }
     }
     CHECK(short_runs > 0u);
 }
 
-TEST_CASE("missing a discovery loses the carried bonus") {
+TEST_CASE("missing a discovery loses the keen eye bonus") {
     Expedition expedition(kSeed);
     REQUIRE(finish_level(expedition.state()));
     REQUIRE(expedition.state().discoveries_found() < expedition.state().discovery_total());
 
     REQUIRE(expedition.complete_level(LevelPerformance{}) == LevelTransition::advanced);
-    CHECK(expedition.summaries()[0].earned_bonus == ExpeditionBonus::none);
-    CHECK(expedition.active_bonus() == ExpeditionBonus::none);
+    CHECK_FALSE(earned_bonus_test(ExpeditionBonus::keen_eye, expedition.summaries()[0]));
 }
 
 TEST_CASE("the same seed replays the same expedition exactly") {
@@ -252,6 +279,160 @@ TEST_CASE("the bonus multiplier and identifier tables are total") {
     CHECK(discovery_multiplier_of(ExpeditionBonus::keen_eye) == 2u);
     CHECK(std::string(to_string(ExpeditionBonus::none)) == "none");
     CHECK(std::string(to_string(ExpeditionBonus::keen_eye)) == "keen_eye");
+    CHECK(std::string(to_string(ExpeditionBonus::surveyor)) == "surveyor");
+    CHECK(std::string(to_string(ExpeditionBonus::pathfinder)) == "pathfinder");
+}
+
+TEST_CASE("every bonus sharpens exactly the one thing it was earned for") {
+    // The three bonuses have to stay one line each to read. That holds only if no
+    // bonus reaches into more than one of the three grants, and no grant is
+    // handed out by more than one bonus.
+    for (const ExpeditionBonus bonus : earnable_bonuses) {
+        const int grants = (discovery_multiplier_of(bonus) > 1u ? 1 : 0) +
+                           (budget_multiplier_of(bonus) > 1u ? 1 : 0) +
+                           (vantage_reveal_bonus_of(bonus) > 0 ? 1 : 0);
+        CHECK(grants == 1);
+    }
+    CHECK(discovery_multiplier_of(ExpeditionBonus::keen_eye) == 2u);
+    CHECK(budget_multiplier_of(ExpeditionBonus::pathfinder) == 2u);
+    CHECK(vantage_reveal_bonus_of(ExpeditionBonus::surveyor) == surveyor_vantage_reveal_bonus);
+
+    // No bonus at all must change nothing.
+    CHECK(discovery_multiplier_of(ExpeditionBonus::none) == 1u);
+    CHECK(budget_multiplier_of(ExpeditionBonus::none) == 1u);
+    CHECK(vantage_reveal_bonus_of(ExpeditionBonus::none) == 0);
+}
+
+TEST_CASE("a level that earned several bonuses carries the hardest one") {
+    // The precedence order is fixed and documented, so a perfect level still
+    // hands the player a single line rather than an inventory.
+    LevelSummary perfect;
+    perfect.discovery_total = 2;
+    perfect.discoveries_found = 2;
+    perfect.vantage_total = 2;
+    perfect.vantages_reached = 2;
+    perfect.score.explored_percent = 100;
+    perfect.score.par_moves = 40;
+    perfect.score.actual_moves = 10;
+    for (const ExpeditionBonus bonus : earnable_bonuses) {
+        CHECK(earned_bonus_test(bonus, perfect));
+    }
+    CHECK(earned_bonus_of(perfect) == ExpeditionBonus::keen_eye);
+
+    LevelSummary without_sweep = perfect;
+    without_sweep.score.explored_percent = keen_eye_explored_percent - 1u;
+    CHECK(earned_bonus_of(without_sweep) == ExpeditionBonus::surveyor);
+
+    LevelSummary rushed = without_sweep;
+    rushed.vantages_reached = 1;
+    CHECK(earned_bonus_of(rushed) == ExpeditionBonus::pathfinder);
+
+    LevelSummary nothing = rushed;
+    nothing.score.actual_moves = nothing.score.par_moves + 1u;
+    CHECK(earned_bonus_of(nothing) == ExpeditionBonus::none);
+}
+
+TEST_CASE("a bonus cannot be earned on a level that offered nothing to earn it on") {
+    // Every test is written against a denominator, so a level with no discoveries
+    // no viewpoints or no par to beat awards nothing by default.
+    LevelSummary empty;
+    empty.score.explored_percent = 100;
+    for (const ExpeditionBonus bonus : earnable_bonuses) {
+        CHECK_FALSE(earned_bonus_test(bonus, empty));
+    }
+    CHECK(earned_bonus_of(empty) == ExpeditionBonus::none);
+    CHECK_FALSE(earned_bonus_test(ExpeditionBonus::none, empty));
+}
+
+TEST_CASE("standing on every viewpoint earns the surveyor bonus") {
+    Expedition expedition(kSeed);
+    REQUIRE(expedition.state().vantage_total() > 0u);
+
+    std::uint64_t moves = 0;
+    REQUIRE(finish_level_surveying(expedition.state(), moves));
+    REQUIRE(expedition.state().vantages_reached() == expedition.state().vantage_total());
+
+    REQUIRE(expedition.complete_level(LevelPerformance{moves}) == LevelTransition::advanced);
+    const LevelSummary& first = expedition.summaries()[0];
+    CHECK(first.vantage_total == first.vantages_reached);
+    CHECK(earned_bonus_test(ExpeditionBonus::surveyor, first));
+}
+
+TEST_CASE("the surveyor bonus reaches into the next level's viewpoints") {
+    // The grant is the only thing that crosses a level boundary besides the
+    // score, and it must arrive as extra reach on the actual viewpoints rather
+    // than as a number nothing reads.
+    const GameState plain = make_level_state(LevelTier::medium, kSeed);
+    const GameState surveyed =
+        make_level_state(LevelTier::medium, kSeed, vantage_reveal_bonus_of(ExpeditionBonus::surveyor));
+
+    CHECK(plain.vantage_reveal_bonus() == 0);
+    CHECK(surveyed.vantage_reveal_bonus() == surveyor_vantage_reveal_bonus);
+    // The same seed still builds the same level: the bonus changes what a
+    // viewpoint shows, never where generation put anything.
+    CHECK(plain.render() == surveyed.render());
+    CHECK(plain.objective().name == surveyed.objective().name);
+}
+
+TEST_CASE("walking a level inside par earns the pathfinder bonus and doubles the next budget award") {
+    Expedition expedition(kSeed);
+    std::uint64_t moves = 0;
+    REQUIRE(finish_level_directly(expedition.state(), moves));
+    REQUIRE(expedition.complete_level(LevelPerformance{moves}) == LevelTransition::advanced);
+
+    const LevelSummary& first = expedition.summaries()[0];
+    REQUIRE(first.score.par_moves > 0u);
+    REQUIRE(first.score.actual_moves <= first.score.par_moves);
+    CHECK(earned_bonus_test(ExpeditionBonus::pathfinder, first));
+    CHECK(first.score.budget_multiplier == 1u);
+
+    std::uint64_t second_moves = 0;
+    REQUIRE(finish_level_directly(expedition.state(), second_moves));
+    REQUIRE(expedition.complete_level(LevelPerformance{second_moves}) ==
+            LevelTransition::expedition_completed);
+
+    const LevelSummary& second = expedition.summaries()[1];
+    CHECK(second.applied_bonus == expedition.summaries()[0].earned_bonus);
+    if (second.applied_bonus == ExpeditionBonus::pathfinder) {
+        CHECK(second.score.budget_multiplier == 2u);
+        CHECK(second.score.budget_value == completed_budget_award * 2u);
+    }
+}
+
+TEST_CASE("par leaves room for a real run and still costs a wandering one") {
+    // Par has to be reachable to mean anything, and losable to mean anything
+    // else. Checked against real generated levels rather than arithmetic: the
+    // optimal route must make par with room to spare on every tier, and a run
+    // that uncovers the whole level must sometimes lose it.
+    std::size_t sweeps_over_par = 0;
+    for (const LevelTier tier :
+         {LevelTier::small, LevelTier::medium, LevelTier::large, LevelTier::x_large}) {
+        for (std::uint64_t offset = 0; offset < 4u; ++offset) {
+            const std::uint64_t seed = kSeed + offset;
+
+            GameState direct = make_level_state(tier, seed);
+            std::uint64_t direct_moves = 0;
+            REQUIRE(finish_level_directly(direct, direct_moves));
+            const std::uint64_t par =
+                par_moves_for(direct.objective().total_reachable_walkable_cells);
+            REQUIRE(par > 0u);
+            // Twice the optimal route still makes par, so a player who searches
+            // under fog rather than walking a known map can earn this.
+            CHECK(direct_moves * 2u <= par);
+
+            GameState swept = make_level_state(tier, seed);
+            std::uint64_t sweep_moves = 0;
+            while (const std::optional<Coordinates> target = nam::test::nearest_unexplored(swept)) {
+                REQUIRE(walk_to(swept, *target, &sweep_moves));
+            }
+            REQUIRE(finish_level_directly(swept, sweep_moves));
+            CHECK(sweep_moves > direct_moves);
+            if (sweep_moves > par) {
+                ++sweeps_over_par;
+            }
+        }
+    }
+    CHECK(sweeps_over_par > 0u);
 }
 
 TEST_CASE("make_level_state builds a playable level for every tier") {

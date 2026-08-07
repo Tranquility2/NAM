@@ -289,8 +289,10 @@ static_assert(legend_terrain.size() == 8, "legend must list every Terrain enumer
 // active so callers can append it unconditionally.
 [[nodiscard]] std::string bonus_text(const HudProgress& progress) {
     switch (progress.bonus) {
-        case ExpeditionBonus::none:     return std::string();
-        case ExpeditionBonus::keen_eye: return "Keen eye";
+        case ExpeditionBonus::none:       return std::string();
+        case ExpeditionBonus::keen_eye:   return "Keen eye";
+        case ExpeditionBonus::surveyor:   return "Surveyor";
+        case ExpeditionBonus::pathfinder: return "Pathfinder";
     }
     return std::string();
 }
