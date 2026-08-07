@@ -124,6 +124,56 @@ ExpeditionReport bonus_report(ExpeditionBonus applied, ExpeditionBonus earned,
                                    carryover);
 }
 
+// A finished level, for building a per-level record without an Expedition.
+LevelSummary level_summary(LevelTier tier, std::uint64_t score, std::uint32_t discoveries_found,
+                           std::uint32_t discovery_total, std::uint32_t vantages_reached,
+                           std::uint32_t vantage_total, ExpeditionBonus earned,
+                           std::uint64_t moves) {
+    LevelSummary summary;
+    summary.tier = tier;
+    summary.score.value = score;
+    summary.score.actual_moves = moves;
+    summary.discoveries_found = discoveries_found;
+    summary.discovery_total = discovery_total;
+    summary.vantages_reached = vantages_reached;
+    summary.vantage_total = vantage_total;
+    summary.earned_bonus = earned;
+    return summary;
+}
+
+// A completed four-level expedition report carrying a per-level record.
+ExpeditionReport whole_run_report(std::vector<LevelSummary> levels) {
+    const Map map = row_map("......", Coordinates{0, 0});
+    const LevelObjective objective =
+        make_objective(Coordinates{5, 0}, "Glass River Exit", ObjectiveStatus::completed, 5, 6);
+    VisibilityMap visibility(6, 1);
+    visibility.reveal_square(Coordinates{2, 0}, 8);
+    Journal journal;
+    RouteHistory route(Coordinates{0, 0});
+
+    ExpeditionCarryover carryover;
+    carryover.levels_completed = static_cast<std::uint32_t>(levels.size());
+    carryover.total_levels = static_cast<std::uint32_t>(levels.size());
+    carryover.expedition_completed = true;
+    carryover.expedition_score = 0;
+    for (const LevelSummary& level : levels) {
+        carryover.expedition_score += level.score.value;
+        carryover.expedition_discoveries_found += level.discoveries_found;
+        carryover.expedition_discoveries_available += level.discovery_total;
+    }
+    if (!levels.empty()) {
+        carryover.discoveries_found = levels.back().discoveries_found;
+        carryover.discovery_total = levels.back().discovery_total;
+        carryover.vantages_reached = levels.back().vantages_reached;
+        carryover.vantage_total = levels.back().vantage_total;
+        carryover.earned_bonus = levels.back().earned_bonus;
+    }
+    carryover.levels = std::move(levels);
+
+    return build_expedition_report(objective, map, visibility, journal, route,
+                                   world_identity_from(Settings{}), 1, 1, carryover);
+}
+
 }  // namespace
 
 TEST_SUITE("expedition_report") {
@@ -270,14 +320,15 @@ TEST_CASE("completed report shows result story statistics and legend wording") {
           "The party found Glass River Exit and reached the exit in 3 moves.");
 
     const std::vector<std::string> stats = format_report_statistics(report);
-    REQUIRE(stats.size() == 7);
+    REQUIRE(stats.size() == 8);
     CHECK(stats[0] == "STATISTICS");
     CHECK(stats[1] == "Score: 2000 of 2000 possible");
     CHECK(stats[2] == "Exit: 1000 of 1000, reached");
     CHECK(stats[3] == "Explored: 800 of 800, 6 of 6 cells (100%)");
     CHECK(stats[4] == "Discoveries: none placed on this level");
     CHECK(stats[5] == "Budget: 200 of 200, 3 moves of 4 budgeted");
-    CHECK(stats[6] == "Moves: 3 moves, par 1 missed, 1 blocked");
+    CHECK(stats[6] == "Viewpoints: none placed on this level");
+    CHECK(stats[7] == "Moves: 3 moves, par 1 missed, 1 blocked");
 
     // A standalone level has no separate expedition section to repeat itself in.
     CHECK(format_report_expedition(report).empty());
@@ -331,9 +382,9 @@ TEST_CASE("the move line uses singular grammar for a single move") {
         build_report(objective, map, visibility, journal, route, 1, 1);
 
     const std::vector<std::string> stats = format_report_statistics(report);
-    REQUIRE(stats.size() == 7);
+    REQUIRE(stats.size() == 8);
     CHECK(stats[5] == "Budget: 200 of 200, 1 move of 4 budgeted");
-    CHECK(stats[6] == "Moves: 1 move, par 1 beaten, 0 blocked");
+    CHECK(stats[7] == "Moves: 1 move, par 1 beaten, 0 blocked");
 }
 
 TEST_CASE("report line sections appear in the required order") {
@@ -495,3 +546,124 @@ TEST_CASE("a doubled component says which bonus doubled it") {
 }
 
 }  // TEST_SUITE("expedition_report_bonus")
+
+TEST_SUITE("expedition_report_levels") {
+
+// The four-level record the cases below read. Scores and counts are chosen so
+// every column has to widen for a different row, which is what makes the
+// alignment assertions meaningful.
+std::vector<LevelSummary> four_levels() {
+    return {level_summary(LevelTier::small, 2069, 1, 1, 0, 2, ExpeditionBonus::pathfinder, 21),
+            level_summary(LevelTier::medium, 2321, 2, 2, 3, 3, ExpeditionBonus::surveyor, 44),
+            level_summary(LevelTier::large, 940, 0, 3, 0, 4, ExpeditionBonus::none, 60),
+            level_summary(LevelTier::x_large, 12562, 4, 4, 5, 5, ExpeditionBonus::keen_eye, 91)};
+}
+
+// The whole-run record: the totals say what a run scored, this says where. A
+// four-level run used to end with two running totals, leaving the first three
+// levels with no record at all.
+TEST_CASE("the final report tabulates every level the expedition finished") {
+    const ExpeditionReport report = whole_run_report(four_levels());
+    const std::vector<std::string> levels = format_report_levels(report);
+
+    REQUIRE(levels.size() == 6);
+    CHECK(levels[0] == "LEVELS");
+    CHECK(levels[1] == "#  Tier     Score  Found  Seen  Bonus earned");
+    CHECK(levels[2] == "1  Small     2069    1/1   0/2  pathfinder");
+    CHECK(levels[3] == "2  Medium    2321    2/2   3/3  surveyor");
+    CHECK(levels[4] == "3  Large      940    0/3   0/4  -");
+    CHECK(levels[5] == "4  X-Large  12562    4/4   5/5  keen eye");
+}
+
+// Column widths are taken from the data and the headings together, so a wider
+// score or a longer tier name shifts the whole column rather than breaking one
+// row out of line.
+TEST_CASE("every row of the level table lines its columns up with the heading") {
+    const ExpeditionReport report = whole_run_report(four_levels());
+    const std::vector<std::string> levels = format_report_levels(report);
+    REQUIRE(levels.size() >= 3);
+
+    // The bonus column is last and free-width, so alignment is checked over the
+    // fixed columns that precede it.
+    const std::size_t bonus_column = levels[1].find("Bonus earned");
+    REQUIRE(bonus_column != std::string::npos);
+    for (std::size_t i = 2; i < levels.size(); ++i) {
+        REQUIRE(levels[i].size() > bonus_column);
+        // Exactly the two-space separator sits before the bonus cell.
+        CHECK(levels[i][bonus_column - 1u] == ' ');
+        CHECK(levels[i][bonus_column - 2u] == ' ');
+        CHECK(levels[i][bonus_column] != ' ');
+    }
+
+    // A single-column probe: the score column ends where the heading's does.
+    const std::size_t score_end = levels[1].find("Score") + 5u;
+    for (std::size_t i = 2; i < levels.size(); ++i) {
+        CHECK(levels[i][score_end - 1u] != ' ');
+    }
+}
+
+// A level report is not a run report. An interlude stays short, and a standalone
+// level is already described in full by the sections above.
+TEST_CASE("the level table appears only once a whole expedition is behind the player") {
+    const std::vector<std::string> whole =
+        format_report_lines(whole_run_report(four_levels()));
+    CHECK(join_lines(whole).find("LEVELS") != std::string::npos);
+
+    // One finished level is not a run to look back on.
+    const ExpeditionReport single = whole_run_report(
+        {level_summary(LevelTier::small, 2069, 1, 1, 2, 2, ExpeditionBonus::keen_eye, 21)});
+    CHECK(format_report_levels(single).empty());
+
+    // Nor is a caller that supplied no per-level record at all.
+    const ExpeditionReport bare = bonus_report(ExpeditionBonus::none, ExpeditionBonus::none, 1);
+    CHECK(format_report_levels(bare).empty());
+    CHECK(join_lines(format_report_lines(bare)).find("LEVELS") == std::string::npos);
+}
+
+// The expedition totals and the rows beneath them are two views of one run, so
+// they have to agree. Viewpoints and distance exist only in the per-level record,
+// which is why they are reported alongside it rather than on their own.
+TEST_CASE("the expedition totals are exactly the sum of the tabulated levels") {
+    const std::vector<LevelSummary> levels = four_levels();
+    const ExpeditionReport report = whole_run_report(levels);
+    const std::string text = join_lines(format_report_expedition(report));
+
+    std::uint64_t score = 0;
+    std::uint64_t found = 0;
+    std::uint64_t available = 0;
+    std::uint64_t seen = 0;
+    std::uint64_t vantages = 0;
+    std::uint64_t moves = 0;
+    for (const LevelSummary& level : levels) {
+        score += level.score.value;
+        found += level.discoveries_found;
+        available += level.discovery_total;
+        seen += level.vantages_reached;
+        vantages += level.vantage_total;
+        moves += level.score.actual_moves;
+    }
+
+    CHECK(text.find("Score: " + std::to_string(score) + " over 4 of 4 levels") !=
+          std::string::npos);
+    CHECK(text.find("Discoveries: " + std::to_string(found) + " / " + std::to_string(available)) !=
+          std::string::npos);
+    CHECK(text.find("Viewpoints: " + std::to_string(seen) + " / " + std::to_string(vantages)) !=
+          std::string::npos);
+    CHECK(text.find("Distance: " + std::to_string(moves) + " moves in total") !=
+          std::string::npos);
+}
+
+// Reaching every viewpoint is the surveyor test, so a level report has to say how
+// many were reached rather than leaving the player to guess why no bonus carried.
+TEST_CASE("a level report says how many viewpoints were reached") {
+    const ExpeditionReport report = whole_run_report(four_levels());
+    const std::string text = join_lines(format_report_statistics(report));
+    CHECK(text.find("Viewpoints: 5 of 5 reached") != std::string::npos);
+
+    // A handcrafted map may place none, which is not the same as missing them.
+    const ExpeditionReport bare = bonus_report(ExpeditionBonus::none, ExpeditionBonus::none, 1);
+    CHECK(join_lines(format_report_statistics(bare))
+              .find("Viewpoints: none placed on this level") != std::string::npos);
+}
+
+}  // TEST_SUITE("expedition_report_levels")

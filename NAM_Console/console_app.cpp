@@ -223,9 +223,14 @@ void ConsoleApp::enter_completion() {
         const LevelSummary& summary = expedition_.summaries().back();
         carryover.discoveries_found = summary.discoveries_found;
         carryover.discovery_total = summary.discovery_total;
+        carryover.vantages_reached = summary.vantages_reached;
+        carryover.vantage_total = summary.vantage_total;
         carryover.applied_bonus = summary.applied_bonus;
         carryover.earned_bonus = summary.earned_bonus;
     }
+    // The whole-run record, not just the running totals: the final report tabulates
+    // every level, so a four-level run does not leave the first three unrecorded.
+    carryover.levels = expedition_.summaries();
     if (!expedition_.completed()) {
         carryover.next_tier = expedition_.current_tier();
     }

@@ -84,6 +84,12 @@ struct ExpeditionCarryover {
     std::uint32_t discoveries_found = 0;
     std::uint32_t discovery_total = 0;
 
+    // The viewpoints of the level this report describes. Reaching all of them is
+    // the surveyor test, so a run that missed one needs to be able to see that it
+    // did.
+    std::uint32_t vantages_reached = 0;
+    std::uint32_t vantage_total = 0;
+
     // Running totals across every finished level, including this one.
     std::uint64_t expedition_score = 0;
     std::uint32_t expedition_discoveries_found = 0;
@@ -96,6 +102,15 @@ struct ExpeditionCarryover {
 
     // The tier the next level uses. Absent once the expedition is complete.
     std::optional<LevelTier> next_tier;
+
+    // Every level the expedition has finished, in play order, including this one.
+    // The running totals above are what a level report needs; this is what the
+    // final report needs, because a four-level run that reports only its totals
+    // leaves the first three levels with no record at all.
+    //
+    // Empty when the caller has no expedition to draw from, in which case the
+    // per-level section is simply omitted.
+    std::vector<LevelSummary> levels;
 };
 
 // The complete report snapshot. Map and visibility come first so the aggregate can
@@ -145,17 +160,27 @@ struct ExpeditionReport {
 [[nodiscard]] std::string format_report_story(const ExpeditionReport& report);
 
 // The transparent statistics for the level this report describes (REQ-143 /
-// REQ-144): the score with all four of its components, discoveries found out of
-// the level's total, explored reachable terrain out of the total, and the move
-// summary against the soft budget. The shortest legal route is deliberately not
-// reported: the score no longer rewards tracking it, so advertising it would
-// only invite the play style the design removed.
+// REQ-144). Every score component is one line reading "<earned> of <possible>"
+// beside the quantity that produced it, so a player can see which bucket they
+// left points in rather than being handed a total with nothing to compare it
+// against. The carried multiplier is named on the line whose number it changed.
+// Par and the viewpoint count are reported because they are the pathfinder and
+// surveyor tests. The shortest legal route is deliberately not reported: the
+// score no longer rewards tracking it, so advertising it would only invite the
+// play style the design removed.
 [[nodiscard]] std::vector<std::string> format_report_statistics(const ExpeditionReport& report);
 
-// The running expedition totals carried across levels: score, discoveries, and
-// the one carried bonus as it is spent and earned. Empty for a standalone level,
-// whose own statistics already are the whole expedition.
+// The running expedition totals carried across levels: score, discoveries,
+// viewpoints, total distance, and the one carried bonus as it is spent and
+// earned. Empty for a standalone level, whose own statistics already are the
+// whole expedition.
 [[nodiscard]] std::vector<std::string> format_report_expedition(const ExpeditionReport& report);
+
+// One aligned row per level the expedition finished, with its tier, score,
+// discoveries, viewpoints, and the bonus it earned. This is the whole-run record:
+// the totals above say what a run scored, and this says where. Empty unless the
+// caller supplied a per-level record of more than one level.
+[[nodiscard]] std::vector<std::string> format_report_levels(const ExpeditionReport& report);
 
 // The world-identity and replay/run-again lines (REQ-154). All user-controlled
 // bytes are escaped through format_seed_for_display.

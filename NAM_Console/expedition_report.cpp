@@ -25,6 +25,25 @@ constexpr char route_unexplored_glyph = '?';
     return count == 1 ? std::string(singular) : std::string(many);
 }
 
+// `text` padded with trailing spaces to `width`, for the left-aligned columns of
+// the per-level table. Shorter than `width` is the only case that pads; a wider
+// cell is never truncated, because a misaligned row is better than a lost figure.
+[[nodiscard]] std::string pad_right(const std::string& text, std::size_t width) {
+    return text.size() >= width ? text : text + std::string(width - text.size(), ' ');
+}
+
+// `text` padded with leading spaces to `width`, for the numeric columns.
+[[nodiscard]] std::string pad_left(const std::string& text, std::size_t width) {
+    return text.size() >= width ? text : std::string(width - text.size(), ' ') + text;
+}
+
+// The "found"/"seen" cells of the per-level table, e.g. "3/4". A level that
+// placed none of that content reads "-" rather than "0/0".
+[[nodiscard]] std::string fraction_cell(std::uint32_t reached, std::uint32_t total) {
+    if (total == 0) return "-";
+    return std::to_string(reached) + "/" + std::to_string(total);
+}
+
 }  // namespace
 
 void RouteHistory::record_event(const GameEvent& event) {
@@ -201,6 +220,16 @@ std::vector<std::string> format_report_statistics(const ExpeditionReport& report
     }
     lines.push_back(std::move(budget));
 
+    // Reaching every viewpoint is the surveyor test, so a run that missed one has
+    // to be able to see which. A level that offered none says so rather than
+    // printing "0 of 0".
+    if (report.carryover.vantage_total == 0) {
+        lines.emplace_back("Viewpoints: none placed on this level");
+    } else {
+        lines.push_back("Viewpoints: " + std::to_string(report.carryover.vantages_reached) +
+                        " of " + std::to_string(report.carryover.vantage_total) + " reached");
+    }
+
     // Par is the pathfinder test, so saying whether it was met tells a player why
     // they did or did not carry that bonus forward. A level too small to have a
     // par cannot be walked efficiently, so it is not mentioned there.
@@ -228,6 +257,24 @@ std::vector<std::string> format_report_expedition(const ExpeditionReport& report
     lines.push_back("Discoveries: " +
                     std::to_string(report.carryover.expedition_discoveries_found) + " / " +
                     std::to_string(report.carryover.expedition_discoveries_available));
+
+    // Viewpoints and total distance are not tracked as running counters by the
+    // core, so they come from the per-level record when the caller supplied one.
+    if (!report.carryover.levels.empty()) {
+        std::uint64_t vantages_reached = 0;
+        std::uint64_t vantage_total = 0;
+        std::uint64_t moves = 0;
+        for (const LevelSummary& level : report.carryover.levels) {
+            vantages_reached += level.vantages_reached;
+            vantage_total += level.vantage_total;
+            moves += level.score.actual_moves;
+        }
+        lines.push_back("Viewpoints: " + std::to_string(vantages_reached) + " / " +
+                        std::to_string(vantage_total));
+        lines.push_back("Distance: " + std::to_string(moves) + " " +
+                        plural(moves, "move", "moves") + " in total");
+    }
+
     if (report.carryover.applied_bonus != ExpeditionBonus::none) {
         lines.push_back("Bonus spent: " + bonus_name_lower(report.carryover.applied_bonus) +
                         ". This level's " + bonus_effect_clause(report.carryover.applied_bonus) +
@@ -239,6 +286,69 @@ std::vector<std::string> format_report_expedition(const ExpeditionReport& report
         lines.push_back("Bonus earned: " + bonus_name_lower(report.carryover.earned_bonus) +
                         ". The next level's " + bonus_effect_clause(report.carryover.earned_bonus) +
                         ".");
+    }
+    return lines;
+}
+
+std::vector<std::string> format_report_levels(const ExpeditionReport& report) {
+    // A single level is described in full by the sections above it, and a caller
+    // with no expedition to draw from has nothing to tabulate.
+    if (report.carryover.levels.size() <= 1u) return {};
+
+    struct Row {
+        std::string number;
+        std::string tier;
+        std::string score;
+        std::string found;
+        std::string seen;
+        std::string bonus;
+    };
+
+    std::vector<Row> rows;
+    rows.reserve(report.carryover.levels.size());
+    std::uint32_t number = 0;
+    for (const LevelSummary& level : report.carryover.levels) {
+        ++number;
+        Row row;
+        row.number = std::to_string(number);
+        row.tier = std::string(to_string(level.tier));
+        row.score = std::to_string(level.score.value);
+        row.found = fraction_cell(level.discoveries_found, level.discovery_total);
+        row.seen = fraction_cell(level.vantages_reached, level.vantage_total);
+        row.bonus = bonus_name_lower(level.earned_bonus);
+        if (row.bonus.empty()) row.bonus = "-";
+        rows.push_back(std::move(row));
+    }
+
+    // Column widths come from the data and the headings together, so a row can
+    // never be wider than its column and the table stays aligned on every tier
+    // chain and score magnitude.
+    Row width;
+    const auto widen = [](std::string& widest, const std::string& cell) {
+        if (cell.size() > widest.size()) widest = cell;
+    };
+    width = Row{"#", "Tier", "Score", "Found", "Seen", std::string()};
+    for (const Row& row : rows) {
+        widen(width.number, row.number);
+        widen(width.tier, row.tier);
+        widen(width.score, row.score);
+        widen(width.found, row.found);
+        widen(width.seen, row.seen);
+    }
+
+    const auto compose = [&width](const Row& row) {
+        return pad_left(row.number, width.number.size()) + "  " +
+               pad_right(row.tier, width.tier.size()) + "  " +
+               pad_left(row.score, width.score.size()) + "  " +
+               pad_left(row.found, width.found.size()) + "  " +
+               pad_left(row.seen, width.seen.size()) + "  " + row.bonus;
+    };
+
+    std::vector<std::string> lines;
+    lines.emplace_back("LEVELS");
+    lines.push_back(compose(Row{"#", "Tier", "Score", "Found", "Seen", "Bonus earned"}));
+    for (const Row& row : rows) {
+        lines.push_back(compose(row));
     }
     return lines;
 }
@@ -361,6 +471,14 @@ std::vector<std::string> format_report_lines(const ExpeditionReport& report) {
     if (is_interlude_report(report)) {
         if (!lines.empty() && lines.back().empty()) lines.pop_back();
         return lines;
+    }
+    // The whole-run record belongs only to the final report. An interlude is read
+    // between levels and stays short; here the run is over and the levels behind
+    // it are the thing worth looking back at.
+    const std::vector<std::string> levels = format_report_levels(report);
+    if (!levels.empty()) {
+        append(levels);
+        lines.emplace_back();
     }
     append(format_report_identity(report));
     lines.emplace_back();

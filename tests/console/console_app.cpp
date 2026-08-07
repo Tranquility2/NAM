@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -1006,6 +1007,42 @@ constexpr std::uint64_t kExpeditionSeed = 0x0F4289EAF4A1813Cull;
     return events;
 }
 
+// The tier chain in play order, so a case can name the tier each level should
+// report without restating the chain.
+constexpr LevelTier kTierChain[] = {LevelTier::small, LevelTier::medium, LevelTier::large,
+                                    LevelTier::x_large};
+
+// `text` split on newlines, dropping the trailing empty piece.
+[[nodiscard]] std::vector<std::string> lines_of(const std::string& text) {
+    std::vector<std::string> lines;
+    std::istringstream stream(text);
+    std::string line;
+    while (std::getline(stream, line)) {
+        lines.push_back(line);
+    }
+    return lines;
+}
+
+// The score cell of a per-level table row: the third whitespace-separated field,
+// after the level number and the tier name.
+[[nodiscard]] std::uint64_t row_score(const std::string& row) {
+    std::istringstream stream(row);
+    std::string number;
+    std::string tier;
+    std::uint64_t score = 0;
+    stream >> number >> tier >> score;
+    return score;
+}
+
+// The expedition score from the final report's totals, read back out of the
+// rendered text so the table and the totals are compared as a player sees them.
+[[nodiscard]] std::uint64_t expedition_total_score(const std::string& output) {
+    const std::string marker = "EXPEDITION\nScore: ";
+    const std::size_t at = output.rfind(marker);
+    if (at == std::string::npos) return 0;
+    return std::strtoull(output.c_str() + at + marker.size(), nullptr, 10);
+}
+
 }  // namespace
 
 TEST_SUITE("console_app") {
@@ -1044,6 +1081,41 @@ TEST_CASE("the expedition score accumulates across levels in the final report") 
                                  " over 3 of 4 levels", " over 4 of 4 levels"}) {
         CHECK(output.find(progress) != std::string::npos);
     }
+}
+
+TEST_CASE("the final report tabulates every level a real run actually played") {
+    // The per-level table is assembled by the app from the expedition's summaries,
+    // which no hand-built carryover can gate. This drives the real four-level run
+    // and reads the table back out of the real final report.
+    ConsoleApp app(Expedition(kExpeditionSeed), Settings{});
+    std::istringstream input(commands_to_finish(kExpeditionSeed));
+    std::ostringstream out;
+    REQUIRE(app.run_plain(input, out) == 0);
+    const std::string output = out.str();
+
+    // Only the last report carries the section, and it carries the whole run.
+    CHECK(count_substr(output, "LEVELS\n") == 1u);
+    const std::size_t table = output.rfind("LEVELS\n");
+    REQUIRE(table != std::string::npos);
+
+    const std::vector<std::string> rows = lines_of(output.substr(table));
+    // Heading, column heading, then one row per level of the tier chain.
+    REQUIRE(rows.size() > expedition_level_count + 1u);
+    CHECK(rows[1] == "#  Tier     Score  Found  Seen  Bonus earned");
+
+    // Every level of the chain is present, numbered in play order and named by
+    // its own tier, which is what truncating the record to the last level breaks.
+    std::uint64_t tabulated = 0;
+    for (std::uint32_t level = 0; level < expedition_level_count; ++level) {
+        const std::string& row = rows[level + 2u];
+        CHECK(row.substr(0, 1) == std::to_string(level + 1u));
+        CHECK(row.find(std::string(to_string(kTierChain[level]))) != std::string::npos);
+        tabulated += row_score(row);
+    }
+
+    // The table and the totals above it are two views of one run, so the rows must
+    // sum to the reported expedition score.
+    CHECK(tabulated == expedition_total_score(output));
 }
 
 TEST_CASE("a thorough run logs its discoveries and keeps the journal within budget") {
