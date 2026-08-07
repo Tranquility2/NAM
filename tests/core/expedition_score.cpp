@@ -189,21 +189,25 @@ TEST_CASE("a level with no reachable cells scores no exploration and no budget")
 
 // --- The soft move budget ----------------------------------------------------
 
-TEST_CASE("the move budget is one move per reachable walkable cell") {
-    CHECK(move_budget_for(163) == 163);
+TEST_CASE("the move budget is two moves for every three reachable walkable cells") {
+    CHECK(move_budget_for(150) == 100);
+    // The budget floors, and never rounds in the player's favour.
+    CHECK(move_budget_for(163) == 108);
+    CHECK(move_budget_for(164) == 109);
+    CHECK(move_budget_for(0) == 0);
 
     CompletedScoreInput input;
-    input.total_reachable_cells = 163;
-    input.actual_moves = 163;
+    input.total_reachable_cells = 150;
+    input.actual_moves = 100;
     const ExpeditionScore score = compute_completed_score(input);
-    CHECK(score.move_budget == 163);
+    CHECK(score.move_budget == 100);
     CHECK(score.moves_over_budget == 0);
     CHECK(score.budget_value == completed_budget_award);
 }
 
 TEST_CASE("every move past the budget costs five and the loss stops at zero") {
     CompletedScoreInput input;
-    input.total_reachable_cells = 100;
+    input.total_reachable_cells = 150;  // A budget of exactly 100 moves.
 
     input.actual_moves = 110;
     CHECK(compute_completed_score(input).budget_value ==
@@ -241,24 +245,28 @@ TEST_CASE("a zero multiplier is treated as the neutral one") {
 
 // --- Robustness --------------------------------------------------------------
 
-TEST_CASE("par is a fifth of the budget and floors rather than rounding up") {
+TEST_CASE("par is a fifth of the map and floors rather than rounding up") {
     CHECK(par_moves_for(0) == 0);
-    CHECK(par_moves_for(100) == 20);
-    // 164 * 20 / 100 = 32.8, and par never rounds in the player's favour.
+    // Thirty percent of a budget that is two thirds of the cells: a fifth of the
+    // map, which is what par was measured against.
+    CHECK(par_moves_for(150) == 30);
+    CHECK(par_moves_for(600) == 120);
+    // 164 cells is a budget of 109, and 109 * 30 / 100 = 32.7. Par never rounds
+    // in the player's favour.
     CHECK(par_moves_for(164) == 32);
     // A level too small to have a fifth of a move has no par to beat.
     CHECK(par_moves_for(4) == 0);
 
     CompletedScoreInput input;
-    input.total_reachable_cells = 400;
+    input.total_reachable_cells = 600;
     const ExpeditionScore score = compute_completed_score(input);
-    CHECK(score.par_moves == 80);
+    CHECK(score.par_moves == 120);
     CHECK(score.par_moves < score.move_budget);
 }
 
 TEST_CASE("the carried bonus multiplies what survives of the budget award") {
     CompletedScoreInput input;
-    input.total_reachable_cells = 100;
+    input.total_reachable_cells = 150;
     input.actual_moves = 100;  // Exactly on budget: nothing lost.
     input.budget_multiplier = 2;
 
@@ -280,7 +288,7 @@ TEST_CASE("the carried bonus multiplies what survives of the budget award") {
 
 TEST_CASE("a zero budget multiplier is treated as the neutral one") {
     CompletedScoreInput input;
-    input.total_reachable_cells = 100;
+    input.total_reachable_cells = 150;
     input.actual_moves = 100;
     input.budget_multiplier = 0;
 

@@ -79,39 +79,62 @@ inline constexpr std::uint64_t completed_score_per_discovery = 200;
 inline constexpr std::uint64_t completed_budget_award = 200;
 inline constexpr std::uint64_t completed_penalty_per_move_over_budget = 5;
 
-// The soft move budget for a level: one move per walkable cell reachable from
-// spawn. Measured over generated levels, a greedy full sweep costs roughly a
-// third of that, so a player who uncovers the entire level still finishes well
-// inside the budget with room to backtrack, re-cross, and change their mind.
+// The soft move budget for a level: two moves for every three walkable cells
+// reachable from spawn.
 //
-// That margin is what makes the design's central invariant structural rather
-// than lucky: a longer route that uncovers more map only begins losing budget
-// points long after it has run out of exploration points to gain, and the whole
-// budget bucket is worth less than a quarter of the exploration one.
+// The fraction is measured. Over 120 seeds per tier a greedy full sweep - the
+// most expensive honest way to play, uncovering every cell before finishing -
+// costs 28% to 33% of the reachable cells on average and 48% in the worst case
+// seen, on Small, where high ground reveals least per step. Direct play with
+// full knowledge costs 3% to 9%. Two thirds therefore puts the average sweep
+// near 45% of the budget and the worst sweep near 72%: a player who uncovers
+// everything still finishes inside it with room to backtrack and change their
+// mind, while roughly twice a sweep runs out.
+//
+// The budget was one move per cell until it was played end to end. A real
+// four-tier run costs 245 to 440 moves against a 2395-move chain, so the budget
+// never bound anything and did no pacing work at all. It is deliberately soft:
+// exceeding it costs `completed_penalty_per_move_over_budget` per move, and
+// never ends a run.
+//
+// The margin is still what makes the design's central invariant structural
+// rather than lucky: a longer route that uncovers more map only begins losing
+// budget points after it has run out of exploration points to gain, and the
+// whole budget bucket is worth less than a quarter of the exploration one.
+//
+// Written as a quotient plus a remainder rather than `cells * 2 / 3` so the
+// intermediate product cannot overflow at extreme counters. The result is
+// exactly floor(2n/3) for every input.
 [[nodiscard]] constexpr std::uint64_t move_budget_for(std::uint64_t total_reachable_cells) noexcept {
-    return total_reachable_cells;
+    return total_reachable_cells / 3u * 2u + total_reachable_cells % 3u * 2u / 3u;
 }
 
 // The share of the move budget that counts as par: a level walked efficiently
-// rather than merely inside the generous budget.
+// rather than merely inside the budget.
 //
-// The number is measured, not chosen. Over 60 seeds per tier, the optimal
-// route — landmark then exit, with full knowledge of the map — costs 6.6% of the
-// budget on Small, falling to 2.8% on X-Large. A fifth of the budget therefore
-// gives a player roughly three times the perfect route on every tier, which is
-// what makes par something a real run under fog can reach without being handed
-// to a run that wanders.
+// The number is measured, not chosen, and it is measured against the map rather
+// than against the budget: par is a fifth of the reachable cells. Over 120 seeds
+// per tier the optimal route - landmark then exit, with full knowledge of the
+// map - costs 6.8% of the cells on Small falling to 2.8% on X-Large, so a fifth
+// of the map gives a player at least twice the perfect route on every tier,
+// which is what makes par something a real run under fog can reach without being
+// handed to a run that wanders.
+//
+// Thirty percent of a budget that is two thirds of the cells is exactly a fifth
+// of the cells. The percentage moved with the budget on purpose: tightening the
+// budget for pacing must not silently tighten par, because the two were measured
+// against different things.
 //
 // Par is deliberately *not* a multiple of the shortest legal route. That length
-// is a fifteenth of the budget on Small and a thirty-sixth on X-Large, so the
-// same multiple of it would mean a different thing on every tier.
+// is a tenth of the budget on Small and a thirty-sixth on X-Large, so the same
+// multiple of it would mean a different thing on every tier.
 //
 // Par does not exclude a thorough run by construction: a level that reveals a
-// lot from high ground can be swept cheaply. Making the two mutually exclusive
-// would require a threshold below the direct route on some tiers, which would
-// make par unreachable. The fixed precedence in `earnable_bonuses` resolves the
-// overlap instead.
-inline constexpr std::uint64_t completed_par_percent = 20;
+// lot from high ground can be swept for as little as 11.6% of its cells. Making
+// the two mutually exclusive would require a threshold below the direct route on
+// some tiers, which would make par unreachable. The fixed precedence in
+// `earnable_bonuses` resolves the overlap instead.
+inline constexpr std::uint64_t completed_par_percent = 30;
 
 // The par move count for a level: the tighter target a run beats to have walked
 // it efficiently. Purely a level property, so every frontend agrees on par

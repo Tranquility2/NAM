@@ -93,7 +93,7 @@ nam_add_cli_test(cli_run_level_wander_deterministic
 nam_add_cli_test(cli_run_phase0_level
     "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}
     -DEXPECT_CODE=0
-    "-DEXPECT_CONTAINS=Result: level complete.|Moves: 46 moves of 55 budgeted|0 blocked|Explored: 55 / 55 cells (100%)|Sighted Moon Strand Crossing|Reached the exit after Moon Strand Crossing"
+    "-DEXPECT_CONTAINS=Result: level complete.|Moves: 46 moves of 36 budgeted|0 blocked|Explored: 55 / 55 cells (100%)|Sighted Moon Strand Crossing|Reached the exit after Moon Strand Crossing"
     -DFORBID_ESC=1)
 nam_add_cli_test(cli_run_phase0_level_deterministic
     "-DARGS=--map|${NAM_FIXTURES_DIR}/phase0-level.map" -DINPUT_FILE=${_phase0_stdin}

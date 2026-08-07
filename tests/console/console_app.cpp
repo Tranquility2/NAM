@@ -599,7 +599,7 @@ TEST_CASE("plain single-cell map prints the report once and exits immediately") 
           std::string::npos);
     CHECK(output.find("Score: 2000 (exit 1000, explored 800 / 800, discoveries 0, budget 200)") !=
           std::string::npos);
-    CHECK(output.find("Moves: 0 moves of 1 budgeted, 0 blocked") != std::string::npos);
+    CHECK(output.find("Moves: 0 moves of 0 budgeted, 0 blocked") != std::string::npos);
     CHECK(output.find("Goodbye") == std::string::npos);  // immediate quiet exit.
 }
 

@@ -339,14 +339,30 @@ TEST_CASE("uncovering a level never scores below rushing through it") {
 }
 
 TEST_CASE("a full sweep stays comfortably inside the soft move budget") {
-    // The budget is only generous if uncovering everything never touches it. If
-    // this fails the budget is too tight, not the run too slow.
+    // Both halves of the budget's job, on the same played runs.
     for (const std::uint64_t seed : gate_seeds()) {
         const Expedition swept = play(seed, Style::sweep);
+        std::uint64_t swept_moves = 0;
+        std::uint64_t whole_budget = 0;
         for (const LevelSummary& summary : swept.summaries()) {
+            // Uncovering everything must never touch the budget. If this fails
+            // the budget is too tight, not the run too slow.
             CHECK(summary.score.moves_over_budget == 0);
             CHECK(summary.score.budget_value == completed_budget_award);
+            swept_moves += summary.score.actual_moves;
+            whole_budget += summary.score.move_budget;
         }
+
+        // The other half of the budget's job. Uncovering a whole run costs 42%
+        // of its budget at worst and 49% on average here, so a player who wanders
+        // about twice as far as a sweep runs out. Asserted over the run rather
+        // than per level because a single level that reveals a lot from high
+        // ground can be swept for as little as 13% of its budget.
+        //
+        // If this fails the budget has stopped constraining anything and does no
+        // pacing work, which is the state it was in when it was one move per cell
+        // and a whole four-tier run cost a fifth of the chain.
+        CHECK(swept_moves * 3u > whole_budget);
     }
 }
 
