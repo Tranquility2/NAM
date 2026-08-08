@@ -62,6 +62,11 @@ namespace nam::console {
 // layout, which has no room for the full objective sentence.
 [[nodiscard]] std::string goal_line(const LevelObjective& objective);
 
+// The narrowest objective wording: the phase alone, with no landmark name. A
+// terminal too narrow for `goal_line` still owes the player the answer to "what
+// am I doing", and the objective glyph is explained by the legend.
+[[nodiscard]] std::string short_goal_line(const LevelObjective& objective);
+
 // The latest-event message shown when a move first enters the landmark cell,
 // replacing the ordinary move wording for that command.
 [[nodiscard]] std::string describe_landmark_discovered(const std::string& name);

@@ -519,6 +519,85 @@ TEST_CASE("the on-screen legend explains every glyph the map can draw") {
     CHECK(legend.find('\x1b') == std::string::npos);
 }
 
+TEST_CASE("the legend ladder shortens by whole groups") {
+    const std::vector<std::string> forms = hud_legend_forms();
+
+    REQUIRE(forms.size() >= 4u);
+    // Fullest first, and strictly narrowing, which is what lets the renderer pick
+    // the first form that fits.
+    CHECK(forms.front() == hud_legend_text());
+    for (std::size_t index = 1; index < forms.size(); ++index) {
+        CHECK(forms[index].size() < forms[index - 1u].size());
+    }
+    // Every form is a complete legend: no form ends inside a key.
+    for (const std::string& form : forms) {
+        CHECK(form.find("O you") == 0u);
+        CHECK(form.back() != ' ');
+        CHECK((form.find('?') == std::string::npos) ==
+              (form.find("? find") == std::string::npos));
+        CHECK((form.find('+') == std::string::npos) ==
+              (form.find("+ view") == std::string::npos));
+    }
+    // The narrowest still names the actor and the goal, because a player who can
+    // read nothing else has to know which glyph is which.
+    CHECK(forms.back() == "O you  * goal");
+}
+
+TEST_CASE("a terminal too narrow for a HUD line is given a shorter one, not a cut one") {
+    const Map map = open_map(8, 4);
+    const LevelObjective objective = exit_at(Coordinates{7, 3}, ObjectiveStatus::seeking_landmark);
+    RenderInput input = make_input(map);
+    input.objective = &objective;
+    const Renderer renderer(plain_config());
+
+    // 80 columns fits everything: the full status line names the terrain and the
+    // full legend carries the sight table and the blocked pair.
+    const std::string wide = join_visible(renderer.render(input, TerminalSize{80, 24}));
+    CHECK(wide.find("Sight 3 (open ground)") != std::string::npos);
+    CHECK(wide.find("Blocked = #") != std::string::npos);
+
+    // 60 columns does not. The old renderer cut both lines mid-word here; now the
+    // status drops the parenthesised terrain name and the legend drops the
+    // blocked pair, and what remains is complete.
+    const std::string narrow = join_visible(renderer.render(input, TerminalSize{60, 24}));
+    CHECK(narrow.find("Sight 3\n") != std::string::npos);
+    CHECK(narrow.find("(open") == std::string::npos);
+    CHECK(narrow.find("Sight @7 ^5 ~4 .3 x3 &1") != std::string::npos);
+    CHECK(narrow.find("Blocked") == std::string::npos);
+    // Nothing was left dangling: the two rows that used to be cut are now whole
+    // wordings, so neither ends in a partial word.
+    for (const std::string& row : renderer.render(input, TerminalSize{60, 24})) {
+        if (row.find("Sight ") == std::string::npos) continue;
+        CHECK(row.size() <= 60u);
+        CHECK(row.back() != ' ');
+        CHECK(row.substr(row.size() - 2u) != "Bl");
+    }
+}
+
+TEST_CASE("a message with no shorter wording is cut where a word ends") {
+    const Map map = open_map(8, 4);
+    RenderInput input = make_input(map);
+    // Free prose from an event, longer than the terminal and with no authored
+    // short form. This is the one HUD row that has to be trimmed rather than
+    // reworded, so it must at least stop between words and say that it stopped.
+    input.message = "Reached Ember Bough Grove. Exit direction revealed.";
+    const Renderer renderer(plain_config());
+
+    const Frame frame = renderer.render(input, TerminalSize{40, 24});
+    std::string trimmed;
+    for (const std::string& row : frame) {
+        if (row.find("Reached Ember") != std::string::npos) trimmed = row;
+    }
+
+    REQUIRE_FALSE(trimmed.empty());
+    CHECK(trimmed.size() <= 40u);
+    CHECK(trimmed.substr(trimmed.size() - 3u) == "...");
+    // The kept text is a whole-word prefix of the message, so no word is halved.
+    const std::string kept = trimmed.substr(0, trimmed.size() - 3u);
+    CHECK(input.message.compare(0, kept.size(), kept) == 0);
+    CHECK(input.message[kept.size()] == ' ');
+}
+
 TEST_CASE("the legend is on screen during play in both layouts") {
     const Map map = open_map(8, 4);
     const Renderer renderer(plain_config());

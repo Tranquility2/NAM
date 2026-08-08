@@ -137,6 +137,18 @@ std::string goal_line(const LevelObjective& objective) {
     return "Goal: reach " + objective.name;
 }
 
+std::string short_goal_line(const LevelObjective& objective) {
+    switch (objective.status) {
+        case ObjectiveStatus::seeking_landmark:
+            return "Goal: reach *";
+        case ObjectiveStatus::seeking_exit:
+            return "Goal: exit " + cardinal_direction_name(objective.exit_bearing);
+        case ObjectiveStatus::completed:
+            return "Goal: done";
+    }
+    return "Goal: reach *";
+}
+
 std::string describe_landmark_discovered(const std::string& name) {
     return "Reached " + name + ". Exit direction revealed.";
 }

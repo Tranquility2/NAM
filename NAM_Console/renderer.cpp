@@ -68,6 +68,56 @@ constexpr int color_vantage_point = 97; // Bright white: a one-off wide reveal.
     return text;
 }
 
+// The marker a word-trimmed line ends with, so a player can tell the difference
+// between a line that ended and a line that ran out of room.
+constexpr const char* fit_ellipsis = hud_trim_marker;
+
+// Fit `text` into `columns` without splitting a word. A line that already fits is
+// returned untouched. A longer line is cut back to the last space that leaves room
+// for the marker; a single word too wide for the terminal has no word boundary to
+// cut at and is truncated, because showing part of one word beats showing none.
+//
+// This is the backstop, not the strategy: HUD lines choose a shorter *wording*
+// first (see `widest_fit`) and only reach here when no authored form fits, which
+// in practice means the free-form event message.
+[[nodiscard]] std::string fit_words(std::string text, int columns) {
+    if (columns <= 0) {
+        return std::string();
+    }
+    if (text.size() <= static_cast<std::size_t>(columns)) {
+        return text;
+    }
+    const std::size_t marker = std::string(fit_ellipsis).size();
+    if (static_cast<std::size_t>(columns) <= marker) {
+        return fit_plain(std::move(text), columns);
+    }
+    const std::size_t keep = static_cast<std::size_t>(columns) - marker;
+    const std::size_t space = text.find_last_of(' ', keep);
+    if (space == std::string::npos || space == 0) {
+        return fit_plain(std::move(text), columns);
+    }
+    text.resize(space);
+    text += fit_ellipsis;
+    return text;
+}
+
+// The widest wording that fits, given forms ordered from fullest to shortest.
+//
+// This is how the HUD adapts: a narrow terminal is given a *complete* shorter
+// line rather than a wider one with its end cut off. A terminal too narrow for
+// even the shortest form falls back to word-aware trimming.
+[[nodiscard]] std::string widest_fit(const std::vector<std::string>& forms, int columns) {
+    if (forms.empty()) {
+        return std::string();
+    }
+    for (const std::string& form : forms) {
+        if (form.size() <= static_cast<std::size_t>(std::max(0, columns))) {
+            return form;
+        }
+    }
+    return fit_words(forms.back(), columns);
+}
+
 [[nodiscard]] std::string center_plain(const std::string& text, int columns) {
     std::string trimmed = fit_plain(text, columns);
     const int pad = (columns - static_cast<int>(trimmed.size())) / 2;
@@ -323,6 +373,23 @@ static_assert(legend_terrain.size() == 8, "legend must list every Terrain enumer
     return text;
 }
 
+// The status line without the parenthesised terrain name. The sight *number* is
+// the thing standing here is worth; the name of the terrain granting it is
+// already legible on the map, so it is the first thing a narrow terminal loses.
+[[nodiscard]] std::string status_text_no_terrain(const RenderInput& input) {
+    const HudProgress& progress = input.progress;
+    std::string text = tier_progress_text(progress);
+    text += "  Explored " + explored_text(progress);
+    text += "  Found " + found_text(progress);
+    text += "  Moves " + moves_text(input);
+    const std::string bonus = bonus_text(progress);
+    if (!bonus.empty()) {
+        text += "  " + bonus;
+    }
+    text += "  Sight " + sight_text(input);
+    return text;
+}
+
 // The compact HUD status line. It keeps the same facts in abbreviated form and
 // leads with exploration, because a 12-column terminal shows only the first few
 // fields and exploration is the one the player acts on.
@@ -340,6 +407,31 @@ static_assert(legend_terrain.size() == 8, "legend must list every Terrain enumer
     return text;
 }
 
+// The narrowest status line: the four figures a player acts on, nothing else.
+[[nodiscard]] std::string minimal_status_text(const RenderInput& input) {
+    const HudProgress& progress = input.progress;
+    std::string text = "E" + explored_text(progress);
+    text += " D" + found_text(progress);
+    text += " S" + sight_text(input);
+    text += " M" + moves_text(input);
+    return text;
+}
+
+// Status wordings from fullest to shortest. Every one is a complete line, so a
+// narrow terminal reads a smaller status rather than a clipped one.
+[[nodiscard]] std::vector<std::string> status_forms(const RenderInput& input) {
+    return {status_text(input), status_text_no_terrain(input), compact_status_text(input),
+            minimal_status_text(input)};
+}
+
+// The compact layout's first row folds the status and the latest message into one
+// line, so its ladder shortens the status before it gives up the message.
+[[nodiscard]] std::vector<std::string> compact_status_forms(const RenderInput& input) {
+    return {compact_status_text(input) + "  " + input.message,
+            minimal_status_text(input) + "  " + input.message, compact_status_text(input),
+            minimal_status_text(input)};
+}
+
 [[nodiscard]] std::string recent_text(const std::vector<RecentMove>& recent) {
     if (recent.empty()) {
         return "Recent: (none)";
@@ -352,6 +444,20 @@ static_assert(legend_terrain.size() == 8, "legend must list every Terrain enumer
         text.push_back(direction_letter(move.direction));
     }
     return text;
+}
+
+// Recent-move wordings from fullest to shortest: the label shrinks to one letter
+// before any move is dropped, because the moves are the content.
+[[nodiscard]] std::vector<std::string> recent_forms(const std::vector<RecentMove>& recent) {
+    if (recent.empty()) {
+        return {"Recent: (none)", "R: -"};
+    }
+    std::string letters;
+    for (const RecentMove& move : recent) {
+        letters.push_back(' ');
+        letters.push_back(direction_letter(move.direction));
+    }
+    return {"Recent:" + letters, "R:" + letters};
 }
 
 [[nodiscard]] std::string debug_text(const RenderInput& input, TerminalSize size) {
@@ -367,6 +473,35 @@ static_assert(legend_terrain.size() == 8, "legend must list every Terrain enumer
 }
 
 // --- Frame assembly ---------------------------------------------------------
+
+// Title wordings from fullest to shortest. The controls are what the title is
+// for, so the game's name is what shrinks first.
+[[nodiscard]] std::vector<std::string> title_forms() {
+    return {"NAM - arrows/WASD move, j journal, q quit", "NAM - WASD move, j journal, q quit",
+            "WASD move, j journal, q quit", "WASD move  j journal  q quit", "WASD  j  q"};
+}
+
+// Objective wordings for the standard layout, from the full sentence down to the
+// phase alone. The landmark name is generated and can run long, so it is what a
+// narrow terminal gives up.
+[[nodiscard]] std::vector<std::string> objective_forms(const LevelObjective& objective) {
+    return {objective_line(objective), goal_line(objective), short_goal_line(objective)};
+}
+
+// The same ladder for the compact layout, which never has room for the full
+// sentence.
+[[nodiscard]] std::vector<std::string> compact_objective_forms(const LevelObjective& objective) {
+    return {goal_line(objective), short_goal_line(objective)};
+}
+
+// The latest event message. Unlike every other HUD row this is free prose chosen
+// by the event, not by the layout, so there is no shorter authored wording to
+// fall back to: the ladder drops the prompt marker and then leaves the rest to
+// word-aware trimming.
+[[nodiscard]] std::vector<std::string> message_forms(const std::string& message) {
+    return {"> " + message, message};
+}
+
 
 [[nodiscard]] Frame too_small_panel(int columns, int rows) {
     Frame frame(static_cast<std::size_t>(std::max(rows, 1)), std::string());
@@ -391,42 +526,48 @@ static_assert(legend_terrain.size() == 8, "legend must list every Terrain enumer
                              int rows, bool standard, TerminalSize size) {
     const Map& map = *input.map;
 
-    std::vector<std::string> hud;
+    // Every HUD row is chosen by width, not cut to width: each is a ladder of
+    // complete wordings from fullest to shortest, and the widest one that fits is
+    // the one drawn. A terminal narrower than the full line therefore reads a
+    // smaller HUD rather than a clipped one.
+    std::vector<std::vector<std::string>> hud;
     if (standard) {
-        hud.push_back(status_text(input));
+        hud.push_back(status_forms(input));
         // The objective line sits after the status line and before the latest
         // event message.
         if (input.objective != nullptr) {
-            hud.push_back(objective_line(*input.objective));
+            hud.push_back(objective_forms(*input.objective));
         }
-        hud.push_back("> " + input.message);
-        hud.push_back(recent_text(input.recent));
-        hud.push_back(hud_legend_text());
+        hud.push_back(message_forms(input.message));
+        hud.push_back(recent_forms(input.recent));
+        hud.push_back(hud_legend_forms());
         if (config.debug) {
-            hud.push_back(debug_text(input, size));
+            hud.push_back({debug_text(input, size)});
         }
     } else {
-        hud.push_back(compact_status_text(input) + "  " + input.message);
+        hud.push_back(compact_status_forms(input));
         // Compact layout adds one bounded Goal line for the objective phase.
         if (input.objective != nullptr) {
-            hud.push_back(goal_line(*input.objective));
+            hud.push_back(compact_objective_forms(*input.objective));
         }
         // The legend is a reference strip, not status: a compact terminal only
         // gets one once the map still has a row left to draw on.
         const int used = static_cast<int>(hud.size()) + (config.debug ? 1 : 0);
         if (rows - used >= 2) {
-            hud.push_back(hud_legend_text());
+            hud.push_back(hud_legend_forms());
         }
         if (config.debug) {
-            hud.push_back(debug_text(input, size));
+            hud.push_back({debug_text(input, size)});
         }
     }
-    for (std::string& line : hud) {
-        line = fit_plain(std::move(line), columns);
+    std::vector<std::string> hud_lines;
+    hud_lines.reserve(hud.size());
+    for (const std::vector<std::string>& forms : hud) {
+        hud_lines.push_back(widest_fit(forms, columns));
     }
 
     const int title_rows = standard ? 1 : 0;
-    const int hud_rows = static_cast<int>(hud.size());
+    const int hud_rows = static_cast<int>(hud_lines.size());
     const int map_region = std::max(0, rows - title_rows - hud_rows);
 
     const int view_rows = std::min<int>(static_cast<int>(map.height()), map_region);
@@ -450,14 +591,14 @@ static_assert(legend_terrain.size() == 8, "legend must list every Terrain enumer
     Frame frame;
     frame.reserve(static_cast<std::size_t>(rows));
     if (standard) {
-        frame.push_back(fit_plain("NAM - arrows/WASD move, j journal, q quit", columns));
+        frame.push_back(widest_fit(title_forms(), columns));
     }
     frame.insert(frame.end(), static_cast<std::size_t>(top_filler), std::string());
     for (std::string& line : map_lines) {
         frame.push_back(std::move(line));
     }
     frame.insert(frame.end(), static_cast<std::size_t>(bottom_filler), std::string());
-    for (std::string& line : hud) {
+    for (std::string& line : hud_lines) {
         frame.push_back(std::move(line));
     }
 
@@ -591,16 +732,18 @@ constexpr char report_controls[] =
 
 }  // namespace
 
-std::string hud_legend_text() {
-    std::string text;
-    text.push_back(actor_glyph);
-    text += " you  ";
-    text.push_back(objective_glyph);
-    text += " goal  ";
-    text.push_back(discovery_glyph);
-    text += " find  ";
-    text.push_back(vantage_point_glyph);
-    text += " view";
+std::string hud_legend_text() { return hud_legend_forms().front(); }
+
+std::vector<std::string> hud_legend_forms() {
+    std::string overlays;
+    overlays.push_back(actor_glyph);
+    overlays += " you  ";
+    overlays.push_back(objective_glyph);
+    overlays += " goal  ";
+    overlays.push_back(discovery_glyph);
+    overlays += " find  ";
+    overlays.push_back(vantage_point_glyph);
+    overlays += " view";
 
     // Walkable terrain, ordered by the sight it grants, widest first: that is the
     // only thing terrain decides, so it is the only thing worth ranking.
@@ -612,20 +755,58 @@ std::string hud_legend_text() {
     std::stable_sort(walkable.begin(), walkable.end(), [](Terrain left, Terrain right) {
         return visibility_radius_of(left) > visibility_radius_of(right);
     });
-    text += "   Sight";
+    std::string sight = "   Sight";
     for (const Terrain terrain : walkable) {
-        text.push_back(' ');
-        text.push_back(symbol_of(terrain));
-        text += std::to_string(visibility_radius_of(terrain));
+        sight.push_back(' ');
+        sight.push_back(symbol_of(terrain));
+        sight += std::to_string(visibility_radius_of(terrain));
     }
 
-    text += "   Blocked";
+    std::string blocked = "   Blocked";
     for (const Terrain terrain : legend_terrain) {
         if (is_walkable(terrain)) continue;
-        text.push_back(' ');
-        text.push_back(symbol_of(terrain));
+        blocked.push_back(' ');
+        blocked.push_back(symbol_of(terrain));
     }
-    return text;
+
+    // Ordered fullest to shortest. The blocked pair goes first because it is the
+    // one group a player can read straight off the map without the legend: an
+    // impassable cell announces itself the moment a move is refused. The sight
+    // table is the last thing to go, because sight is what terrain is *for*, and
+    // the overlay keys survive to the end because nothing else explains them.
+    // The overlay keys themselves shorten from the end, because they are ordered
+    // by how much the player needs them: the actor and the objective are on every
+    // level, while a level may place no discovery and no vantage point at all.
+    std::string keys = overlays;
+    std::vector<std::string> shorter_keys;
+    for (int drop = 0; drop < 2; ++drop) {
+        const std::size_t gap = keys.rfind("  ");
+        if (gap == std::string::npos) break;
+        keys.resize(gap);
+        shorter_keys.push_back(keys);
+    }
+
+    std::vector<std::string> forms{overlays + sight + blocked, overlays + sight,
+                                   overlays + blocked, overlays};
+    forms.insert(forms.end(), shorter_keys.begin(), shorter_keys.end());
+    return forms;
+}
+
+std::vector<std::string> hud_line_forms(const RenderInput& input) {
+    std::vector<std::string> forms = title_forms();
+    const auto append = [&forms](const std::vector<std::string>& more) {
+        forms.insert(forms.end(), more.begin(), more.end());
+    };
+    append(status_forms(input));
+    append(compact_status_forms(input));
+    append(message_forms(input.message));
+    append(recent_forms(input.recent));
+    append(hud_legend_forms());
+    if (input.objective != nullptr) {
+        append(objective_forms(*input.objective));
+        append(compact_objective_forms(*input.objective));
+    }
+    return forms;
 }
 
 Frame Renderer::render(const RenderInput& input, TerminalSize size) const {

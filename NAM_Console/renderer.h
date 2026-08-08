@@ -118,6 +118,26 @@ inline constexpr char vantage_point_glyph = '+';
 // half of the line.
 [[nodiscard]] std::string hud_legend_text();
 
+// The legend wordings the HUD may use, ordered from the full line above down to
+// the overlay keys alone. A narrow terminal is given a complete shorter legend
+// rather than the full one with its end cut off, so every glyph the line still
+// names is fully explained.
+[[nodiscard]] std::vector<std::string> hud_legend_forms();
+
+// Every HUD wording `render` may draw for this input, across both layouts and all
+// widths: the title, the status line, the objective line, the latest message, the
+// recent-move line, and the legend, each in all of its forms.
+//
+// This exists to make the adaptive-layout promise checkable. The HUD shortens by
+// choosing a complete shorter wording rather than by cutting a longer one, so
+// every HUD row of every frame must be a member of this set - with one stated
+// exception, the free-prose event message, which has no authored short form and
+// is word-trimmed with a trailing marker instead.
+[[nodiscard]] std::vector<std::string> hud_line_forms(const RenderInput& input);
+
+// The marker a word-trimmed HUD row ends with.
+inline constexpr const char* hud_trim_marker = "...";
+
 // A frontend-only viewport into the final expedition report: the index of the
 // topmost visible body line and the leftmost visible column. Both offsets are
 // clamped by the renderer so scrolling can never leave the report content
